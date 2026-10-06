@@ -11,4 +11,6 @@ public class StepDefRow {
     private String stepName;
     /** TASK / NOTE（NOTE 在图构建期剔除） */
     private String stepType;
+    /** 互斥组（任务创建时拷入实例行 —— 派发期与恢复期都要用） */
+    private String mutexGroup;
 }

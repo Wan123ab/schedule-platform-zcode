@@ -126,6 +126,7 @@ public class TaskSubmitService {
             step.setStatus(com.flowops.common.enums.StepStatus.NOT_STARTED);
             step.setEnqueueSeq(nextEnqueueSeq());
             step.setRetryCount(0);
+            step.setMutexGroup(def.getMutexGroup());   // 派发期互斥与恢复期等待者重建都依赖实例行携带组名
             taskStepMapper.insert(step);
         }
 

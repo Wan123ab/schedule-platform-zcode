@@ -20,9 +20,9 @@ import com.flowops.scheduler.lifecycle.ResourceReleaser;
 import com.flowops.scheduler.log.LogIngestService;
 import com.flowops.scheduler.match.NodeMatcher;
 import com.flowops.scheduler.match.NodeView;
+import com.flowops.scheduler.match.ResourceRequests;
 import com.flowops.scheduler.match.ReservedLedger;
 import com.flowops.scheduler.queue.ReadyQueueManager;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.Duration;
@@ -72,7 +72,6 @@ public class SchedulerTickPipeline {
     private final LifecycleScanner lifecycleScanner;
     private final ResourceReleaser releaser;
     private final DagAdvancer advancer = new DagAdvancer();
-    private final ObjectMapper objectMapper = new ObjectMapper();
 
     /** 任务编排器缓存：taskId → orchestrator（任务终结/冲突时移除）。 */
     private final Map<Long, TaskOrchestrator> orchestrators = new HashMap<>();
@@ -294,9 +293,9 @@ public class SchedulerTickPipeline {
         }
         String token = claim.get().dispatchToken();
 
-        // 节点匹配（预留账本口径，D-22）
+        // 节点匹配（预留账本口径，D-22）；资源申请解析失败按 0 计（§10.2 ④ 防御口径）
         NodeMatcher.Demand demand = NodeMatcher.Demand.builder()
-                .request(parseResource(ctx.row.getResourceRequest()))
+                .request(ResourceRequests.parse(ctx.row.getResourceRequest()))
                 .osConstraint(null)                 // 步骤级 OS/标签约束 M3 随编排域接入
                 .tagConstraint(null)
                 .targetClusterId(null)
@@ -410,25 +409,6 @@ public class SchedulerTickPipeline {
         return inner.isBlank() ? Set.of() : Set.of(inner.split(","));
     }
 
-    /** 资源申请 JSON 解析；缺失/解析失败按 0 计（§10.2 ④ 防御：宁可少算，不可拒绝所有调度）。 */
-    private ReservedLedger.Resource parseResource(String json) {
-        if (json == null || json.isBlank()) {
-            return ReservedLedger.Resource.ZERO;
-        }
-        try {
-            Map<?, ?> map = objectMapper.readValue(json, Map.class);
-            return new ReservedLedger.Resource(
-                    numberValue(map.get("cpu")), numberValue(map.get("gpu")),
-                    (long) numberValue(map.get("memory")), (long) numberValue(map.get("disk")));
-        } catch (Exception e) {
-            log.warn("资源申请解析失败按 0 计（防御口径 §10.2 ④）: {}", json);
-            return ReservedLedger.Resource.ZERO;
-        }
-    }
-
-    private static double numberValue(Object value) {
-        return value instanceof Number n ? n.doubleValue() : 0;
-    }
 
     /** 派发上下文：候选 rowId 反查所需的最小元数据。 */
     private record DispatchContext(ActiveTaskRow task, TaskOrchestrator orchestrator, StepRuntimeRow row) {

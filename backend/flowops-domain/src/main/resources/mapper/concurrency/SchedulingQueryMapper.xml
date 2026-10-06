@@ -27,7 +27,8 @@
             resultType="com.flowops.domain.dto.query.StepDefRow">
         SELECT id       AS stepId,
                step_name AS stepName,
-               step_type AS stepType
+               step_type AS stepType,
+               mutex_group AS mutexGroup
           FROM workflow_step
          WHERE workflow_version_id = #{workflowVersionId}
          ORDER BY id

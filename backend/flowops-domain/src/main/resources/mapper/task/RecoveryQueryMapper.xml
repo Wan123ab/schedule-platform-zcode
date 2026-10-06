@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 启动恢复读模型（docs/06 §10.2 ①~④）。全部走部分索引/有限 LIMIT，恢复只做
+     "内存 + Redis 重建"，不加载历史数据（§10.3：通常 < 5s）。 -->
+<mapper namespace="com.flowops.domain.mapper.task.RecoveryQueryMapper">
+
+    <!-- ② 就绪队列重建：score = (100-priority)×2^40 + enqueue_seq（原值，FIFO 与重启前一致） -->
+    <select id="findWaitingSteps"
+            resultType="com.flowops.domain.dto.query.WaitingRecoveryRow">
+        SELECT ts.id,
+               ts.step_instance_id AS stepInstanceId,
+               ts.enqueue_seq      AS enqueueSeq,
+               t.queue_id          AS queueId,
+               t.priority          AS priority
+          FROM task_step ts
+          JOIN task t ON t.id = ts.task_id
+         WHERE ts.status = 'WAITING_RESOURCE'
+           AND t.deleted = false
+         ORDER BY ts.enqueue_seq
+         LIMIT #{limit}
+    </select>
+
+    <!-- ③ 互斥持有点重建：锁可能因 TTL 过期消失，由 RecoveryService tryAcquire 重新获取 -->
+    <select id="findMutexHolders"
+            resultType="com.flowops.domain.dto.query.MutexHolderRow">
+        SELECT ts.id,
+               ts.step_instance_id AS stepInstanceId,
+               ts.mutex_group      AS mutexGroup,
+               ts.dispatch_token   AS dispatchToken,
+               ts.enqueue_seq      AS enqueueSeq,
+               t.queue_id          AS queueId,
+               t.priority          AS priority,
+               t.task_id           AS taskId
+          FROM task_step ts
+          JOIN task t ON t.id = ts.task_id
+         WHERE ts.mutex_holder = true
+           AND ts.status = 'RUNNING'
+           AND t.deleted = false
+         LIMIT #{limit}
+    </select>
+
+    <!-- ④ 预留账本重建：只算已分配节点（machine_ip 非空）的在途步骤；
+         machine_ip + cluster_id 反查节点（uk_node_cluster_ip 唯一） -->
+    <select id="findLedgerRows"
+            resultType="com.flowops.domain.dto.query.LedgerRecoveryRow">
+        SELECT ts.id,
+               ts.step_instance_id AS stepInstanceId,
+               n.id                AS nodeId,
+               ts.resource_request AS resourceRequest
+          FROM task_step ts
+          JOIN executor_node n
+            ON n.ip = ts.machine_ip AND n.cluster_id = ts.cluster_id
+         WHERE ts.status IN ('SCHEDULING', 'RUNNING')
+           AND ts.machine_ip IS NOT NULL
+         LIMIT #{limit}
+    </select>
+
+</mapper>
