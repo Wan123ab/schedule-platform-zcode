@@ -47,7 +47,7 @@ public class WebMvcConfig {
             public void addInterceptors(InterceptorRegistry registry) {
                 registry.addInterceptor(new SaInterceptor(handler ->
                                 SaRouter.match("/**")
-                                        .notMatch("/auth/login", "/actuator/**", "/error", "/favicon.ico")
+                                        .notMatch("/auth/login", "/actuator/**", "/error", "/favicon.ico", "/internal/**")  // 内网端点（心跳），网络边界即鉴权边界
                                         .check(r -> StpUtil.checkLogin())))
                         .addPathPatterns("/**");
 

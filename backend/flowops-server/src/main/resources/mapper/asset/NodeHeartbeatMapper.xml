@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 节点心跳触点（docs/06 §8.1 ①）。 -->
+<mapper namespace="com.flowops.modules.asset.controller.NodeHeartbeatController$NodeHeartbeatMapper">
+
+    <update id="touch">
+        UPDATE executor_node
+           SET last_heartbeat_at = #{at},
+               heartbeat_miss_count = 0,
+               online_status = 'ONLINE',
+               version = version + 1,
+               updated_at = now()
+         WHERE id = #{nodeId}
+           AND deleted = false
+    </update>
+
+</mapper>

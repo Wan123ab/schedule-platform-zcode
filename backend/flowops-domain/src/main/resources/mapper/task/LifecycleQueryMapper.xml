@@ -50,4 +50,65 @@
          LIMIT #{limit}
     </select>
 
+
+    <!-- ① G5：15~45s 未心跳 → miss+1，状态保持 ONLINE（单次缺失不降级不告警） -->
+    <update id="incrementMissCount">
+        UPDATE executor_node
+           SET heartbeat_miss_count = heartbeat_miss_count + 1,
+               version = version + 1,
+               updated_at = now()
+         WHERE enabled = true
+           AND deleted = false
+           AND online_status = 'ONLINE'
+           AND last_heartbeat_at &lt; now() - interval '15 seconds'
+    </update>
+
+    <!-- ② G4：&gt;45s（连续 3 次）→ OFFLINE -->
+    <update id="markOfflineNodes">
+        UPDATE executor_node
+           SET online_status = 'OFFLINE',
+               version = version + 1,
+               updated_at = now()
+         WHERE enabled = true
+           AND deleted = false
+           AND online_status = 'ONLINE'
+           AND last_heartbeat_at &lt; now() - interval '45 seconds'
+    </update>
+
+    <!-- ③ 恢复窗口到期：OFFLINE 且 last_heartbeat 超 5min 的节点上的 RUNNING 步骤
+         （recovery_deadline = last_heartbeat_at + 5min，推导值不落库，docs/06 §8.1 v3 口径） -->
+    <select id="findUnreachableSteps"
+            resultType="com.flowops.domain.dto.query.UnreachableStepRow">
+        SELECT ts.id,
+               ts.step_instance_id AS stepInstanceId,
+               ts.dispatch_token   AS dispatchToken,
+               ts.mutex_group      AS mutexGroup,
+               n.id                AS nodeId,
+               t.queue_id          AS queueId
+          FROM task_step ts
+          JOIN task t ON t.id = ts.task_id
+          JOIN executor_node n
+            ON n.ip = ts.machine_ip AND n.cluster_id = ts.cluster_id
+         WHERE ts.status = 'RUNNING'
+           AND n.online_status = 'OFFLINE'
+           AND n.enabled = true AND n.deleted = false
+           AND n.last_heartbeat_at &lt; now() - (#{windowSeconds} * interval '1 second')
+           AND t.deleted = false
+         ORDER BY ts.start_time
+         LIMIT #{limit}
+    </select>
+
+    <!-- ③ 收敛：带结构化失败原因（fail_reason_code=NODE_UNREACHABLE，08 §3.5 九值枚举） -->
+    <update id="casStepFailed">
+        UPDATE task_step
+           SET status = #{toStatus},
+               fail_reason_code = #{failReasonCode},
+               fail_reason = '执行节点失联（恢复窗口已过）',
+               end_time = now(),
+               version = version + 1,
+               updated_at = now()
+         WHERE id = #{id}
+           AND status = #{fromStatus}
+    </update>
+
 </mapper>

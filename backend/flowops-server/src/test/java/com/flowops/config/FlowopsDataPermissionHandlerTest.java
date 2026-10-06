@@ -35,7 +35,9 @@ class FlowopsDataPermissionHandlerTest {
 
         Expression where = handler.getSqlSegment(new net.sf.jsqlparser.schema.Table("task"), null, "x");
 
-        assertThat(where.toString()).isEqualTo("project_id = 1 OR project_id = 2");
+        // Set 无序：只断言两个等式都在且以 OR 连接
+        assertThat(where.toString())
+                .contains("project_id = 1").contains("project_id = 2").contains(" OR ");
     }
 
     @Test
