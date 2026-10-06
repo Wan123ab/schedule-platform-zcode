@@ -5,6 +5,8 @@ import cn.dev33.satoken.interceptor.SaInterceptor;
 import cn.dev33.satoken.router.SaRouter;
 import cn.dev33.satoken.stp.StpUtil;
 import com.flowops.common.context.UserContext;
+import com.flowops.modules.auth.scope.DataScopeResolver;
+import com.flowops.modules.governance.aspect.CachedBodyRequestFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
@@ -32,15 +34,15 @@ public class WebMvcConfig {
     /** JSON 请求体缓存（幂等切面指纹依赖，docs/07 §7.2）。 */
     @Bean
     public FilterRegistrationBean<com.flowops.modules.governance.aspect.CachedBodyRequestFilter> cachedBodyFilter() {
-        FilterRegistrationBean<com.flowops.modules.governance.aspect.CachedBodyRequestFilter> reg =
-                new FilterRegistrationBean<>(new com.flowops.modules.governance.aspect.CachedBodyRequestFilter());
+        FilterRegistrationBean<CachedBodyRequestFilter> reg =
+                new FilterRegistrationBean<>(new CachedBodyRequestFilter());
         reg.addUrlPatterns("/*");
         reg.setOrder(Ordered.HIGHEST_PRECEDENCE + 10);
         return reg;
     }
 
     @Bean
-    public WebMvcConfigurer flowopsMvcConfigurer(com.flowops.modules.auth.scope.DataScopeResolver dataScopeResolver) {
+    public WebMvcConfigurer flowopsMvcConfigurer(DataScopeResolver dataScopeResolver) {
         return new WebMvcConfigurer() {
 
             @Override

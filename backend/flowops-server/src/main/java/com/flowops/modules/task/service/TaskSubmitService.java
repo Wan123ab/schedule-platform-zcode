@@ -1,6 +1,9 @@
 package com.flowops.modules.task.service;
 
 import com.flowops.common.api.ErrorCode;
+import com.flowops.common.context.UserContext;
+import com.flowops.common.enums.TaskStatus;
+import com.flowops.common.enums.TriggerType;
 import com.flowops.common.exception.BizException;
 import com.flowops.common.guard.CheckResult;
 import com.flowops.common.guard.ConcurrencyGuard;
@@ -95,13 +98,12 @@ public class TaskSubmitService {
         task.setWorkflowVersionId(version.getVersionId());
         task.setWorkflowVersion(version.getVersionNo());
         task.setProjectId(request.getProjectId());
-        task.setTriggerType(com.flowops.common.enums.TriggerType.MANUAL);   // 定时/回填路径接入后按来源传参
+        task.setTriggerType(TriggerType.MANUAL);   // 定时/回填路径接入后按来源传参
         task.setBizDate(request.getBizDate() != null ? request.getBizDate() : LocalDate.now());
-        task.setSubmitter(com.flowops.common.context.UserContext.get() != null
-                ? com.flowops.common.context.UserContext.get().getUsername() : "system");
+        task.setSubmitter(UserContext.get() != null ? UserContext.get().getUsername() : "system");
         task.setQueueId(queueId);
         task.setPriority(request.getPriority() == null ? 0 : request.getPriority());
-        task.setStatus(com.flowops.common.enums.TaskStatus.PENDING);
+        task.setStatus(TaskStatus.PENDING);
         task.setEnqueueSeq(nextEnqueueSeq());
         task.setVariableSnapshot(snapshot(request.getRunParams()));
         task.setSubmitAt(OffsetDateTime.now());

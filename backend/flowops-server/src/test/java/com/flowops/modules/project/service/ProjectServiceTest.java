@@ -6,6 +6,7 @@ import com.flowops.domain.mapper.auth.AppUserMapper;
 import com.flowops.domain.mapper.concurrency.ConcurrencyQueryMapper;
 import com.flowops.domain.mapper.project.ProjectMapper;
 import com.flowops.domain.mapper.project.ProjectMemberMapper;
+import com.flowops.modules.project.converter.ProjectConverterImpl;
 import com.flowops.modules.project.dto.MemberRequests;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,8 +44,13 @@ class ProjectServiceTest {
     @Mock private StringRedisTemplate redis;
     @Mock private ValueOperations<String, String> valueOps;
 
-    @InjectMocks
     private ProjectService service;
+
+    @BeforeEach
+    void initService() {
+        service = new ProjectService(projectMapper, projectMemberMapper, appUserMapper,
+                concurrencyQuery, redis, new ProjectConverterImpl());
+    }
 
     private Project project;
 

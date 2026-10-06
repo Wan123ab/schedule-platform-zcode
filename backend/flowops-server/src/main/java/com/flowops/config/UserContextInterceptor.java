@@ -1,5 +1,6 @@
 package com.flowops.config;
 
+import cn.dev33.satoken.session.SaSession;
 import cn.dev33.satoken.stp.StpUtil;
 import com.flowops.common.context.ScopeContext;
 import com.flowops.common.context.UserContext;
@@ -31,7 +32,7 @@ public class UserContextInterceptor implements HandlerInterceptor {
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
         if (StpUtil.isLogin()) {
-            cn.dev33.satoken.session.SaSession session = StpUtil.getSession();
+            SaSession session = StpUtil.getSession();
             UserContext ctx = new UserContext();
             ctx.setUserId(StpUtil.getLoginIdAsLong());
             ctx.setUsername((String) session.get("username"));

@@ -4,6 +4,8 @@ import com.flowops.common.annotation.Audited;
 import com.flowops.common.annotation.DataScope;
 import com.flowops.common.annotation.RequiresPermission;
 import com.flowops.common.api.ApiResult;
+import com.flowops.common.api.ErrorCode;
+import com.flowops.common.exception.BizException;
 import com.flowops.common.context.UserContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -59,8 +61,7 @@ public class PlatformController {
     @Audited(action = "SWITCH_OPS_VIEW", targetType = "USER", targetIdExpr = "username")
     public ApiResult<Map<String, Object>> switchViewMode(@RequestBody ViewModeRequest request) {
         if (!"business".equals(request.viewMode()) && !"ops".equals(request.viewMode())) {
-            throw new com.flowops.common.exception.BizException(
-                    com.flowops.common.api.ErrorCode.PARAM_INVALID, "viewMode 仅允许 business|ops");
+            throw new BizException(ErrorCode.PARAM_INVALID, "viewMode 仅允许 business|ops");
         }
         UserContext user = UserContext.get();
         log.info("视图切换 user={} viewMode={}", user != null ? user.getUsername() : null, request.viewMode());

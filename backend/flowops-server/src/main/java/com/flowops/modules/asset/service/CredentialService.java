@@ -3,10 +3,12 @@ package com.flowops.modules.asset.service;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.flowops.common.api.ErrorCode;
+import com.flowops.common.context.UserContext;
 import com.flowops.common.exception.BizException;
 import com.flowops.domain.entity.asset.Credential;
 import com.flowops.domain.mapper.asset.CredentialMapper;
 import com.flowops.domain.security.SecretCryptoService;
+import com.flowops.modules.asset.converter.CredentialConverter;
 import com.flowops.modules.asset.dto.CredentialVO;
 import com.flowops.modules.asset.dto.SaveCredentialRequest;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +40,7 @@ public class CredentialService {
     private final CredentialMapper credentialMapper;
     private final SecretCryptoService crypto;
     private final StringRedisTemplate redis;
+    private final CredentialConverter converter;
 
     // ── 查询 ────────────────────────────────────────────────
 
@@ -47,11 +50,12 @@ public class CredentialService {
                         .eq(Credential::getDeleted, false)
                         .like(keyword != null && !keyword.isBlank(), Credential::getCredentialName, keyword)
                         .orderByDesc(Credential::getCreatedAt));
-        return result.convert(this::toVO);
+        return result.convert(converter::toVO);
     }
 
     public CredentialVO get(String credentialId) {
-        return toVO(requireByBusinessId(credentialId));
+        Credential credential = requireByBusinessId(credentialId);
+        return converter.toVO(credential);
     }
 
     // ── 写操作 ──────────────────────────────────────────────
@@ -70,7 +74,7 @@ public class CredentialService {
         credentialMapper.insert(credential);
         log.info("凭据已创建 credential={} type={}（明文已加密入库，不落日志）",
                 credential.getCredentialId(), credential.getCredentialType());
-        return toVO(credential);
+        return converter.toVO(credential);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -78,7 +82,7 @@ public class CredentialService {
         Credential credential = requireByBusinessId(credentialId);
         applyRequest(credential, request);
         credentialMapper.updateById(credential);
-        return toVO(credential);
+        return converter.toVO(credential);
     }
 
     /** 轮换（必审动作 ROTATE_CREDENTIAL）：换密文 + 刷新指纹与时间戳；引用它的节点无需感知。 */
@@ -93,7 +97,7 @@ public class CredentialService {
         credential.setLastRotatedAt(OffsetDateTime.now());
         credentialMapper.updateById(credential);
         log.info("凭据已轮换 credential={}（引用节点下次执行自动使用新凭据）", credentialId);
-        return toVO(credential);
+        return converter.toVO(credential);
     }
 
     /** 删除闸门（PRD §7.2 / docs/05 §6.3）：实时 COUNT > 0 → 42202；ref_count 列只做展示。 */
@@ -140,23 +144,6 @@ public class CredentialService {
         }
     }
 
-    private CredentialVO toVO(Credential credential) {
-        CredentialVO vo = new CredentialVO();
-        vo.setCredentialId(credential.getCredentialId());
-        vo.setCredentialName(credential.getCredentialName());
-        vo.setCredentialType(credential.getCredentialType());
-        vo.setUsername(credential.getUsername());
-        String fp = credential.getSecretFingerprint();
-        vo.setSecretFingerprint(fp != null && fp.length() >= 4 ? "****" + fp.substring(fp.length() - 4) : "****");
-        vo.setProjectId(credential.getProjectId());
-        vo.setRefCount(credential.getRefCount());
-        vo.setStatus(credential.getStatus());
-        vo.setLastRotatedAt(credential.getLastRotatedAt());
-        vo.setExpireAt(credential.getExpireAt());
-        vo.setDescription(credential.getDescription());
-        return vo;
-    }
-
     private Credential requireByBusinessId(String credentialId) {
         Credential credential = credentialMapper.selectOne(Wrappers.<Credential>lambdaQuery()
                 .eq(Credential::getCredentialId, credentialId).eq(Credential::getDeleted, false));
@@ -173,7 +160,7 @@ public class CredentialService {
     }
 
     private String currentUsername() {
-        var ctx = com.flowops.common.context.UserContext.get();
+        var ctx = UserContext.get();
         return ctx != null ? ctx.getUsername() : "system";
     }
 }

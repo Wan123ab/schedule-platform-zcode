@@ -29,6 +29,7 @@ import lombok.extern.slf4j.Slf4j;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -258,7 +259,7 @@ public class SchedulerTickPipeline {
         }
         // rowId → 上下文：候选反查所属任务与步骤元数据
         Map<Long, DispatchContext> contextByRowId = new HashMap<>();
-        Set<Long> queueIds = new java.util.HashSet<>();
+        Set<Long> queueIds = new HashSet<>();
         for (ActiveTaskRow task : activeTasks) {
             TaskOrchestrator orchestrator = orchestrators.get(task.getId());
             if (orchestrator == null || task.getQueueId() == null) {

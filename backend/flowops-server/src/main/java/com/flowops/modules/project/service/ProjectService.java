@@ -11,6 +11,7 @@ import com.flowops.domain.mapper.auth.AppUserMapper;
 import com.flowops.domain.mapper.concurrency.ConcurrencyQueryMapper;
 import com.flowops.domain.mapper.project.ProjectMapper;
 import com.flowops.domain.mapper.project.ProjectMemberMapper;
+import com.flowops.modules.project.converter.ProjectConverter;
 import com.flowops.modules.project.dto.MemberRequests;
 import com.flowops.modules.project.dto.ProjectImpactVO;
 import com.flowops.modules.project.dto.ProjectVO;
@@ -49,6 +50,7 @@ public class ProjectService {
     private final AppUserMapper appUserMapper;
     private final ConcurrencyQueryMapper concurrencyQuery;
     private final StringRedisTemplate redis;
+    private final ProjectConverter converter;
 
     // ── 查询 ────────────────────────────────────────────────
 
@@ -58,11 +60,11 @@ public class ProjectService {
                         .eq(Project::getDeleted, false)
                         .like(keyword != null && !keyword.isBlank(), Project::getProjectName, keyword)
                         .orderByDesc(Project::getCreatedAt));
-        return result.convert(this::toVO);
+        return result.convert(this::withOwner);
     }
 
     public ProjectVO get(String projectId) {
-        return toVO(requireByBusinessId(projectId));
+        return withOwner(requireByBusinessId(projectId));
     }
 
     // ── 写操作 ──────────────────────────────────────────────
@@ -94,7 +96,7 @@ public class ProjectService {
             }
         }
         log.info("项目已创建 project={} name={}", project.getProjectId(), project.getProjectName());
-        return toVO(project);
+        return withOwner(project);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -104,7 +106,7 @@ public class ProjectService {
         project.setDescription(request.getDescription());
         project.setDefaultParams(toJson(request.getDefaultParams()));
         projectMapper.updateById(project);
-        return toVO(project);
+        return withOwner(project);
     }
 
     /** 停用影响面（docs/07 §6.1 GET /impact：前端 PUT status 前必查）。 */
@@ -205,6 +207,16 @@ public class ProjectService {
         projectMapper.updateById(project);
     }
 
+    /** 转换 + 负责人名填充（MapStruct 管字段映射，跨表信息在此补齐）。 */
+    private ProjectVO withOwner(Project project) {
+        ProjectVO vo = converter.toVO(project);
+        if (project.getOwnerUserId() != null) {
+            AppUser owner = appUserMapper.selectById(project.getOwnerUserId());
+            vo.setOwnerUsername(owner != null ? owner.getUsername() : null);
+        }
+        return vo;
+    }
+
     private Project requireByBusinessId(String projectId) {
         Project project = projectMapper.selectOne(Wrappers.<Project>lambdaQuery()
                 .eq(Project::getProjectId, projectId).eq(Project::getDeleted, false));
@@ -212,25 +224,6 @@ public class ProjectService {
             throw new BizException(ErrorCode.NOT_FOUND, "项目不存在: " + projectId);
         }
         return project;
-    }
-
-    private ProjectVO toVO(Project project) {
-        ProjectVO vo = new ProjectVO();
-        vo.setProjectId(project.getProjectId());
-        vo.setProjectName(project.getProjectName());
-        vo.setDescription(project.getDescription());
-        vo.setStatus(project.getStatus());
-        vo.setMaxConcurrentTasks(project.getMaxConcurrentTasks());
-        vo.setMaxWaitingTasks(project.getMaxWaitingTasks());
-        vo.setStatWorkflowCount(project.getStatWorkflowCount());
-        vo.setStatTaskCount(project.getStatTaskCount());
-        vo.setStatMemberCount(project.getStatMemberCount());
-        vo.setCreatedAt(project.getCreatedAt());
-        if (project.getOwnerUserId() != null) {
-            AppUser owner = appUserMapper.selectById(project.getOwnerUserId());
-            vo.setOwnerUsername(owner != null ? owner.getUsername() : null);
-        }
-        return vo;
     }
 
     /** 业务编号 PRJ-yyyyMMdd-####（Redis INCR，docs/05 §6.2；uk_project_project_id 兜底）。 */
