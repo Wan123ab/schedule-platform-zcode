@@ -33,7 +33,8 @@
 | 4 | kill -9 调度器 → 备 ≤45s 接管，运行中步骤不误判 | ⚠️ 代码就绪，待混沌测试 | 选主 10s 抢锁 + 看门狗；接管后 `RecoveryService.recover()` 重建派生态；需 compose 2 副本环境实测 |
 | 5 | 重启恢复：PG 重建队列，状态零丢失 | ✅ 单测就绪 / ⚠️ 待首跑 | `RecoveryServiceTest` 3 用例（三重建口径/锁重建失败不阻断/幂等） |
 | 6 | 幂等 tick：重复 tick 不重复派发 | ✅ 单测就绪 | 两段式 claim 的 CAS WHERE（status+token）即防重复派发闸门；管线测试覆盖 CAS 冲突分支 |
-| 7 | 单测覆盖：状态机/队列 CAS/节点匹配 ≥70% | ⚠️ 待 CI 实测 | 已有 20+ 单测类覆盖这三个重点域；行覆盖率需 CI 出报告（建议后续加 JaCoCo） |
+| 7 | 单测覆盖：状态机/队列 CAS/节点匹配 ≥70% | ✅ **已实测** | **`mvn test` 85 用例全绿**（2026-10-07 本地工具链 + CI run 5 双重验证）；行覆盖率门禁（JaCoCo）仍待补 |
+| — | **CI 全绿** | ✅ | 仓库已迁 GitHub（origin），Actions **run 5 success**（commit 58175ce）；gitee 保留为备份远端同步推送 |
 
 ## 3. 测试资产
 
@@ -52,7 +53,8 @@
 | server | ArchitectureTest（ArchUnit） | D-12 防绕过 / 分层 / D-08 |
 
 CI（Redis 服务容器）：`.github/workflows/ci.yml`。
-**⚠️ 仓库托管在 Gitee，GitHub Actions 不会自动触发** —— 三选一：① 迁移/镜像到 GitHub；② 配置 Gitee Go 流水线（语法需转换）；③ 本地/内网 Jenkins 跑同一组命令（`mvn -B -ntp verify` + 前端 lint/test/build）。**在 CI 首次跑通前，全部单测只有"静态审查通过"背书。**
+**✅ 已跑通**：仓库迁移 GitHub 后 Actions run 5 success（backend mvn verify 85 用例 + frontend lint/vitest/vue-tsc/build）；gitee 备份远端同步推送。
+**经验留档**：本机曾无 JDK21/Maven/Node20，首轮 CI 暴露 20+ 处编译/测试问题（缺依赖、缺 import、lombok @Value 访问器风格、RLock 重入、MP lambda 缓存等）——现已落地本地工具链（tools/ 下 JDK21+Maven3.9.9+Node20），**推送前本地实跑已成为强约束**（docs/10 Review 清单第 8 条精神的落实）。
 
 ## 4. 偏离与简化项（如实登记，均注明去处）
 
