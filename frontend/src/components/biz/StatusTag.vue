@@ -25,7 +25,6 @@ import {
   TASK_STATUS_LABEL,
   TASK_STATUS_MARKER,
   TASK_STATUS_TONE,
-  type Marker,
   type StepStatus,
   type TaskStatus,
 } from '@/types/enums'

@@ -9,8 +9,8 @@ export function usePermission() {
 
   const canOn = (
     perm: string,
-    target: { projectId?: string; clusterId?: string; ownerId?: string },
-  ): boolean => can(perm) // 数据范围判定 M2 接后端 DataScope 后补齐（40301）
+    _target: { projectId?: string; clusterId?: string; ownerId?: string },
+  ): boolean => can(perm) // _target：数据范围判定 M2 接后端 DataScope 后补齐（40301）
 
   return { can, canOn }
 }

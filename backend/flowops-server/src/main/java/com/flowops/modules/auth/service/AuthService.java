@@ -6,6 +6,7 @@ import com.flowops.common.exception.BizException;
 import com.flowops.domain.entity.auth.AppUser;
 import com.flowops.domain.mapper.auth.AppUserMapper;
 import com.flowops.modules.auth.dto.LoginResponse;
+import com.flowops.modules.auth.manager.LoginAttemptManager;
 import com.flowops.modules.auth.mapper.AuthQueryMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import lombok.RequiredArgsConstructor;

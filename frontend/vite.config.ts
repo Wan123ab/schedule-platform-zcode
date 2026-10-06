@@ -31,9 +31,9 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
+        // 手动分包只列实际存在的依赖；echarts 等 M4 引入后再加
         manualChunks: {
           'element-plus': ['element-plus'],
-          echarts: [], // M4 工作台引入后在此分包
         },
       },
     },
