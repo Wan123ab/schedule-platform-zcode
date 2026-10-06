@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 项目空间自定义 SQL：停用影响面统计 + 触发器启停联动（docs/06 §11.3 / docs/07 §6.1）。 -->
+<mapper namespace="com.flowops.domain.mapper.project.ProjectMapper">
+
+    <select id="countWorkflowsByProject" resultType="long">
+        SELECT count(*) FROM workflow WHERE project_id = #{projectId} AND deleted = false
+    </select>
+
+    <select id="countTriggersByProject" resultType="long">
+        SELECT count(*)
+          FROM trigger tr
+          JOIN workflow w ON w.id = tr.workflow_id
+         WHERE w.project_id = #{projectId}
+           AND tr.deleted = false AND w.deleted = false
+    </select>
+
+    <select id="findRunningTaskIdsByProject" resultType="string">
+        SELECT task_id FROM task
+         WHERE project_id = #{projectId}
+           AND status IN ('SCHEDULING', 'RUNNING', 'STOPPING')
+           AND deleted = false
+         ORDER BY submit_at
+         LIMIT #{limit}
+    </select>
+
+    <!-- ① 记录原状态（enabled_before_disable）后暂停：重新启用时按原状态恢复 -->
+    <update id="disableProjectTriggers">
+        UPDATE trigger
+           SET enabled_before_disable = enabled,
+               enabled = false,
+               version = version + 1
+         WHERE workflow_id IN (SELECT id FROM workflow WHERE project_id = #{projectId} AND deleted = false)
+           AND deleted = false
+    </update>
+
+    <!-- ② 恢复原状态 + next_fire_time 置空（重算在 M3 TriggerService；见 ProjectMapper 接口注释） -->
+    <update id="enableProjectTriggers">
+        UPDATE trigger
+           SET enabled = COALESCE(enabled_before_disable, enabled),
+               enabled_before_disable = NULL,
+               next_fire_time = NULL,
+               version = version + 1
+         WHERE workflow_id IN (SELECT id FROM workflow WHERE project_id = #{projectId} AND deleted = false)
+           AND deleted = false
+    </update>
+
+</mapper>

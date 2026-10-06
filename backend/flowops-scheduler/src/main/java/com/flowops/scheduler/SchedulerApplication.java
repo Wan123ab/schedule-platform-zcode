@@ -10,7 +10,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * 对外不提供 REST API，只暴露 actuator（探活 / Prometheus）。
  */
 @SpringBootApplication
-@MapperScan("com.flowops.domain.mapper")
+// 同 server：按 @Mapper 注解扫全包（domain + 模块内 Mapper 一网打尽）
+@MapperScan(basePackages = "com.flowops", annotationClass = org.apache.ibatis.annotations.Mapper.class)
 @EnableScheduling
 public class SchedulerApplication {
 

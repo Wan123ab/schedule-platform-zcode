@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 项目成员（复合主键，docs/05 §3.2 project_member）。 -->
+<mapper namespace="com.flowops.domain.mapper.project.ProjectMemberMapper">
+
+    <insert id="insert">
+        INSERT INTO project_member (project_id, user_id, project_role, joined_at, added_by)
+        VALUES (#{projectId}, #{userId}, #{projectRole}, now(), #{addedBy})
+    </insert>
+
+    <delete id="delete">
+        DELETE FROM project_member WHERE project_id = #{projectId} AND user_id = #{userId}
+    </delete>
+
+    <update id="updateRole">
+        UPDATE project_member SET project_role = #{projectRole}
+         WHERE project_id = #{projectId} AND user_id = #{userId}
+    </update>
+
+    <select id="selectByProject" resultType="map">
+        SELECT m.user_id    AS "userId",
+               u.username   AS "username",
+               u.display_name AS "displayName",
+               m.project_role AS "projectRole",
+               m.joined_at  AS "joinedAt"
+          FROM project_member m
+          JOIN app_user u ON u.id = m.user_id
+         WHERE m.project_id = #{projectId}
+         ORDER BY m.joined_at
+    </select>
+
+    <select id="countByProject" resultType="long">
+        SELECT count(*) FROM project_member WHERE project_id = #{projectId}
+    </select>
+
+    <select id="existsByProjectAndUser" resultType="boolean">
+        SELECT count(*) > 0 FROM project_member
+         WHERE project_id = #{projectId} AND user_id = #{userId}
+    </select>
+
+    <select id="findRole" resultType="string">
+        SELECT project_role FROM project_member
+         WHERE project_id = #{projectId} AND user_id = #{userId}
+    </select>
+
+</mapper>
