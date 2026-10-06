@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>工作流详情 · FlowOps</title>
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+<style>
+  .cron-preview { font-family: var(--mono); font-size: 12px; line-height: 2; }
+  .cron-preview li { display: flex; gap: 10px; }
+  .cron-preview .cn-no { color: var(--t3); width: 34px; }
+
+  /* ---------- 主区双栏：拓扑（左） + 关键信息（右） ---------- */
+  .wd-main { display: grid; grid-template-columns: 1fr 324px; gap: 14px; align-items: start; }
+  @media (max-width: 1180px) { .wd-main { grid-template-columns: 1fr; } .recent-grid { grid-template-columns: 1fr !important; } }
+
+  /* ---------- pv：DAG 节点（与编辑器 .dag-node 同视觉语言，叠加最近运行状态） ---------- */
+  #miniDag { cursor: pointer; display: block; width: 100%; height: 360px; }
+  .pv-node {
+    width: 100%; height: 100%; border-radius: 10px; border: 1.5px solid rgba(46,144,250,.4);
+    background: linear-gradient(180deg, rgba(26,35,56,.95), rgba(13,20,32,.97));
+    box-shadow: 0 8px 22px rgba(0,0,0,.42), inset 0 1px 0 rgba(255,255,255,.06);
+    padding: 9px 12px; user-select: none;
+    font-family: var(--font); font-size: 12.5px; color: var(--t1); line-height: 1.35;
+  }
+  body[data-theme="light"] .pv-node { background: linear-gradient(180deg, #FFFFFF, #F4F7FC); box-shadow: 0 6px 18px rgba(16,30,60,.1); }
+  .pv-node.cfg { border-color: rgba(167,139,250,.55); background: linear-gradient(160deg, rgba(58,47,99,.92), rgba(24,20,48,.96)); }
+  body[data-theme="light"] .pv-node.cfg { background: linear-gradient(160deg, #F3F0FC, #E9E4F8); }
+  .pv-node.cfg .pv-nm { color: var(--mut); }
+  .pv-g:hover .pv-node { border-color: var(--pri); box-shadow: 0 0 0 3px var(--pri-dim), 0 0 18px rgba(46,144,250,.25); }
+  .pv-node.cur { border-color: var(--info); animation: pvGlow 1.6s infinite; }
+  @keyframes pvGlow { 0%,100% { box-shadow: 0 0 3px rgba(59,155,255,.5), 0 8px 22px rgba(0,0,0,.42); } 50% { box-shadow: 0 0 12px rgba(59,155,255,.95), 0 8px 22px rgba(0,0,0,.42); } }
+  .pv-node.bad { border-color: var(--fail-line); }
+  .pv-nm { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .pv-nm .pv-st { margin-left: auto; width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .pv-ic { width: 18px; height: 18px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+  .pv-ic svg { width: 11px; height: 11px; }
+  .pv-op { font-size: 10.5px; color: var(--t3); margin-top: 2px; }
+  .pv-meta { display: flex; gap: 4px; margin-top: 5px; flex-wrap: wrap; align-items: center; }
+  .pv-chip { font-size: 9.5px; padding: 0 5px; border-radius: 3px; background: rgba(46,144,250,.12); border: 1px solid var(--pri-line); color: var(--pri-hi); }
+  body[data-theme="light"] .pv-chip { background: var(--pri-dim); }
+  .pv-chip.lock { background: var(--warn-dim); border-color: var(--warn-line); color: var(--warn); }
+  .pv-dur { margin-left: auto; font-family: var(--mono); font-size: 9.5px; color: var(--t3); }
+
+  /* ---------- 右栏信息卡 ---------- */
+  .side-card .panel-b { padding: 12px 14px; }
+  .side-kv { display: grid; grid-template-columns: 92px 1fr; row-gap: 7px; column-gap: 10px; font-size: 12px; }
+  .side-kv .k { color: var(--t3); }
+  .side-kv .v { color: var(--t1); word-break: break-all; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .run-row { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line-faint); font-size: 12px; }
+  .run-row:last-child { border-bottom: 0; }
+  .run-row .rd-dur { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--t3); }
+
+  /* ---------- 继承链可视化 ---------- */
+  .chain { display: flex; align-items: center; flex-wrap: wrap; gap: 0; }
+  .chain .cnode { padding: 6px 11px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg-inset); }
+  .chain .cnode .cl { font-size: 10px; color: var(--t3); display: flex; align-items: center; gap: 5px; }
+  .chain .cnode .cl svg { width: 11px; height: 11px; }
+  .chain .cnode .cv { font-size: 12px; font-family: var(--mono); margin-top: 1px; color: var(--t1); }
+  .chain .cnode.set .cv { color: var(--info); }
+  .chain .cnode.eff { border-color: var(--ok-line); background: var(--ok-dim); }
+  .chain .cnode.eff .cv { color: var(--ok); font-weight: 600; }
+  .chain .carr { color: var(--t4); padding: 0 7px; font-size: 12px; }
+</style>
+</head>
+<body>
+<script src="assets/js/icons.js"></script>
+<script src="assets/js/mock.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+(function () {
+  var id = FO.qs('id') || 'WF-0001';
+  var w = MOCK.workflows.filter(function (x) { return x.id === id; })[0] || MOCK.workflows[0];
+  var trg = MOCK.triggers.filter(function (t) { return t.wf === w.id; });
+  var proj = MOCK.projects.filter(function (p) { return p.id === w.project; })[0];
+  var wfTasks = MOCK.tasks.filter(function (t) { return t.wf === w.id; })
+    .slice().sort(function (a, b) { return (b.submitAt || '').localeCompare(a.submitAt || ''); });
+  var lastTask = wfTasks[0] || null;
+
+  /* ---------- 最近一次运行的步骤级状态（复用任务详情的场景快照，口径一致） ---------- */
+  var enrich = null;
+  if (lastTask && lastTask.scene && MOCK.showcase.scenes[lastTask.scene]
+      && lastTask.wf === w.id && (w.steps || []).length) {
+    var scIds = {};
+    MOCK.showcase.stepDef.forEach(function (d) { scIds[d.id] = 1; });
+    var allMatch = w.steps.filter(function (s) { return s.type === 'TASK'; }).every(function (s) { return scIds[s.id]; });
+    if (allMatch) {
+      var sc = MOCK.showcase.scenes[lastTask.scene];
+      var defs = MOCK.showcase.stepDef, meta = MOCK.showcase.meta;
+      var defById = {}; defs.forEach(function (d) { defById[d.id] = d; });
+      var lvMap = {};
+      function calcLv(x) {
+        if (lvMap[x] != null) return lvMap[x];
+        var l = 0;
+        defById[x].deps.forEach(function (p) { l = Math.max(l, calcLv(p) + 1); });
+        lvMap[x] = l; return l;
+      }
+      defs.forEach(function (d) { calcLv(d.id); });
+      var finish = {};
+      defs.slice().sort(function (a, b) { return lvMap[a.id] - lvMap[b.id]; }).forEach(function (d) {
+        var m = meta[d.id], st = sc.steps[d.id], depEnd = 0;
+        d.deps.forEach(function (p) { if (finish[p] != null) depEnd = Math.max(depEnd, finish[p]); });
+        var start = (depEnd || 6) + m.wait, end = null;
+        if (st === 'SUCCESS') end = start + m.dur;
+        else if (st === 'RUNNING') end = sc.nowOffset;
+        else if (st === 'FAILED' || st === 'TIMEOUT') end = start + Math.round(m.dur * 0.86);
+        finish[d.id] = end;
+      });
+      enrich = { scene: lastTask.scene, sc: sc, finish: finish, meta: meta, task: lastTask };
+    }
+  }
+
+  function durOfTask(t) {
+    if (!t.startAt || !t.endAt) return null;
+    function ts(s) { var d = new Date(s.replace(' ', 'T')); return d.getTime(); }
+    return Math.max(0, Math.round((ts(t.endAt) - ts(t.startAt)) / 1000));
+  }
+  function durTxt(sec) { return sec == null ? '—' : FO.fmtDur(sec); }
+
+  /* ---------- 静态骨架 ---------- */
+  var content = ''
+    + '<div class="page-header"><div><h1 class="row" style="gap:10px">' + w.name + FO.tag('WF_STATUS', w.status)
+    + (w.hasDraft ? '<span class="tag warn">有未发布修改</span>' : '') + '</h1>'
+    + '<div class="sub row"><span class="mono">' + w.id + '</span>'
+    + FO.iconAct('copy', '复制工作流 ID', 'FO.copyText(\'' + w.id + '\')')
+    + '<span>·</span><span>项目 <a href="project-list.html">' + (proj ? proj.name : w.project) + '</a></span>'
+    + '<span>·</span><span>当前版本 <b class="mono">' + w.currentVersion + '</b></span>'
+    + '<span>·</span><span>创建人 ' + w.creator + '</span>'
+    + '<span>·</span><span>更新 <span class="mono">' + (w.updated || '—').slice(5) + '</span></span>'
+    + '<span>·</span><span>最近运行 ' + (w.lastRun ? FO.statusTag(w.lastRun) : FO.statusTag('NOT_STARTED')) + (w.lastRunAt ? ' <span class="mono tiny faint">' + w.lastRunAt + '</span>' : '') + '</span></div></div>'
+    + '<div class="actions">'
+    + '<button class="btn" data-perm="schedule:workflow:write" onclick="newDraft()">' + FO_ICONS.get('edit') + '新开草稿</button>'
+    + '<a class="btn" href="workflow-editor.html?id=' + w.id + '" data-perm="schedule:workflow:write">' + FO_ICONS.get('workflow') + '打开编辑器</a>'
+    + '<button class="btn primary" data-perm="schedule:workflow:execute" id="btnRun">' + FO_ICONS.get('play') + '运行</button>'
+    + '</div></div>'
+
+    + '<div class="panel mb-3" id="kpiBand"></div>'
+
+    + '<div class="wd-main mb-3">'
+    + '<div>'
+    + '<div class="panel" id="dagPreviewPanel"><div class="panel-h"><b><span data-ic="workflow"></span>'
+    + (enrich ? '拓扑 × 最近运行' : 'DAG 预览') + '</b><span class="hint" id="dagHint">只读 · 点击节点直达任务详情对应步骤</span>'
+    + '<span class="more row" style="gap:10px">'
+    + (enrich ? '<a class="tiny" href="task-detail.html?scene=' + enrich.scene + '">' + enrich.task.id + ' →</a>' : '')
+    + '<a href="workflow-editor.html?id=' + w.id + '" data-perm="schedule:workflow:write">打开编辑器 →</a></span></div>'
+    + '<div style="background:var(--bg-void);border-radius:0 0 var(--r) var(--r);overflow:hidden"><svg id="miniDag"></svg></div>'
+    + '<div class="panel-b row tiny faint" style="padding:8px 16px;gap:14px" id="dagLegend"></div>'
+    + '</div>'
+    + '<div class="panel side-card mt-3" id="recentPanel"></div>'
+    + '</div>'
+    + '<div id="wdSide"></div>'
+    + '</div>'
+
+    + '<div class="tabs">'
+    + '<button class="tab-btn on" data-tab="ver">版本</button>'
+    + '<button class="tab-btn" data-tab="trg">触发器 <span class="cnt">' + trg.length + '</span></button>'
+    + '<button class="tab-btn" data-tab="vars">参数与变量</button>'
+    + '<button class="tab-btn" data-tab="his">运行历史 <span class="cnt">' + wfTasks.length + '</span></button>'
+    + '<button class="tab-btn" data-tab="cfg">并发与亲和</button>'
+    + '</div>'
+    + '<div class="panel"><div id="tabBody"></div></div>';
+
+  FO.mountShell({ active: 'workflowList', title: '工作流详情', crumb: [{ label: '工作流管理', href: 'workflow-list.html' }], content: content });
+
+  /* ---------- 运营指标带（6 格密排，数据取自共享 Mock，可整段替换为真源） ---------- */
+  function renderKpis() {
+    var succ = wfTasks.filter(function (t) { return t.status === 'SUCCESS'; });
+    var fails = wfTasks.filter(function (t) { return t.status === 'FAILED' || t.status === 'TIMEOUT'; });
+    var runs = wfTasks.filter(function (t) { return t.status === 'RUNNING' || t.status === 'SCHEDULING' || t.status === 'PENDING'; });
+    var durs = succ.map(durOfTask).filter(function (x) { return x != null; });
+    var avg = durs.length ? Math.round(durs.reduce(function (a, b) { return a + b; }, 0) / durs.length) : null;
+    var rate = (succ.length + fails.length) ? Math.round(succ.length / (succ.length + fails.length) * 100) : null;
+    var cronTrg = trg.filter(function (t) { return t.enabled; })[0];
+    var next = cronTrg ? (FO.cronNext5(cronTrg.cron) || [])[0] : null;
+    var nextTxt = '—', nextSub = '无启用中的定时触发器';
+    if (next) {
+      nextTxt = (next.getMonth() + 1) + '月' + next.getDate() + '日 ' + String(next.getHours()).padStart(2, '0') + ':' + String(next.getMinutes()).padStart(2, '0');
+      var mockNow = new Date(MOCK.TODAY + 'T15:40:00');
+      var gapMin = Math.max(0, Math.round((next - mockNow) / 60000));
+      nextSub = '约 ' + FO.fmtDur(gapMin * 60) + '后 · ' + cronTrg.cron;
+    }
+    var taskNodes = (w.steps || []).filter(function (s) { return s.type === 'TASK'; });
+    var cfgNodes = (w.steps || []).filter(function (s) { return s.type === 'CONFIG'; });
+    var depCnt = (w.edges || []).filter(function (e) {
+      return taskNodes.some(function (s) { return s.id === e.from; }) && taskNodes.some(function (s) { return s.id === e.to; });
+    }).length;
+    var qSet = {}; taskNodes.forEach(function (s) { if (s.queue) qSet[s.queue] = 1; });
+    var qKeys = Object.keys(qSet);
+    var concFull = runs.length >= w.maxParallel;
+    var bar = ''
+      + '<span class="segbar" style="margin-top:6px">'
+      + (succ.length ? '<i style="width:' + (succ.length / wfTasks.length * 100) + '%;background:var(--ok)"></i>' : '')
+      + (fails.length ? '<i style="width:' + (fails.length / wfTasks.length * 100) + '%;background:var(--fail)"></i>' : '')
+      + (runs.length ? '<i style="width:' + (runs.length / wfTasks.length * 100) + '%;background:var(--info)"></i>' : '')
+      + '</span>';
+    var cells = [
+      { k: '近 7 天实例', v: wfTasks.length + ' <span class="sg-unit">次</span>', s: '成功 ' + succ.length + ' · 失败 ' + fails.length + ' · 进行中 ' + runs.length, raw: wfTasks.length ? bar : '', icon: 'tasks' },
+      { k: '成功率（已完成）', v: rate == null ? '—' : rate + '<span class="sg-unit">%</span>', s: rate == null ? '暂无可统计实例' : '按 成功 / (成功+失败) 口径', icon: 'check', tone: rate != null && rate < 80 ? 'var(--warn)' : 'var(--ok)' },
+      { k: '平均耗时', v: avg == null ? '—' : durTxt(avg), s: durs.length ? '最快 ' + durTxt(Math.min.apply(null, durs)) + ' · 最慢 ' + durTxt(Math.max.apply(null, durs)) : '暂无成功实例', icon: 'clock' },
+      { k: '下次执行', v: nextTxt, s: nextSub, icon: 'calendar' },
+      { k: '并发占用', v: '<span style="color:' + (concFull ? 'var(--warn)' : 'var(--t1)') + '">' + runs.length + '</span> / ' + w.maxParallel, s: FO.L.CONC_POLICY[w.concurrency] + '（' + w.concurrency + '）' + (concFull ? ' · 已达上限' : ''), icon: 'bolt', tone: concFull ? 'var(--warn)' : '' },
+      { k: '拓扑规模', v: taskNodes.length + ' <span class="sg-unit">步骤</span> · ' + depCnt + ' <span class="sg-unit">依赖</span>', s: (cfgNodes.length ? cfgNodes.length + ' 配置节点 · ' : '') + (qKeys.length ? '跨 ' + qKeys.length + ' 个队列：' + qKeys.join(' / ') : '未编排'), icon: 'workflow' }
+    ];
+    document.getElementById('kpiBand').innerHTML = '<div class="statgrid">' + cells.map(function (c) {
+      return '<div class="sg-cell"><div class="sg-k">' + FO_ICONS.get(c.icon) + c.k + '</div>'
+        + '<div class="sg-v"' + (c.tone ? ' style="color:' + c.tone + '"' : '') + '>' + c.v + '</div>'
+        + (c.raw || '') + '<div class="sg-s">' + c.s + '</div></div>';
+    }).join('') + '</div>';
+  }
+
+  /* ---------- 右栏：运行配置 / 通知与告警 / 最近实例 / API 触发 ---------- */
+  function sideCard(title, icon, body, more) {
+    return '<div class="panel side-card mb-3"><div class="panel-h"><b><span data-ic="' + icon + '"></span>' + title + '</b>'
+      + (more ? '<span class="more">' + more + '</span>' : '') + '</div>' + body + '</div>';
+  }
+  function renderSide() {
+    var apiKeys = (MOCK.apiKeys || []).filter(function (k) { return k.scopeWfs.indexOf(w.id) >= 0; });
+    var apiCalls = apiKeys.reduce(function (sum, k) { return sum + (k.calls24h || 0); }, 0);
+    var h = ''
+      + sideCard('运行配置', 'settings',
+          '<div class="panel-b"><div class="side-kv">'
+        + '<span class="k">并发策略</span><span class="v">' + FO.L.CONC_POLICY[w.concurrency] + ' <span class="tag plain mono tiny">' + w.concurrency + '</span></span>'
+        + '<span class="k">最大并发</span><span class="v mono">' + w.maxParallel + ' 实例</span>'
+        + '<span class="k">集群亲和</span><span class="v">' + (w.affinity ? '<span class="tag ok">开启</span>' : '<span class="tag">关闭</span>') + '</span>'
+        + '<span class="k">默认超时</span><span class="v mono">3600s <span class="tiny faint">（步骤留空时继承）</span></span>'
+        + '<span class="k">默认重试</span><span class="v mono">0 次</span>'
+        + '<span class="k">失败策略</span><span class="v">TERMINATE</span>'
+        + '</div><div class="row mt-3"><button class="btn xs" data-perm="schedule:workflow:write" onclick="editConc()">' + FO_ICONS.get('edit') + '修改</button>'
+        + '<span class="tiny faint">详见下方「并发与亲和」</span></div></div>')
+      + sideCard('通知与告警', 'alert',
+          '<div class="panel-b"><div class="side-kv">'
+        + '<span class="k">工作流通知人</span><span class="v">' + (w.notify || []).map(function (n) { return '<span class="tag info">' + n + '</span>'; }).join(' ') + '</span>'
+        + '<span class="k">任务失败</span><span class="v tiny">AR-0001 · EMAIL + WECOM → 提交人 / 项目管理员 / 通知人</span>'
+        + '<span class="k">任务超时</span><span class="v tiny">AR-0002 · EMAIL + WEBHOOK → 提交人 / 项目管理员</span>'
+        + '</div><div class="mt-3"><a class="tiny" href="alert-config.html">告警规则配置 →</a></div></div>');
+    if (apiKeys.length) {
+      h += sideCard('API 触发', 'link',
+          '<div class="panel-b"><div class="side-kv">'
+        + '<span class="k">绑定 Key</span><span class="v mono tiny">' + apiKeys.map(function (k) { return k.id + ' ' + k.name; }).join('、') + '</span>'
+        + '<span class="k">今日调用</span><span class="v mono">' + apiCalls + ' 次</span>'
+        + '<span class="k">限流</span><span class="v mono tiny">' + apiKeys.map(function (k) { return k.rateLimit; }).join(' / ') + ' 次/分钟</span>'
+        + '</div><div class="mt-3"><a class="tiny" href="api-trigger.html">API 接入管理 →</a></div></div>');
+    }
+    document.getElementById('wdSide').innerHTML = h;
+    document.querySelectorAll('#wdSide [data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+    /* 最近实例：宽卡放左栏 DAG 下方，三列排布 */
+    var rp = '<div class="panel-h"><b><span data-ic="tasks"></span>最近实例</b><span class="hint">按提交时间倒序 · 点击直达任务详情</span>'
+      + '<span class="more"><a class="tiny" href="javascript:void(0)" onclick="jumpHis()">全部运行历史 →</a></span></div>'
+      + '<div class="panel-b" style="padding:6px 16px 10px"><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0 22px" class="recent-grid">'
+      + wfTasks.slice(0, 6).map(function (t) {
+          var dur = t.status === 'RUNNING' && t.scene && MOCK.showcase.scenes[t.scene]
+            ? '进行中 ' + FO.fmtDur(MOCK.showcase.scenes[t.scene].nowOffset) : durTxt(durOfTask(t));
+          return '<div class="run-row"><a class="link-id tiny" href="task-detail.html?scene=' + (t.scene || 'running') + '">' + t.id + '</a>'
+            + FO.statusTag(t.status) + '<span class="rd-dur">' + dur + '</span></div>';
+        }).join('')
+      + '</div></div>';
+    document.getElementById('recentPanel').innerHTML = rp;
+    document.querySelectorAll('#recentPanel [data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+  }
+  window.jumpHis = function () { showTab('his'); document.querySelector('.tabs').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+
+  /* ---------- 迷你 DAG：与编辑器同渲染（mock x/y 坐标）+ 最近运行状态叠加 ---------- */
+  (function renderMiniDag() {
+    var svg = document.getElementById('miniDag');
+    if (!w.steps || !w.steps.length) { document.getElementById('dagPreviewPanel').classList.add('hide'); return; }
+    var NW = 188, NH = 78, CFGW = 184, CFGH = 78;
+    function nsize(st) { return st.type === 'CONFIG' ? [CFGW, CFGH] : [NW, NH]; }
+    var OP_ICON = { SHELL: 'bolt', JAR: 'cluster', PYTHON: 'diag', BAT: 'file', EXE: 'play', CUSTOM: 'settings' };
+    var OP_COLOR = { SHELL: 'var(--cyan)', JAR: 'var(--info)', PYTHON: 'var(--mut)', BAT: 'var(--warn)', EXE: 'var(--ok)', CUSTOM: 'var(--t2)' };
+    var OP_TINT = { SHELL: 'rgba(34,211,238,.14)', JAR: 'rgba(59,155,255,.14)', PYTHON: 'rgba(167,139,250,.14)', BAT: 'rgba(245,165,36,.14)', EXE: 'rgba(40,199,111,.14)', CUSTOM: 'rgba(130,150,174,.14)' };
+    var ST_COLOR = { SUCCESS: 'var(--ok)', FAILED: 'var(--fail)', TIMEOUT: 'var(--warn)', RUNNING: 'var(--info)', STOPPED: 'var(--t3)' };
+    var nodes = w.steps.filter(function (st) { return st.type !== 'NOTE'; });
+    /* 画布坐标直接取编辑器保存的 x/y（与画布 1:1） */
+    var pos = {};
+    nodes.forEach(function (st) { pos[st.id] = { x: (st.x != null ? st.x : 60), y: (st.y != null ? st.y : 60) }; });
+    var minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+    nodes.forEach(function (st) {
+      var p = pos[st.id], S = nsize(st);
+      minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x + S[0]); maxY = Math.max(maxY, p.y + S[1]);
+    });
+    minX -= 46; minY -= 46; maxX += 66; maxY += 56;
+    function anchor(a, b) {
+      var aS = nsize(a), bS = nsize(b);
+      var dx = (b.x + bS[0] / 2) - (a.x + aS[0] / 2), dy = (b.y + bS[1] / 2) - (a.y + aS[1] / 2);
+      var sA, sB;
+      if (Math.abs(dx) >= Math.abs(dy)) { sA = dx >= 0 ? 'r' : 'l'; sB = dx >= 0 ? 'l' : 'r'; }
+      else { sA = dy >= 0 ? 'b' : 't'; sB = dy >= 0 ? 't' : 'b'; }
+      function pt(n, sd, S) {
+        if (sd === 'r') return [n.x + S[0], n.y + S[1] / 2];
+        if (sd === 'l') return [n.x, n.y + S[1] / 2];
+        if (sd === 'b') return [n.x + S[0] / 2, n.y + S[1]];
+        return [n.x + S[0] / 2, n.y];
+      }
+      var p1 = pt(a, sA, aS), p2 = pt(b, sB, bS);
+      var dist = Math.max(30, Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) / 2);
+      var c1, c2;
+      if (sA === 'r') c1 = [p1[0] + dist, p1[1]]; else if (sA === 'l') c1 = [p1[0] - dist, p1[1]];
+      else if (sA === 'b') c1 = [p1[0], p1[1] + dist]; else c1 = [p1[0], p1[1] - dist];
+      if (sB === 'l') c2 = [p2[0] - dist, p2[1]]; else if (sB === 'r') c2 = [p2[0] + dist, p2[1]];
+      else if (sB === 't') c2 = [p2[0], p2[1] - dist]; else c2 = [p2[0], p2[1] + dist];
+      return 'M' + p1[0] + ' ' + p1[1] + ' C' + c1[0] + ' ' + c1[1] + ' ' + c2[0] + ' ' + c2[1] + ' ' + (p2[0] - 6) + ' ' + p2[1];
+    }
+    function stOf(st) { return enrich && enrich.sc.steps[st.id] ? enrich.sc.steps[st.id] : null; }
+    var s = '<defs>'
+      + '<marker id="pvarr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--pri)"/></marker>'
+      + '<marker id="pvok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--ok)"/></marker>'
+      + '<marker id="pvmut" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--mut)"/></marker></defs>';
+    w.edges.forEach(function (e) {
+      var a = nodes.filter(function (n) { return n.id === e.from; })[0];
+      var b = nodes.filter(function (n) { return n.id === e.to; })[0];
+      if (!a || !b || pos[a.id] == null || pos[b.id] == null) return;
+      var isCfg = a.type === 'CONFIG';
+      var sa = stOf(a), sb = stOf(b);
+      var hot = enrich && sa === 'SUCCESS' && sb && ['SUCCESS', 'RUNNING', 'FAILED', 'TIMEOUT', 'STOPPED'].indexOf(sb) >= 0;
+      var marker = isCfg ? 'pvmut' : (hot ? 'pvok' : 'pvarr');
+      s += '<path d="' + anchor(a, b) + '" fill="none" marker-end="url(#' + marker + ')"'
+        + (isCfg ? ' stroke="rgba(167,139,250,.55)" stroke-width="1.3" stroke-dasharray="6 5"'
+          : hot ? ' stroke="var(--ok)" stroke-width="1.8"' : ' stroke="var(--pri-line)" stroke-width="1.8"') + '/>';
+    });
+    nodes.forEach(function (st) {
+      var p = pos[st.id], S = nsize(st);
+      var op = st.type === 'TASK' ? MOCK.operators.filter(function (o) { return o.id === st.op; })[0] : null;
+      var chips = [];
+      if (st.type === 'CONFIG') {
+        var mwMap = { 'PostgreSQL': ['host', 'port', 'db'], 'MySQL': ['host', 'port', 'db'], 'Redis': ['host', 'port'], 'RocketMQ': ['namesrv', 'topic'], 'Kafka': ['bootstrap', 'topic'], 'MQTT': ['broker', 'topic'], 'MinIO/S3': ['endpoint', 'access_key', 'bucket'], 'NAS(NFS/SMB)': ['server', 'path'] };
+        (mwMap[st.mw] || []).slice(0, 3).forEach(function (k) { chips.push(k); });
+      } else {
+        if (st.res && st.res.cpu) chips.push('CPU ' + st.res.cpu);
+        if (st.res && st.res.gpu) chips.push('GPU ' + st.res.gpu);
+        if (st.mutex) chips.push('🔒' + st.mutex);
+      }
+      var icon, color, tint;
+      if (st.type === 'CONFIG') { icon = 'db'; color = 'var(--mut)'; tint = 'var(--mut-dim)'; }
+      else {
+        icon = op ? (OP_ICON[op.type] || 'operator') : 'operator';
+        color = op ? (OP_COLOR[op.type] || 'var(--t2)') : 'var(--t2)';
+        tint = op ? (OP_TINT[op.type] || 'var(--idle-dim)') : 'var(--idle-dim)';
+      }
+      var stCode = stOf(st);
+      var stDot = '', stCls = '';
+      var durTxt2 = '';
+      if (stCode) {
+        var col = ST_COLOR[stCode] || 'var(--t4)';
+        stDot = '<span class="pv-st" style="background:' + col + ';' + (stCode === 'RUNNING' ? 'box-shadow:0 0 8px var(--info)' : '') + '"></span>';
+        if (stCode === 'RUNNING') stCls = ' cur';
+        if (stCode === 'FAILED' || stCode === 'TIMEOUT') stCls = ' bad';
+        if (enrich.finish[st.id] != null) {
+          durTxt2 = stCode === 'RUNNING'
+            ? FO.fmtDur(Math.max(0, enrich.sc.nowOffset - (enrich.finish[st.id] - enrich.meta[st.id].dur)))
+            : FO.fmtDur(enrich.meta[st.id].dur);
+        } else if (stCode === 'NOT_STARTED' || stCode === 'STOPPED') {
+          durTxt2 = stCode === 'STOPPED' ? '已停止' : '未开始';
+        }
+      }
+      var typeCls = st.type === 'CONFIG' ? ' cfg' : '';
+      s += '<g class="pv-g" transform="translate(' + p.x + ',' + p.y + ')">'
+        + '<foreignObject width="' + S[0] + '" height="' + S[1] + '">'
+        + '<div xmlns="http://www.w3.org/1999/xhtml" class="pv-node' + typeCls + stCls + '">'
+        + '<div class="pv-nm"><span class="pv-ic" style="color:' + color + ';background:' + tint + '">' + FO_ICONS.get(icon) + '</span>' + FO.esc(st.name) + stDot + '</div>'
+        + (st.type === 'CONFIG'
+          ? '<div class="pv-op">' + (st.mw || '') + ' · 配置注入</div>'
+          : '<div class="pv-op">' + (op ? op.name + ' · ' + st.opVer : '—') + '</div>')
+        + '<div class="pv-meta">' + chips.slice(0, 3).map(function (c) { return '<span class="pv-chip' + (c.indexOf('🔒') === 0 ? ' lock' : '') + '">' + c + '</span>'; }).join('')
+        + (durTxt2 ? '<span class="pv-dur">' + durTxt2 + '</span>' : '') + '</div>'
+        + '</div></foreignObject></g>';
+    });
+    svg.setAttribute('viewBox', minX + ' ' + minY + ' ' + (maxX - minX) + ' ' + (maxY - minY));
+    svg.innerHTML = s;
+    /* 图例 */
+    var lg = '';
+    if (enrich) {
+      lg += '<span><i class="lg-dot" style="background:var(--ok)"></i>成功</span>'
+        + '<span><i class="lg-dot" style="background:var(--info);box-shadow:0 0 6px var(--info)"></i>运行中</span>'
+        + '<span><i class="lg-dot" style="background:var(--t4)"></i>未开始</span>'
+        + '<span>绿边 = 已完成数据流</span><span>紫虚线 = 配置注入</span>'
+        + '<span class="spacer"></span><span>快照 ' + enrich.task.id + ' · ' + enrich.task.bizDate + '</span>';
+    } else {
+      lg += '<span>蓝边 = 依赖 · 紫虚线 = 配置注入</span><span class="spacer"></span><span>点击画布进入编辑器</span>';
+    }
+    document.getElementById('dagLegend').innerHTML = lg;
+    document.getElementById('dagHint').textContent = enrich
+      ? '只读 · 节点右上为最近一次实例的步骤耗时 · 点击节点直达任务详情'
+      : '只读 · 完整版图见编辑器 · 点击画布进入编辑器';
+    /* 点击节点 → 任务详情对应步骤；点击空白 → 编辑器 */
+    nodes.forEach(function (st, i) {
+      var g = svg.querySelectorAll('.pv-g')[i];
+      if (!g) return;
+      g.dataset.id = st.id;
+      g.addEventListener('click', function () {
+        if (!enrich) { location.href = 'workflow-editor.html?id=' + w.id; return; }
+        if (enrich.sc.steps[st.id] != null) location.href = 'task-detail.html?scene=' + enrich.scene + '&step=' + st.id;
+        else location.href = 'workflow-editor.html?id=' + w.id;
+      });
+    });
+    if (enrich) {
+      svg.title = '点击节点查看任务详情 · 点击空白处进入编辑器';
+      svg.addEventListener('click', function (e) {
+        if (e.target === svg) location.href = 'workflow-editor.html?id=' + w.id;
+      });
+    } else {
+      svg.title = '点击进入编辑器';
+      svg.addEventListener('click', function () { location.href = 'workflow-editor.html?id=' + w.id; });
+    }
+    if (w.steps.filter(function (x) { return x.type === 'CONFIG'; }).length && !enrich) {
+      document.getElementById('dagHint').textContent = '与编辑器同渲染 · 含配置节点（虚线注入）· 点击进入编辑器';
+    }
+  })();
+
+  /* ---------- Tab 内容 ---------- */
+  var VERSIONS = [
+    { no: 'v3', cur: true, status: 'PUBLISHED', steps: 5, by: 'pm-ecom', at: '2026-09-23 18:22:09', note: '新增「报告推送」步骤；数据清洗加互斥锁 orders_rw' },
+    { no: 'v2', status: 'PUBLISHED', steps: 4, by: 'pm-ecom', at: '2026-09-10 11:02:31', note: '特征计算 CPU 4→8（DAG 校验规则 6 通过）' },
+    { no: 'v1', status: 'PUBLISHED', steps: 3, by: 'pm-ecom', at: '2026-08-28 09:15:00', note: '初始版本' },
+    { no: 'v3-draft', status: 'DRAFT', steps: 5, by: 'pm-ecom', at: '2026-09-23 17:58:40', note: '有未发布修改（工作流列表的角标来源）' }
+  ];
+  var DIFFS = {
+    'v1': [['步骤数', '3', '7'], ['数据校验.算子版本', '数据质量校验@v1', '数据质量校验@v2'], ['数据清洗.算子版本', 'Spark数据清洗@v1', 'Spark数据清洗@v3'], ['新增步骤', '—', '特征计算 · 模型评分 · 结果入库 · 报告推送']],
+    'v2': [['步骤数', '4', '7'], ['新增步骤', '—', '报告推送（报告推送@v1）'], ['数据清洗.算子版本', 'Spark数据清洗@v2', 'Spark数据清洗@v3'], ['数据清洗.互斥锁', '（空）', 'orders_rw']],
+    'v3-draft': [['特征计算.资源申请 CPU', '4 核', '16 核'], ['状态', 'v3（已发布）', 'v3-draft（草稿）']]
+  };
+  var TABS = {
+    ver: function () {
+      return '<div class="table-wrap"><table class="tbl"><thead><tr><th>版本</th><th>状态</th><th>步骤数</th><th>发布人</th><th>发布时间</th><th>说明</th><th style="text-align:right">操作</th></tr></thead><tbody>'
+        + VERSIONS.map(function (v) {
+            var ops = '<div class="actions"><button class="btn xs" onclick="FO.toast(\'查看冻结快照（演示）\',\'info\')">查看</button>'
+              + (v.cur ? '' : '<button class="btn xs" onclick="showDiff(\'' + v.no + '\')">对比 v3</button>') + '</div>';
+            if (v.status === 'DRAFT') ops = '<div class="actions"><a class="btn xs" href="workflow-editor.html?id=' + w.id + '">继续编辑</a><button class="btn xs" onclick="showDiff(\'v3-draft\')">对比 v3</button></div>';
+            return '<tr><td><b class="mono">' + v.no + '</b>' + (v.cur ? ' <span class="tag pri">当前</span>' : '') + '</td>'
+              + '<td>' + FO.tag('OPV_STATUS', v.status) + '</td><td class="num">' + v.steps + '</td><td class="tiny">' + v.by + '</td>'
+              + '<td class="mono tiny">' + v.at + '</td><td class="tiny">' + v.note + '</td><td>' + ops + '</td></tr>';
+          }).join('')
+        + '</tbody></table></div>'
+        + '<div class="panel-b banner info" style="margin:0"><span data-ic="info"></span><div>版本不可变是审计与排障的根基：每个任务都强绑定 <span class="mono">workflow_version</span>，「当时执行的是什么」永远可考证（D-11）。点「对比 v3」可查看任意版本与当前版本的配置差异</div></div>';
+    },
+    trg: function () {
+      return trg.map(function (t) {
+        var next = FO.cronNext5(t.cron);
+        return '<div class="panel-b" style="border-bottom:1px solid var(--line-faint)">'
+          + '<div class="row mb-3"><b>' + t.name + '</b><span class="tag info">' + FO.L.TRIGGER_TYPE[t.type] + '</span>'
+          + '<code class="mono">' + t.cron + '</code>'
+          + '<span class="tag ' + (t.enabled ? 'ok' : '') + '">' + (t.enabled ? '启用' : '停用') + '</span>'
+          + '<span class="spacer"></span>'
+          + '<button class="btn xs" data-perm="schedule:trigger:write" onclick="editTrigger(\'' + t.id + '\')">编辑</button>'
+          + '<label class="row tiny faint" style="gap:4px">启用 <span class="switch"><input type="checkbox" ' + (t.enabled ? 'checked' : '') + ' onchange="FO.toast(\'触发器配置变更需二次确认并写入审计日志（§10.9-5）\',\'warn\')"><i></i></span></label></div>'
+          + '<div class="grid g3" style="gap:18px">'
+          + '<div><div class="tiny faint mb-2">版本绑定方式（默认锁定）</div>'
+          +   (t.lockedVersion ? '<span class="tag pri">锁定版本 ' + t.lockedVersion + '</span>' : '<span class="tag warn">跟随最新发布版本</span>')
+          +   '<div class="tiny faint mt-2">锁定可避免工作流更新后定时任务行为突变</div></div>'
+          + '<div><div class="tiny faint mb-2">错过触发补跑</div>'
+          +   (t.catchUp ? '<span class="tag ok">开启 · 最多补 ' + t.catchUpMax + ' 次</span><div class="tiny faint mt-2">取最近 3 个触发点，跳过次数显式告知（§10.9-8）</div>' : '<span class="tag">关闭</span>') + '</div>'
+          + '<div><div class="tiny faint mb-2">上次触发</div><span class="mono tiny">' + t.lastFire + '</span> ' + FO.statusTag('SUCCESS') + '<div class="tiny faint mt-2">时区 ' + t.timezone + '（显式展示）· 目标队列 ' + t.queue + '</div></div>'
+          + '</div>'
+          + '<div class="mt-4"><div class="tiny faint mb-2">接下来 5 次执行时间（Cron 输入实时预览，用于自查表达式）</div>'
+          + '<ul class="cron-preview">' + (next || []).map(function (d, i) {
+              var s = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+                + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+              return '<li><span class="cn-no">#' + (i + 1) + '</span><span>' + s + '</span>' + (i === 0 ? '<span class="tag pri" style="margin-left:6px">下次执行</span>' : '') + '</li>';
+            }).join('') + '</ul></div>'
+          + '</div>';
+      }).join('') + '<div class="panel-b"><button class="btn" data-perm="schedule:trigger:write" onclick="FO.toast(\'新建触发器（演示）：Cron/周期 + 版本绑定 + 时区 + 补跑策略 + 运行参数 + 目标队列\',\'info\')">' + FO_ICONS.get('plus') + '新建触发器</button></div>';
+    },
+    his: function () {
+      var succ = wfTasks.filter(function (t) { return t.status === 'SUCCESS'; });
+      var fails = wfTasks.filter(function (t) { return t.status === 'FAILED' || t.status === 'TIMEOUT'; });
+      var durs = succ.map(durOfTask).filter(function (x) { return x != null; });
+      var avg = durs.length ? Math.round(durs.reduce(function (a, b) { return a + b; }, 0) / durs.length) : null;
+      var rate = (succ.length + fails.length) ? Math.round(succ.length / (succ.length + fails.length) * 100) : null;
+      var counts = { all: wfTasks.length };
+      ['SUCCESS', 'FAILED', 'RUNNING'].forEach(function (s) {
+        counts[s] = wfTasks.filter(function (t) { return t.status === s; }).length;
+      });
+      return '<div class="panel-b" style="border-bottom:1px solid var(--line-faint)">'
+        + '<div class="row" style="gap:22px;flex-wrap:wrap">'
+        + '<div><div class="tiny faint">成功率</div><b class="mono" style="font-size:16px;color:' + (rate != null && rate < 80 ? 'var(--warn)' : 'var(--ok)') + '">' + (rate == null ? '—' : rate + '%') + '</b></div>'
+        + '<div><div class="tiny faint">平均耗时</div><b class="mono" style="font-size:16px">' + (avg == null ? '—' : durTxt(avg)) + '</b></div>'
+        + '<div><div class="tiny faint">实例分布</div><span class="row tiny" style="gap:8px;margin-top:2px"><span style="color:var(--ok)">成功 ' + succ.length + '</span><span style="color:var(--fail)">失败 ' + fails.length + '</span><span style="color:var(--info)">进行中 ' + (wfTasks.length - succ.length - fails.length) + '</span></span></div>'
+        + '<div style="flex:1;min-width:220px"><div class="tiny faint mb-2">近 14 天耗时趋势（分钟 · 演示序列）</div>'
+        + FO.sparkline({ data: [[138, 142, 129, 141, 144, 131, 143, 137, 142, 124, 139, 145, 138, 133]] }, { w: 600, h: 40 })
+        + '</div></div></div>'
+        + '<div class="panel-b row" style="padding-top:10px;padding-bottom:10px"><div class="seg" id="hisFilter">'
+        + [['all', '全部 (' + counts.all + ')'], ['SUCCESS', '成功 (' + counts.SUCCESS + ')'], ['FAILED', '失败 (' + counts.FAILED + ')'], ['RUNNING', '进行中 (' + counts.RUNNING + ')']].map(function (x, i) {
+            return '<button data-s="' + x[0] + '"' + (i === 0 ? ' class="on"' : '') + '>' + x[1] + '</button>';
+          }).join('') + '</div></div>'
+        + '<div id="hisRows"></div>';
+    },
+    vars: function () {
+      return '<div class="panel-b" style="border-bottom:1px solid var(--line-faint)">'
+        + '<div class="tiny faint mb-2">工作流参数（发布时快照，触发时可覆盖）</div>'
+        + '<table class="tbl"><thead><tr><th>参数</th><th>标识</th><th>类型</th><th>必填</th><th>默认值</th><th>可覆盖</th></tr></thead><tbody>'
+        + (w.wfParams || []).map(function (p) {
+            return '<tr><td>' + p.name + '</td><td class="mono tiny">' + p.key + '</td>'
+              + '<td><span class="tag info">' + (p.type || 'TEXT') + '</span></td>'
+              + '<td>' + (p.required ? '<span class="tag fail">必填</span>' : '—') + '</td>'
+              + '<td class="mono tiny">' + FO.esc(p.default || '—') + '</td>'
+              + '<td>' + (p.overridable !== false ? '<span class="tag ok">是</span>' : '<span class="tag">否</span>') + '</td></tr>';
+          }).join('')
+        + '</tbody></table></div>'
+        + '<div class="panel-b"><div class="tiny faint mb-2">下游可引用的变量目录（供编辑器「引用…」使用）</div><div class="row wrap">'
+        + '<span class="tag cyan">${taskId}</span><span class="tag cyan">${workflowVersion}</span><span class="tag cyan">${bizDate}</span>'
+        + '<span class="tag cyan">${triggerUser}</span><span class="tag cyan">${machineIp}</span><span class="tag cyan">${backfillBatchId}</span>'
+        + '<span class="tag info">${project.dataRoot}</span><span class="tag pri">${workflow.bizDate}</span>'
+        + '<span class="tag ok">${step.数据抽取.output.outputFilePath}</span><span class="tag ok">${step.数据清洗.output.cleanedFilePath}</span>'
+        + '<span class="tag ok">${step.特征计算.output.outputFilePath}</span><span class="tag ok">${step.模型评分.output.scoreFilePath}</span>'
+        + '<span class="tag warn">${step.结果入库.output.loadedRows}</span>'
+        + '</div><div class="tiny faint mt-3">语法 <span class="mono">${step.{步骤名}.output.{变量名}}</span>（D-20）；编辑器中仅列出「可达上游」的输出</div></div>';
+    },
+    cfg: function () {
+      function chain(title, nodes) {
+        return '<div><div class="tiny faint mb-2">' + title + '</div><div class="chain">'
+          + nodes.map(function (n, i) {
+              return (i ? '<span class="carr">→</span>' : '')
+                + '<div class="cnode' + (n.v != null ? ' set' : '') + (n.eff ? ' eff' : '') + '"><div class="cl">' + FO_ICONS.get(n.icon || 'settings') + n.l + '</div>'
+                + '<div class="cv">' + (n.v != null ? n.v : '<span style="color:var(--t4)">未设置 · 向上继承</span>') + '</div></div>';
+            }).join('') + '</div></div>';
+      }
+      return '<div class="panel-b" style="border-bottom:1px solid var(--line-faint)">'
+        + '<div class="grid" style="gap:16px">'
+        + chain('超时继承链（示例：步骤 数据清洗 · 最终生效 7200s）', [
+            { l: '平台默认', v: null, icon: 'shield' }, { l: '项目 PRJ-0001', v: null, icon: 'users' },
+            { l: '工作流', v: '3600s', icon: 'workflow' }, { l: '算子版本 @v3', v: '7200s', icon: 'operator' },
+            { l: '步骤 数据清洗', v: '7200s · 生效', icon: 'check', eff: true }])
+        + chain('重试继承链（示例：步骤 数据清洗 · 最终生效 2 次）', [
+            { l: '平台默认', v: null, icon: 'shield' }, { l: '项目 PRJ-0001', v: null, icon: 'users' },
+            { l: '工作流', v: '0 次', icon: 'workflow' }, { l: '算子版本 @v3', v: '2 次', icon: 'operator' },
+            { l: '步骤 数据清洗', v: '2 次 · 生效', icon: 'check', eff: true }])
+        + '</div>'
+        + '<div class="tiny faint mt-3">配置继承链：平台 → 项目 → 工作流 → 算子版本 → 步骤（任一层留空向上继承，UI 必须显示继承来源，§12.5）</div></div>'
+        + '<div class="panel-b"><div class="grid g2">'
+        + '<div><div class="kv">'
+        + '<span class="k">最大并发实例数</span><span class="v mono">' + w.maxParallel + '</span>'
+        + '<span class="k">并发超限策略</span><span class="v">' + FO.L.CONC_POLICY[w.concurrency] + '（<span class="mono">' + w.concurrency + '</span>）</span>'
+        + '<span class="k">集群亲和</span><span class="v">' + (w.affinity ? '<span class="tag ok">开启 · 同任务步骤优先同集群</span>' : '<span class="tag">关闭</span>') + '</span>'
+        + '</div><div class="tiny faint mt-3">并发配置是发布必填项（DAG 校验规则 8）；手动/定时/API/回填四种触发共用同一套检查（ConcurrencyGuard），不允许任何路径绕过</div></div>'
+        + '<div><div class="kv">'
+        + '<span class="k">继承：超时</span><span class="v">步骤留空 → 工作流默认 <span class="mono">3600s</span></span>'
+        + '<span class="k">继承：重试</span><span class="v">步骤留空 → 工作流默认 <span class="mono">0 次</span></span>'
+        + '<span class="k">继承：失败策略</span><span class="v">步骤留空 → 工作流默认 TERMINATE</span>'
+        + '</div><div class="tiny faint mt-3">四种触发共用并发闸门；继承链上方已按「数据清洗」逐步演示解析结果</div></div>'
+        + '</div>'
+        + '<div class="row mt-4"><button class="btn" data-perm="schedule:workflow:write" onclick="editConc()">' + FO_ICONS.get('settings') + '修改并发配置</button></div></div>';
+    }
+  };
+
+  /* ---------- 运行历史行渲染（带状态筛选） ---------- */
+  var hisFilter = 'all';
+  function renderHisRows() {
+    var rows = wfTasks.filter(function (t) { return hisFilter === 'all' || t.status === hisFilter; });
+    document.getElementById('hisRows').innerHTML = '<div class="table-wrap"><table class="tbl"><thead><tr><th>任务编号</th><th>版本</th><th>触发</th><th>业务日期</th><th>状态</th><th>耗时</th><th>开始 → 结束</th><th>提交人</th><th></th></tr></thead><tbody>'
+      + (rows.map(function (t) {
+          var dur = t.status === 'RUNNING' && t.scene && MOCK.showcase.scenes[t.scene]
+            ? '<span style="color:var(--info)">进行中 ' + FO.fmtDur(MOCK.showcase.scenes[t.scene].nowOffset) + '</span>' : durTxt(durOfTask(t));
+          return '<tr' + (t.status === 'RUNNING' ? ' class="row-run"' : t.status === 'FAILED' || t.status === 'TIMEOUT' ? ' class="row-fail"' : '') + '>'
+            + '<td><a class="link-id" href="task-detail.html?scene=' + (t.scene || 'running') + '">' + t.id + '</a></td>'
+            + '<td class="mono">' + t.version + '</td><td>' + FO.tag('TRIGGER_TYPE', t.trigger) + '</td>'
+            + '<td class="mono tiny">' + (t.bizDate || '—') + '</td><td>' + FO.statusTag(t.status) + '</td>'
+            + '<td class="tiny mono">' + dur + '</td>'
+            + '<td class="mono tiny">' + (t.startAt || '—').slice(5) + ' → ' + (t.endAt || '—').slice(5) + '</td>'
+            + '<td class="tiny">' + t.submitter + '</td>'
+            + '<td><a class="tiny" href="task-detail.html?scene=' + (t.scene || 'running') + '">详情 →</a></td></tr>'
+            + (t.failReason ? '<tr><td colspan="9" style="padding-top:0"><span class="cell-sub" style="white-space:normal;color:var(--fail)">└ ' + FO.esc(t.failReason) + '</span></td></tr>' : '');
+        }).join('') || '<tr><td colspan="9"><div class="empty tiny">该状态下暂无实例</div></td></tr>')
+      + '</tbody></table></div>';
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('#hisFilter button');
+    if (!b) return;
+    hisFilter = b.dataset.s;
+    document.querySelectorAll('#hisFilter button').forEach(function (x) { x.classList.toggle('on', x === b); });
+    renderHisRows();
+  });
+
+  function showTab(key) {
+    document.querySelectorAll('.tab-btn').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === key); });
+    document.getElementById('tabBody').innerHTML = TABS[key]();
+    FO.applyPerms(document);
+    document.querySelectorAll('#tabBody [data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+    if (key === 'his') renderHisRows();
+  }
+  document.querySelectorAll('.tab-btn').forEach(function (b) { b.addEventListener('click', function () { showTab(b.dataset.tab); }); });
+  showTab('ver');
+
+  /* ---------- 版本对比 ---------- */
+  window.showDiff = function (fromNo) {
+    var rows = DIFFS[fromNo] || [];
+    FO.modal({
+      title: '版本对比 · ' + fromNo + ' → v3（当前）', width: 620,
+      body: '<table class="diff-tbl"><thead><tr><th style="width:180px">配置项</th><th>' + fromNo + '</th><th>v3（当前）</th></tr></thead><tbody>'
+        + rows.map(function (r) {
+            return '<tr><td class="mono tiny">' + r[0] + '</td><td><span class="old">' + FO.esc(r[1]) + '</span></td><td><span class="new">' + FO.esc(r[2]) + '</span></td></tr>';
+          }).join('')
+        + '</tbody></table>'
+        + '<div class="tiny faint mt-3">对比基于版本冻结快照逐字段 diff（口径与审计日志 PUBLISH_WORKFLOW 的 diff 一致）</div>',
+      footer: '<button class="btn" data-act="cancel">关闭</button><a class="btn primary" href="workflow-editor.html?id=' + w.id + '">打开编辑器</a>'
+    });
+  };
+
+  window.newDraft = function () {
+    FO.toast('已基于 v3 复制出新草稿 v3-draft（原版本保持冻结）· has_draft_changes 标记已置位', 'ok');
+  };
+  window.editTrigger = function (tid) {
+    var t = MOCK.triggers.filter(function (x) { return x.id === tid; })[0];
+    var d = FO.drawer({
+      title: '编辑触发器 · ' + t.name,
+      body: '<div class="field"><label>触发器名称</label><input class="input" value="' + FO.esc(t.name) + '"></div>'
+        + '<div class="form-grid">'
+        + '<div class="field"><label>Cron 表达式</label><input class="input" value="' + t.cron + '"><div class="help">分钟级精度（§22-4）</div></div>'
+        + '<div class="field"><label>时区</label><input class="input" value="' + t.timezone + '" disabled></div></div>'
+        + '<div class="field"><label>版本绑定方式（默认锁定）</label><select class="select">'
+        + '<option' + (t.lockedVersion ? ' selected' : '') + '>锁定指定版本（' + (t.lockedVersion || 'v3') + '）</option>'
+        + '<option' + (!t.lockedVersion ? ' selected' : '') + '>跟随最新发布版本</option></select>'
+        + '<div class="help">锁定可避免工作流更新后定时任务行为突变</div></div>'
+        + '<div class="form-grid">'
+        + '<div class="field"><label>错过触发补跑</label><select class="select"><option' + (t.catchUp ? ' selected' : '') + '>开启（最多补 ' + t.catchUpMax + ' 次）</option><option' + (!t.catchUp ? ' selected' : '') + '>关闭</option></select>'
+        + '<div class="help">取最近 N 个触发点，跳过显式告知</div></div>'
+        + '<div class="field"><label>目标队列</label><select class="select"><option>' + t.queue + '</option><option>default</option></select></div></div>'
+        + '<div class="field"><label>失败通知</label><div class="row wrap">'
+        + ['EMAIL', 'WECOM', 'WEBHOOK'].map(function (c) {
+            return '<label class="ck"><input type="checkbox" ' + (t.failNotify.channels.indexOf(c) >= 0 ? 'checked' : '') + '> ' + c + '</label>';
+          }).join('') + '</div></div>'
+        + '<div class="banner warn" style="margin-bottom:0"><span data-ic="alert"></span><div>变更需二次确认并写审计（UPDATE_TRIGGER）；启用中的触发器停用工作流时将记录原状态</div></div>',
+      footer: '<button class="btn" onclick="document.querySelector(\'.drawer-mask\').click()">取消</button><button class="btn primary" onclick="FO.toast(\'触发器已保存，写审计（演示）\',\'ok\');document.querySelector(\'.drawer-mask\').click()">保存</button>'
+    });
+    FO.applyPerms(d.root);
+  };
+  window.editConc = function () {
+    FO.modal({
+      title: '并发与亲和配置',
+      body: '<div class="form-grid">'
+        + '<div class="field"><label>最大并发实例数</label><input class="input" value="' + w.maxParallel + '"><div class="help">同一工作流同时运行的任务数</div></div>'
+        + '<div class="field"><label>并发超限策略</label><select class="select">'
+        + '<option value="FORBID"' + (w.concurrency === 'FORBID' ? ' selected' : '') + '>跳过本次触发并告警</option>'
+        + '<option value="QUEUE"' + (w.concurrency === 'QUEUE' ? ' selected' : '') + '>排队等待</option>'
+        + '<option value="ALLOW"' + (w.concurrency === 'ALLOW' ? ' selected' : '') + '>并行执行</option></select></div></div>'
+        + '<div class="field"><label class="row">集群亲和 <span class="switch"><input type="checkbox" ' + (w.affinity ? 'checked' : '') + '><i></i></span></label>'
+        + '<div class="help">开启后同一任务所有步骤优先调度到同一集群，减少跨集群数据传输；不可满足时允许跨集群并在调度诊断中说明</div></div>',
+      onOk: function () { FO.toast('并发配置已保存（写审计 UPDATE_CONCURRENCY，演示）', 'ok'); }
+    });
+  };
+
+  document.getElementById('btnRun').addEventListener('click', function () {
+    FO.modal({
+      title: '运行 · ' + w.name,
+      body: '<div class="field"><label>业务日期 <span class="mono tiny">(bizDate)</span> <span class="req">*</span></label><input class="input" value="2026-09-24"></div>'
+        + '<div class="field"><label>目标环境 <span class="mono tiny">(targetEnv)</span></label><select class="select"><option>prod</option><option>staging</option></select></div>'
+        + '<div class="field"><label>目标队列</label><select class="select"><option>default</option><option>high-priority</option></select></div>'
+        + '<label class="ck mb-3"><input type="checkbox" id="simConflict"> 模拟「并发已达上限」（演示 40901 分支）</label>'
+        + '<div class="banner info" style="margin-bottom:0"><span data-ic="info"></span><div>并发策略 <b>FORBID</b> + 已有运行实例 → 本次触发跳过并告警；这是<b>成功路径的另一种结果</b>（触发被跳过 ≠ 报错），前端需给出明确提示</div></div>',
+      okText: '创建任务',
+      onOk: function (ov) {
+        if (ov.querySelector('#simConflict').checked) {
+          FO.toast('40901：并发策略 FORBID，当前已有运行实例 TASK-20260924-0042，本次触发被跳过并已告警（AR-0005）', 'fail', '触发被跳过');
+        } else {
+          FO.toast('任务已创建：TASK-20260924-0107（PENDING）· 前往任务详情查看 DAG 推进与调度诊断', 'ok');
+        }
+      }
+    });
+  });
+
+  renderKpis();
+  renderSide();
+  document.querySelectorAll('[data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+})();
+</script>
+</body>
+</html>

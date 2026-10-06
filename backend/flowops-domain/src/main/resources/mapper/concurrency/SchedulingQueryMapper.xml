@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 调度管线读模型 SQL（docs/06 §3.2）。每 tick 执行，走部分索引窄投影。 -->
+<mapper namespace="com.flowops.domain.mapper.concurrency.SchedulingQueryMapper">
+
+    <!-- 活跃任务：命中 idx_task_active（status 四态 + deleted=false 的部分索引）。
+         STOPPING 不进管线（由停止收敛路径处理，docs/06 §15.1 ④）；
+         排序稳定（id），保证多副本短暂双主时行为可预测。 -->
+    <select id="findActiveTasks"
+            resultType="com.flowops.domain.dto.query.ActiveTaskRow">
+        SELECT id,
+               task_id        AS taskId,
+               status,
+               workflow_id    AS workflowId,
+               project_id     AS projectId,
+               workflow_version_id AS workflowVersionId,
+               queue_id       AS queueId,
+               priority
+          FROM task
+         WHERE status IN ('PENDING', 'SCHEDULING', 'RUNNING')
+           AND deleted = false
+         ORDER BY id
+    </select>
+
+    <select id="findStepDefsByVersion"
+            resultType="com.flowops.domain.dto.query.StepDefRow">
+        SELECT id       AS stepId,
+               step_name AS stepName,
+               step_type AS stepType
+          FROM workflow_step
+         WHERE workflow_version_id = #{workflowVersionId}
+         ORDER BY id
+    </select>
+
+    <select id="findEdgesByVersion"
+            resultType="com.flowops.domain.dto.query.EdgeRow">
+        SELECT source_step_id AS sourceStepId,
+               target_step_id AS targetStepId
+          FROM workflow_edge
+         WHERE workflow_version_id = #{workflowVersionId}
+    </select>
+
+    <select id="findStepRuntimesByTask"
+            resultType="com.flowops.domain.dto.query.StepRuntimeRow">
+        SELECT ts.id,
+               ts.step_instance_id AS stepInstanceId,
+               ts.step_id          AS stepId,
+               ts.status,
+               ts.mutex_group      AS mutexGroup,
+               ts.enqueue_seq      AS enqueueSeq,
+               ts.retry_count      AS retryCount,
+               ts.resource_request AS resourceRequest,
+               ws.start_command    AS startCommand,
+               COALESCE(ts.max_retry_count, ws.retry_count, 0)          AS maxRetryCount,
+               COALESCE(ws.retry_interval_seconds, 5)                    AS retryIntervalSeconds
+          FROM task_step ts
+          LEFT JOIN workflow_step ws ON ws.id = ts.step_id
+         WHERE ts.task_id = #{taskId}
+         ORDER BY ts.step_index
+    </select>
+
+    <!-- 可派发节点预过滤：与 NodeMatcher 的前三条硬过滤一致，
+         把"大部分时间都不可用"的节点挡在 DB 层；余量判定仍在调度器内存账本（D-22）。
+         tags 为 text[]，驱动返回形如 "{gpu,cpu}" 的字符串，scheduler 侧解析。 -->
+    <select id="findDispatchableNodes"
+            resultType="com.flowops.domain.dto.query.DispatchableNodeRow">
+        SELECT id,
+               executor_node_name AS nodeName,
+               cluster_id         AS clusterId,
+               online_status      AS onlineStatus,
+               os_type            AS osType,
+               tags,
+               credential_ref_id  AS credentialRefId,
+               cpu_total          AS cpuTotal,
+               gpu_total          AS gpuTotal,
+               memory_total       AS memoryTotal,
+               disk_total         AS diskTotal,
+               running_task_count AS runningTaskCount,
+               last_allocated_at  AS lastAllocatedAt,
+               max_concurrent_steps AS maxConcurrentSteps
+          FROM executor_node
+         WHERE enabled = true
+           AND deleted = false
+           AND online_status = 'ONLINE'
+           AND credential_ref_id IS NOT NULL
+    </select>
+
+</mapper>

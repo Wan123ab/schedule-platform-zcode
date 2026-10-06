@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- task_step 的调度器条件更新（docs/06 §4.3 出队两段式）。
+     ⚠️ 这两条 SQL 是防重复下发的唯一闸门（D-23），WHERE 条件任何改动都必须同步评审 docs/06。 -->
+<mapper namespace="com.flowops.domain.mapper.task.TaskStepMapper">
+
+    <!-- ① CAS 占位：WAITING_RESOURCE → SCHEDULING 并打上本次下发令牌。
+         dispatch_token IS NULL 条件同时拦截"重复 tick"与"脑裂双主"两个场景
+         （docs/06 §10.1：即使短暂双主，CAS 也保证不重复执行）。 -->
+    <update id="casClaimForDispatch">
+        UPDATE task_step
+           SET status = 'SCHEDULING',
+               dispatch_token = #{dispatchToken},
+               version = version + 1,
+               updated_at = now()
+         WHERE id = #{id}
+           AND status = 'WAITING_RESOURCE'
+           AND dispatch_token IS NULL
+    </update>
+
+    <!-- ② 的回滚：只按自己的 token 回滚，不碰他方占位 -->
+    <update id="rollbackClaim">
+        UPDATE task_step
+           SET status = 'WAITING_RESOURCE',
+               dispatch_token = NULL,
+               version = version + 1,
+               updated_at = now()
+         WHERE id = #{id}
+           AND status = 'SCHEDULING'
+           AND dispatch_token = #{dispatchToken}
+    </update>
+
+    <!-- 通用 CAS 转移：from 条件由状态机守卫（调用前经 StepStateTransitions.canTransition 校验），
+         version 自增走乐观锁；0 行 = 他方已变，放弃并重读（docs/03 §3.4） -->
+    <update id="casTransition">
+        UPDATE task_step
+           SET status = #{toStatus},
+               version = version + 1,
+               updated_at = now()
+         WHERE id = #{id}
+           AND status = #{fromStatus}
+    </update>
+
+    <!-- 互斥持有点标记：带 token 条件，避免把锁标记写到一个已被他方回退的占位上 -->
+    <update id="setMutexHolder">
+        UPDATE task_step
+           SET mutex_holder = #{holder},
+               mutex_group  = #{mutexGroup},
+               version = version + 1,
+               updated_at = now()
+         WHERE id = #{id}
+           AND dispatch_token = #{dispatchToken}
+    </update>
+
+    <!-- 重试登记（§9.1）：status/next_retry_at/retry_count 原子更新，
+         WHERE status='RUNNING' 防止与人工停止竞态 -->
+    <update id="markRetrying">
+        UPDATE task_step
+           SET status = 'RETRYING',
+               next_retry_at = #{nextRetryAt},
+               retry_count = retry_count + 1,
+               fail_reason = #{failReason},
+               version = version + 1,
+               updated_at = now()
+         WHERE id = #{id}
+           AND status = 'RUNNING'
+    </update>
+
+</mapper>

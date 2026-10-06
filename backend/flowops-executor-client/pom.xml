@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 执行节点通信客户端（docs/03 §1.1）：SSH/WinRM/Agent 协议适配。
+     M0 仅契约骨架；M1 落地 SSH（凭据解密 → 建连 → 下发 → 流式读取 → 退出码）。 -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.flowops</groupId>
+    <artifactId>flowops-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>flowops-executor-client</artifactId>
+  <name>flowops-executor-client</name>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.flowops</groupId>
+      <artifactId>flowops-common</artifactId>
+    </dependency>
+    <!-- SSH（社区维护的 JSch 分支，API 兼容原版；M1 以 SSH 为主，Q-01） -->
+    <dependency>
+      <groupId>com.github.mwiede</groupId>
+      <artifactId>jsch</artifactId>
+      <version>0.2.20</version>
+    </dependency>
+    <dependency>
+      <groupId>org.projectlombok</groupId>
+      <artifactId>lombok</artifactId>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+</project>

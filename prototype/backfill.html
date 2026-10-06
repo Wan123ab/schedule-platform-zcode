@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>回填补数 · FlowOps</title>
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+<style>
+  .pv-hash { font-family: var(--font-mono); font-size: 11px; background: var(--bg-inset); border: 1px dashed var(--line); padding: 2px 8px; border-radius: var(--r-xs); }
+  .pv-hash.valid { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+  .pv-hash.dead { color: var(--fail); text-decoration: line-through; }
+  .bf-date { font-family: var(--font-mono); font-size: 12px; }
+</style>
+</head>
+<body>
+<script src="assets/js/icons.js"></script>
+<script src="assets/js/mock.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+(function () {
+  var content = ''
+    + '<div class="page-header"><div><h1>回填补数</h1><div class="sub">按业务日期批量补跑历史区间（V1.0，按 D-03 一并设计）· 数据类调度刚需 · PRD §10.11</div></div>'
+    + '<div class="actions"><button class="btn primary" data-perm="schedule:backfill:write" id="btnSubmit" disabled>' + FO_ICONS.get('upload') + '提交回填批次</button></div></div>'
+
+    + '<div id="metricsSlot"></div>'
+
+    + '<div class="grid" style="grid-template-columns:340px 1fr">'
+    /* ---- 配置 ---- */
+    + '<div class="panel"><div class="panel-h"><b>回填配置</b></div><div class="panel-b">'
+    + '<div class="field"><label>工作流 <span class="req">*</span></label><select class="select" id="bfWf">'
+    + '<option value="WF-0001">每日订单数据同步（v3 · FORBID）</option>'
+    + '<option value="WF-0003">风控指标日批（v2 · QUEUE）</option></select></div>'
+    + '<div class="form-grid">'
+    + '<div class="field"><label>业务日期起</label><input class="input" type="date" id="bfFrom" value="2026-09-15"></div>'
+    + '<div class="field"><label>业务日期止</label><input class="input" type="date" id="bfTo" value="2026-09-21"></div></div>'
+    + '<div class="row tiny" style="gap:5px;margin:-6px 0 12px"><span class="faint">快捷：</span>'
+    + '<button class="btn xs" data-quick="7">近 7 天</button><button class="btn xs" data-quick="14">近 14 天</button>'
+    + '<button class="btn xs" data-quick="30">近 30 天</button><button class="btn xs" data-quick="90">近 90 天（上限）</button></div>'
+    + '<div class="field"><label>最大并行任务数</label><input class="input" id="bfConc" value="3"><div class="help">默认 1，防止一次补 30 天打爆集群（§10.11-2）</div></div>'
+    + '<div class="field"><label>顺序执行</label><label class="ck"><input type="checkbox" id="bfSeq"> 按业务日期逐日串行</label></div>'
+    + '<div class="field"><label>冲突策略</label><div class="row"><label class="ck"><input type="radio" name="cf" checked> 跳过已成功</label><label class="ck"><input type="radio" name="cf"> 全部重跑</label></div></div>'
+    + '<button class="btn primary" style="width:100%" id="btnPreview">' + FO_ICONS.get('diag') + '生成预览（不落库）</button>'
+    + '<div class="tiny faint mt-3">单次最大跨度 90 天（§22-18 定案）· 预览 5 分钟内有效</div>'
+    + '</div></div>'
+
+    /* ---- 预览 ---- */
+    + '<div class="panel"><div class="panel-h"><b>预览（conflict / eff_conc / 计划投递时刻）</b>'
+    + '<span class="spacer"></span><span id="hashSlot"><span class="tiny faint">尚未预览</span></span></div>'
+    + '<div id="pvBody"><div class="empty">' + FO_ICONS.get('calendar') + '<p>先在左侧配置时间范围，点击「生成预览」</p><p class="tiny faint mt-2">预览接口不落库；提交必须携带预览响应的 confirmed_preview_hash</p></div></div>'
+    + '</div>'
+    + '</div>'
+
+    /* ---- 批次列表 ---- */
+    + '<div class="panel mt-4"><div class="panel-h"><b>回填批次</b><span class="hint">backfill_batch · 独立批次视图</span></div>'
+    + '<div class="table-wrap"><table class="tbl"><thead><tr><th>批次</th><th>工作流</th><th>时间范围</th><th>设定/实际并发</th><th>进度</th><th>状态</th><th>提交人</th><th style="text-align:right">操作</th></tr></thead><tbody id="bfTb"></tbody></table></div></div>'
+
+    + '<div class="banner info mt-4"><span data-ic="info"></span><div>'
+    + '<b>回填三约束：</b>① 补数任务与普通任务结构一致，仅多 <span class="mono">backfill_batch_id</span> 标记；② 受项目额度与队列并发限制；③ 批次创建/暂停/取消写审计。<br>'
+    + '<span class="b-sub">双闸门：预览 → 哈希 → 提交；预览后任何配置变更都会使哈希失效（42231 引导回预览步骤，不是错误弹窗）</span></div></div>';
+
+  FO.mountShell({ active: 'backfill', title: '回填补数', crumb: [{ label: '任务管理' }], content: content });
+
+  var preview = null; // {hash, rows, eff, policyConflict}
+  var hashDead = false;
+
+  document.getElementById('btnPreview').addEventListener('click', function () {
+    var from = document.getElementById('bfFrom').value, to = document.getElementById('bfTo').value;
+    if (!from || !to || to < from) { FO.toast('业务日期范围不合法', 'fail'); return; }
+    var d1 = new Date(from), d2 = new Date(to);
+    var days = Math.round((d2 - d1) / 86400000) + 1;
+    if (days > 90) { FO.toast('42232：回填范围 ' + days + ' 天，超过单次上限 90 天', 'fail'); return; }
+    var wfId = document.getElementById('bfWf').value;
+    var conc = parseInt(document.getElementById('bfConc').value, 10) || 1;
+    var seq = document.getElementById('bfSeq').checked;
+    var wf = MOCK.workflows.filter(function (x) { return x.id === wfId; })[0];
+    /* eff_conc 收敛公式（06 §12.2）：sequential ? 1 : (FORBID ? 1 : min(conc, maxParallel)) */
+    var eff = seq ? 1 : (wf.concurrency === 'FORBID' ? 1 : Math.min(conc, wf.maxParallel || 1));
+    var policyConflict = (!seq && wf.concurrency === 'FORBID' && conc > 1)
+      ? { policy: 'FORBID', max: wf.maxParallel, eff: 1 } : null;
+
+    var rows = [], conflictAt = 3;
+    for (var i = 0; i < days; i++) {
+      var d = new Date(d1.getTime() + i * 86400000);
+      var ds = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      var conflict = (i === conflictAt) ? { task: 'TASK-20260918-0030', status: 'SUCCESS' } : null;
+      rows.push({ date: ds, conflict: conflict, at: '02:00 + 抖动' });
+    }
+    preview = { hash: 'a3f29c…e81b', rows: rows, eff: eff, policyConflict: policyConflict, wfId: wfId, conc: conc, seq: seq };
+    hashDead = false;
+    renderPreview();
+    document.getElementById('btnSubmit').disabled = false;
+    FO.toast('预览已生成（未落库）· 有效期 5 分钟', 'ok');
+  });
+
+  /* 预览后修改配置 → 哈希立即作废（前端职责，04 §4.6） */
+  ['bfWf', 'bfFrom', 'bfTo', 'bfConc', 'bfSeq'].forEach(function (id) {
+    document.getElementById(id).addEventListener('change', function () {
+      if (preview && !hashDead) {
+        hashDead = true;
+        renderHash();
+        FO.toast('配置已变更，预览哈希已作废——提交将被 42231 拒绝，请重新预览', 'warn', '预览已失效');
+      }
+    });
+  });
+
+  function renderHash() {
+    document.getElementById('hashSlot').innerHTML = preview
+      ? (hashDead
+        ? '<span class="pv-hash dead">hash a3f29c…e81b 已失效</span>'
+        : '<span class="pv-hash valid">confirmed_preview_hash: a3f29c…e81b</span>')
+      : '<span class="tiny faint">尚未预览</span>';
+  }
+
+  function renderPreview() {
+    var body = document.getElementById('pvBody');
+    var b = '<div class="panel-b">';
+    if (preview.policyConflict) {
+      b += '<div class="banner warn"><span data-ic="alert"></span><div><b>并发策略冲突已收敛：</b>工作流策略 FORBID（不允许并行实例），设定并发 '
+        + preview.conc + ' → 实际并发 eff_conc = <b class="mono">1</b>'
+        + '<br><span class="b-sub">若不收敛，任务会全部因并发检查失败——前端必须提前提示（CONTRACT §8-2）</span></div></div>';
+    } else {
+      b += '<div class="banner ok"><span data-ic="check"></span><div>实际并发 eff_conc = <b class="mono">' + preview.eff + '</b>（无策略冲突）· 回填同样受项目额度与队列并发限制</div></div>';
+    }
+    b += '<table class="tbl mt-3"><thead><tr><th>#</th><th>业务日期</th><th>计划投递</th><th>冲突检测（±30 分钟窗口）</th><th>动作</th></tr></thead><tbody>'
+      + preview.rows.map(function (r, i) {
+          return '<tr><td class="num">' + (i + 1) + '</td><td class="bf-date">' + r.date + '</td><td class="mono tiny">' + r.at + '</td>'
+            + '<td>' + (r.conflict
+              ? '<span class="tag warn">冲突：' + r.conflict.task + '（' + r.conflict.status + '）→ 跳过已成功</span>'
+              : '<span class="tag ok">无冲突 → 新建</span>') + '</td>'
+            + '<td class="tiny faint">' + (r.conflict ? 'skip' : 'create') + '</td></tr>';
+        }).join('')
+      + '</tbody></table>';
+    var conflictCount = preview.rows.filter(function (r) { return r.conflict; }).length;
+    b += '<div class="row mt-3 tiny faint"><span>计划 ' + preview.rows.length + ' 个任务 · 冲突跳过 ' + conflictCount + ' 个 · 实际并发 ' + preview.eff + '</span></div></div>';
+    body.innerHTML = b;
+    renderHash();
+    document.querySelectorAll('[data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+  }
+
+  document.getElementById('btnSubmit').addEventListener('click', function () {
+    if (!preview) return;
+    if (hashDead) {
+      FO.toast('42231：预览已失效 / 配置已变更（confirmed_preview_hash 校验失败）——请重新生成预览', 'fail', '提交被闸门拦截');
+      return;
+    }
+    FO.confirm({
+      title: '提交回填批次',
+      message: '将创建回填批次：' + preview.rows.length + ' 个业务日期 · 实际并发 <b class="mono">' + preview.eff + '</b> · 携带 confirmed_preview_hash。批次操作（暂停/继续/取消）与普通触发的并发检查完全一致。',
+      okText: '提交批次',
+      onOk: function () {
+        MOCK.backfillBatches.unshift({
+          id: 'BF-0008', wf: preview.wfId, wfName: '每日订单数据同步', range: document.getElementById('bfFrom').value + ' ~ ' + document.getElementById('bfTo').value,
+          conc: preview.conc, eff: preview.eff, status: 'RUNNING', total: preview.rows.length,
+          success: 0, failed: 0, waiting: preview.rows.length, skipped: [], submitter: '（演示）当前用户', submittedAt: MOCK.TODAY + ' 15:40'
+        });
+        renderBatches();
+        FO.toast('批次 BF-0008 已创建 · 任务将按 eff_conc 滚动投放，不预先建满（06 §12.1）', 'ok');
+      }
+    });
+  });
+
+  function renderBatches() {
+    document.getElementById('bfTb').innerHTML = MOCK.backfillBatches.map(function (b) {
+      var done = b.success + b.failed;
+      var pct = b.total ? (done / b.total) * 100 : 0;
+      return '<tr><td><b class="mono">' + b.id + '</b></td><td class="tiny">' + b.wfName + '</td>'
+        + '<td class="bf-date tiny">' + b.range + '</td>'
+        + '<td class="num">' + b.conc + ' / <b style="color:' + (b.eff !== b.conc ? 'var(--warn)' : 'inherit') + '">' + b.eff + '</b></td>'
+        + '<td><div class="row" style="gap:8px"><div class="prog" style="width:120px"><i style="width:' + pct + '%"></i></div>'
+        + '<span class="tiny mono">' + done + '/' + b.total + '</span>'
+        + (b.skipped.length ? '<span class="tag warn" style="font-size:9px">跳过 ' + b.skipped.length + '</span>' : '') + '</div></td>'
+        + '<td>' + FO.tag('BF_STATUS', b.status) + '</td>'
+        + '<td class="tiny">' + b.submitter + '</td>'
+        + '<td><div class="actions">'
+        + '<button class="btn xs ghost" title="复制批次号" onclick="FO.copyText(\'' + b.id + '\')"><span data-ic="copy"></span></button>'
+        + (b.status === 'RUNNING' ? '<button class="btn xs" data-perm="schedule:backfill:write" onclick="FO.toast(\'批次已暂停：停止投放，在途任务继续执行（不中断，避免浪费算力/留脏数据）\',\'warn\')">暂停</button>' : '')
+        + (b.status === 'PAUSED' ? '<button class="btn xs" data-perm="schedule:backfill:write" onclick="FO.toast(\'批次已恢复投放（演示）\',\'ok\')">继续</button>' : '')
+        + (b.status === 'RUNNING' || b.status === 'PAUSED' ? '<button class="btn xs danger" data-perm="schedule:backfill:write" onclick="FO.confirm({title:\'取消批次\',message:\'取消后不再生成新实例；在途任务保持运行。\',okText:\'取消批次\',onOk:function(){FO.toast(\'批次已取消（演示）\',\'warn\')}})">取消</button>' : '')
+        + '</div></td></tr>';
+    }).join('');
+    FO.applyPerms(document);
+    document.querySelectorAll('[data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+  }
+  renderBatches();
+
+  /* 总览指标 + 快捷区间 + 批次进度实时模拟 */
+  function renderBfMetrics() {
+    var running = MOCK.backfillBatches.filter(function (b) { return b.status === 'RUNNING'; });
+    var totalTasks = MOCK.backfillBatches.reduce(function (s, b) { return s + b.total; }, 0);
+    var succ = MOCK.backfillBatches.reduce(function (s, b) { return s + b.success; }, 0);
+    document.getElementById('metricsSlot').innerHTML = FO.metricsStrip([
+      { label: '进行中批次', value: running.length, tone: 'info', icon: 'backfill' },
+      { label: '累计补跑任务', value: FO.fmt.num(totalTasks), icon: 'tasks' },
+      { label: '补跑成功率', value: totalTasks ? Math.round(succ / totalTasks * 100) + '%' : '—', tone: 'ok', icon: 'check' },
+      { label: '单次跨度上限', value: '90 天', icon: 'calendar' }
+    ]);
+  }
+  renderBfMetrics();
+
+  document.querySelectorAll('[data-quick]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var n = +b.dataset.quick;
+      var to = new Date('2026-09-24');
+      var from = new Date(to.getTime() - (n - 1) * 86400000);
+      document.getElementById('bfFrom').value = from.toISOString().slice(0, 10);
+      document.getElementById('bfTo').value = to.toISOString().slice(0, 10);
+      if (preview && !hashDead) { hashDead = true; renderHash(); FO.toast('配置已变更，预览哈希已作废——提交将被 42231 拦截，请重新预览', 'warn', '预览已失效'); }
+      FO.toast('已设置业务日期范围：' + document.getElementById('bfFrom').value + ' ~ ' + document.getElementById('bfTo').value, 'info');
+    });
+  });
+
+  /* 运行中批次滚动投放模拟：waiting → success 递进 */
+  FO.liveTicker(function () {
+    var changed = false;
+    MOCK.backfillBatches.forEach(function (b) {
+      if (b.status === 'RUNNING' && b.waiting > 0 && Math.random() < 0.4) {
+        b.waiting--; b.success++; changed = true;
+        if (b.waiting === 0 && b.failed === 0) { b.status = 'DONE'; FO.toast('回填批次 ' + b.id + ' 已全部完成', 'ok'); }
+      }
+    });
+    if (changed) { renderBatches(); renderBfMetrics(); }
+  }, 3000);
+
+  document.querySelectorAll('[data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+})();
+</script>
+</body>
+</html>

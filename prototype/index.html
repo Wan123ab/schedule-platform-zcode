@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>工作台 · FlowOps</title>
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+<style>
+  .dash-hello { display: flex; align-items: flex-end; gap: 14px; margin-bottom: 18px; animation: fadeUp .5s var(--ease) both; }
+  .dash-hello h1 { font-size: 20px; font-weight: 650; }
+  .dash-hello .date { font-family: var(--mono); color: var(--t3); font-size: 12px; padding-bottom: 3px; }
+  .kpi-strip { display: flex; align-items: center; gap: 18px; }
+  .q-item { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px dashed var(--line-faint); }
+  .q-item:last-child { border-bottom: 0; }
+  .fail-row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 0; border-bottom: 1px dashed var(--line-faint); font-size: 12.5px; }
+  .fail-row:last-child { border-bottom: 0; }
+  .fail-row .fid { font-family: var(--mono); }
+</style>
+</head>
+<body>
+<script src="assets/js/icons.js"></script>
+<script src="assets/js/mock.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+(function () {
+  var T = MOCK.trend24h;
+  var role = FO.role;
+  var isResourceRole = role === 'PLATFORM_ADMIN' || role === 'OPS';
+
+  var helloByRole = {
+    PLATFORM_ADMIN: '全局视图 · 平台运行总览',
+    OPS: '全局资源视图 · 集群与队列优先',
+    PROJECT_ADMIN: '本项目任务视图 · 电商数据平台',
+    OPERATOR_MAINTAINER: '我的算子视图 · 8 个算子近 24h 执行情况',
+    BUSINESS_USER: '我的任务视图 · 提交与失败优先',
+    AUDITOR: '只读总览 · 审计视角'
+  };
+
+  /* ---------- 区块工厂（按角色重排 = 差异化默认视图） ---------- */
+  function secTrend() {
+    return '<div class="panel"><div class="panel-h"><b><span data-ic="health"></span>24 小时任务趋势</b><span class="hint">成功 / 失败 · 按小时</span>'
+      + '<a class="more" href="task-list.html">任务列表 →</a></div><div class="panel-b">'
+      + '<div class="row" style="gap:20px;align-items:stretch">'
+      + '<div class="kpi-strip" style="flex:none">'
+      +   '<div style="text-align:center">' + FO.ring(96.8, 84, '24h 成功率') + '</div>'
+      +   '<div class="grid" style="gap:8px;align-content:center">'
+      +     '<div class="tiny muted">运行中 <b class="mono" style="color:var(--info)" id="kpiRunning">23</b></div>'
+      +     '<div class="tiny muted">等待中 <b class="mono" style="color:var(--warn)" id="kpiWaiting">49</b></div>'
+      +     '<div class="tiny muted">今日失败 <b class="mono" style="color:var(--fail)" id="kpiFailed">17</b></div>'
+      +     '<div class="tiny muted">今日派发 <b class="mono" id="kpiDispatch">3,842</b></div>'
+      +   '</div></div>'
+      + '<div style="flex:1;min-width:0">'
+      +   FO.sparkline({ data: [T.success, T.failed] }, { h: 118 })
+      +   '<div class="row mt-2 tiny faint"><span class="row" style="gap:6px"><i class="live-dot" style="background:var(--pri)"></i>成功</span>'
+      +   '<span class="row" style="gap:6px"><i class="live-dot" style="background:var(--fail)"></i>失败</span>'
+      +   '<span class="spacer"></span>峰值 102 次/h（16:00）</div></div>'
+      + '</div></div></div>';
+  }
+  function secCluster() {
+    return '<div class="panel"><div class="panel-h"><b><span data-ic="cluster"></span>集群资源水位</b><span class="hint">CPU / GPU</span>'
+      + '<a class="more" href="cluster-list.html">集群管理 →</a></div><div class="panel-b">'
+      + MOCK.clusters.map(function (c) {
+          return '<div class="' + (c === MOCK.clusters[MOCK.clusters.length - 1] ? '' : 'mb-3') + '">'
+            + '<div class="row small mb-2"><b>' + c.name + '</b>' + FO.tag('CLUSTER_STATUS', c.status)
+            + '<span class="spacer"></span><a class="tiny" href="cluster-detail.html?id=' + c.id + '">详情</a></div>'
+            + '<div class="grid g2" style="gap:10px">'
+            + FO.resBar('CPU', c.cpu.used, c.cpu.total, function (v) { return v + ' 核'; })
+            + FO.resBar('GPU', c.gpu.used, c.gpu.total, function (v) { return v + ' 卡'; })
+            + '</div></div>';
+        }).join('')
+      + '</div></div>';
+  }
+  function secQueue() {
+    return '<div class="panel"><div class="panel-h"><b><span data-ic="queue"></span>队列积压 Top</b><span class="hint">等待任务数</span></div><div class="panel-b">'
+      + MOCK.queues.filter(function (q) { return q.status === 'ENABLED'; }).sort(function (a, b) { return b.waiting - a.waiting; }).slice(0, 5).map(function (q) {
+          var cl = MOCK.clusters.filter(function (c) { return c.id === q.cluster; })[0];
+          var pct = Math.min(100, (q.waiting / q.maxWait) * 100);
+          return '<div class="q-item"><span class="tag pri">' + q.name + '</span><span class="tiny faint">' + (cl ? cl.name : q.cluster) + '</span>'
+            + '<span class="spacer"></span><span class="mono">' + q.waiting + '</span>'
+            + '<div class="rbar" style="width:90px"><div class="rb-track"><div class="rb-fill ' + (pct > 80 ? 'hot' : pct > 50 ? 'warm' : 'oklv') + '" style="width:' + pct + '%"></div></div></div>'
+            + '<span class="tiny faint">上限 ' + q.maxWait + '</span></div>';
+        }).join('')
+      + '<div class="banner warn mt-3" style="margin-bottom:0"><span data-ic="alert"></span><div>default 队列等待 47（上限 50，逼近拒绝线 40902）· gpu-queue 队头阻塞中<br><span class="b-sub">队列额度与项目额度是串联关系（PRD §11.4）</span></div></div>'
+      + '</div></div>';
+  }
+  function secFailed() {
+    var rows = MOCK.tasks.filter(function (t) { return ['FAILED', 'TIMEOUT', 'STOPPED', 'STOPPING', 'PARTIAL'].indexOf(t.status) >= 0; }).slice(0, 6);
+    return '<div class="panel"><div class="panel-h"><b><span data-ic="alert"></span>最近失败 / 干预任务</b><span class="hint">可直达对应场景</span></div><div class="panel-b">'
+      + rows.map(function (t) {
+          return '<div class="fail-row">' + FO.statusTag(t.status) + '<div style="min-width:0"><a class="fid tiny" href="task-detail.html?scene=' + (t.scene || 'running') + '">' + t.id + '</a>'
+            + '<div class="tiny muted ell" style="max-width:230px">' + FO.esc(t.failReason || t.stopReason || t.wfName) + '</div></div>'
+            + '<span class="spacer"></span><span class="tiny faint nowrap">' + (t.endAt || t.submitAt).slice(11, 16) + '</span></div>';
+        }).join('')
+      + '<a class="btn sm mt-3" href="task-list.html?status=FAILED">查看全部失败任务</a>'
+      + '</div></div>';
+  }
+  function secAlert() {
+    return '<div class="panel"><div class="panel-h"><b><span data-ic="alert"></span>告警摘要</b><span class="hint">近 24h</span><a class="more" href="alert-config.html">告警配置 →</a></div><div class="panel-b">'
+      + MOCK.alertRecords.slice(0, 6).map(function (a) {
+          return '<div class="fail-row">' + FO.levelTag(a.level) + '<div style="min-width:0"><span class="small">' + a.event + '</span>'
+            + '<div class="tiny faint mono ell" style="max-width:220px">' + a.target + '</div></div>'
+            + '<span class="spacer"></span>' + FO.tag('ALERT_RESULT', a.result) + '</div>';
+        }).join('')
+      + '<div class="banner info mt-3" style="margin-bottom:0"><span data-ic="info"></span><div>告警默认开启；同一任务同一告警 30 分钟内只发一次（§10.12）</div></div>'
+      + '</div></div>';
+  }
+  function secOps() {
+    return '<div class="panel"><div class="panel-b row">'
+      + '<span data-ic="health" style="color:var(--ok);width:16px"></span>'
+      + '<div><b class="small">平台自身健康：调度器主备正常（scheduler-1 主 · 租约剩 27s）· Redis noeviction · 节点在线率 96.5% · 今日派发 3,842</b>'
+      + '<div class="tiny faint mt-2">平台健康度对运维可见是 MVP 强制项（PRD §15.5-5，v3 回写 R-6）</div></div>'
+      + '<span class="spacer"></span><a class="btn sm primary" href="platform-health.html" data-perm="schedule:platform:health">查看平台健康度</a>'
+      + '</div></div>';
+  }
+  function secMyOps() {
+    /* 算子维护者视图：我维护的算子近 24h 执行 */
+    return '<div class="panel"><div class="panel-h"><b><span data-ic="operator"></span>我维护的算子 · 近 24h</b></div><div class="panel-b">'
+      + MOCK.operators.filter(function (o) { return o.status === 'ENABLED'; }).slice(0, 5).map(function (o) {
+          var runs = 40 + (o.id.charCodeAt(5) * 7) % 120;
+          return '<div class="q-item"><span class="tag info">' + FO.L.OPTYPE[o.type] + '</span><a class="small" href="operator-detail.html?id=' + o.id + '">' + o.name + '</a>'
+            + '<span class="spacer"></span><span class="tiny mono">' + runs + ' 次</span>'
+            + '<span class="tag ok" style="font-size:9px">成功率 ' + (94 + o.id.charCodeAt(6) % 6) + '%</span></div>';
+        }).join('') + '</div></div>';
+  }
+
+  /* 角色差异化：资源角色先资源，业务角色先任务，维护者先算子（PRD §10.1-8） */
+  var order;
+  if (role === 'OPS') order = [secCluster, secQueue, secTrend, secFailed, secAlert];
+  else if (role === 'BUSINESS_USER') order = [secFailed, secTrend, secQueue, secAlert];
+  else if (role === 'OPERATOR_MAINTAINER') order = [secMyOps, secTrend, secFailed, secAlert];
+  else if (role === 'AUDITOR') order = [secTrend, secQueue, secFailed, secAlert];
+  else order = [secTrend, secCluster, secQueue, secFailed, secAlert];
+
+  var midRow = '<div class="grid g3 mb-4">' + order[1]() + order[2]() + order[3]() + '</div>';
+  var bottomRow = order[4] ? '<div class="grid g2">' + order[4]() + secAlert() + '</div>' : '';
+  /* 重新组织：第一区块独占，随后 3 列，收尾 */
+  var content = ''
+    + '<div class="dash-hello"><h1>' + helloByRole[role] + '</h1><span class="date">' + MOCK.TODAY + ' 15:32 · 数据每 5s 轮询刷新（页面隐藏自动暂停）· 切换演示角色观察视图重排</span></div>'
+    + '<div class="mb-4">' + order[0]() + '</div>'
+    + midRow
+    + (isResourceRole ? '<div class="mb-4">' + secOps() + '</div>' : '')
+    + '<div class="grid g2">' + secFailed() + secAlert() + '</div>';
+
+  FO.mountShell({ active: 'dashboard', title: '工作台', crumb: [], content: content });
+  document.addEventListener('rolechange', function () { location.reload(); });
+
+  /* KPI 实时跳动（5s 轮询的演示化：1s 加速） */
+  var dispatch = 3842, runningN = 23;
+  FO.liveTicker(function () {
+    dispatch += Math.round(Math.random() * 3);
+    runningN = Math.max(18, Math.min(28, runningN + (Math.random() < 0.5 ? -1 : 1)));
+    var d = document.getElementById('kpiDispatch');
+    if (d) d.textContent = FO.fmt.num(dispatch);
+    var r = document.getElementById('kpiRunning');
+    if (r) r.textContent = runningN;
+  }, 1000);
+})();
+</script>
+</body>
+</html>

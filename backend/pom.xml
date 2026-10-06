@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  FlowOps · 智能工作流调度与监控平台 — 父 POM
+  版本基线锁定见 docs/02-技术选型.md §5「版本清单（Lock File）」
+  模块依赖铁律（docs/03 §1.2）：
+    - flowops-common 不依赖任何业务模块
+    - flowops-scheduler 与 flowops-server 互不依赖（协作只走 DB 状态 + Redis 队列，D-08）
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.flowops</groupId>
+  <artifactId>flowops-parent</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+  <name>flowops-parent</name>
+  <description>FlowOps · 有资源约束的 DAG 工作流调度与监控平台</description>
+
+  <modules>
+    <module>flowops-common</module>
+    <module>flowops-domain</module>
+    <module>flowops-executor-client</module>
+    <module>flowops-server</module>
+    <module>flowops-scheduler</module>
+  </modules>
+
+  <properties>
+    <java.version>21</java.version>
+    <maven.compiler.source>21</maven.compiler.source>
+    <maven.compiler.target>21</maven.compiler.target>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+    <!-- docs/02 §5 版本锁定 -->
+    <spring-boot.version>3.3.4</spring-boot.version>
+    <mybatis-plus.version>3.5.7</mybatis-plus.version>
+    <redisson.version>3.32.0</redisson.version>
+    <sa-token.version>1.39.0</sa-token.version>
+    <mapstruct.version>1.6.0</mapstruct.version>
+    <postgresql.version>42.7.3</postgresql.version>
+    <cron-utils.version>9.2.1</cron-utils.version>
+    <lombok.version>1.18.34</lombok.version>
+    <spring-security.version>6.3.3</spring-security.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-dependencies</artifactId>
+        <version>${spring-boot.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+
+      <!-- 内部模块 -->
+      <dependency><groupId>com.flowops</groupId><artifactId>flowops-common</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>com.flowops</groupId><artifactId>flowops-domain</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>com.flowops</groupId><artifactId>flowops-executor-client</artifactId><version>${project.version}</version></dependency>
+
+      <dependency>
+        <groupId>com.baomidou</groupId>
+        <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+        <version>${mybatis-plus.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.redisson</groupId>
+        <artifactId>redisson-spring-boot-starter</artifactId>
+        <version>${redisson.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>cn.dev33</groupId>
+        <artifactId>sa-token-spring-boot3-starter</artifactId>
+        <version>${sa-token.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>cn.dev33</groupId>
+        <artifactId>sa-token-redis-jackson</artifactId>
+        <version>${sa-token.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.springframework.security</groupId>
+        <artifactId>spring-security-crypto</artifactId>
+        <version>${spring-security.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.postgresql</groupId>
+        <artifactId>postgresql</artifactId>
+        <version>${postgresql.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.cronutils</groupId>
+        <artifactId>cron-utils</artifactId>
+        <version>${cron-utils.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>3.13.0</version>
+          <configuration>
+            <release>21</release>
+            <parameters>true</parameters>
+            <annotationProcessorPaths>
+              <path>
+                <groupId>org.projectlombok</groupId>
+                <artifactId>lombok</artifactId>
+                <version>${lombok.version}</version>
+              </path>
+            </annotationProcessorPaths>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-maven-plugin</artifactId>
+          <version>${spring-boot.version}</version>
+          <configuration>
+            <excludes>
+              <exclude>
+                <groupId>org.projectlombok</groupId>
+                <artifactId>lombok</artifactId>
+              </exclude>
+            </excludes>
+          </configuration>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+</project>

@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>审计日志 · FlowOps</title>
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+<style>
+  .expand-row td { background: var(--bg-inset); padding: 14px 18px 16px; }
+  .trace-chip { font-family: var(--font-mono); font-size: 10.5px; color: var(--info); background: var(--info-soft); border: 1px solid color-mix(in srgb, var(--info) 25%, transparent); padding: 0 6px; border-radius: 3px; cursor: pointer; }
+  .cross-flag { font-size: 9px; color: var(--fail); border: 1px solid color-mix(in srgb, var(--fail) 40%, transparent); padding: 0 4px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<script src="assets/js/icons.js"></script>
+<script src="assets/js/mock.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+(function () {
+  var mode = 'flat'; // flat | group
+
+  var content = ''
+    + '<div class="page-header"><div><h1>审计日志</h1><div class="sub">55 个必审动作 · 只增不改不删（DB 层 REVOKE）· 字段级 diff + trace_id 串联 · PRD §10.13</div></div>'
+    + '<div class="actions">'
+    + '<div class="seg" id="modeSeg"><button class="on" data-m="flat">流水视图</button><button data-m="group">按对象聚合（关联追踪）</button></div>'
+    + '</div></div>'
+
+    + '<div class="filter-bar" id="flatFilter">'
+    + '<input class="input" placeholder="操作人">'
+    + '<select class="select"><option>全部动作</option><option>PUBLISH_WORKFLOW</option><option>STOP_TASK</option><option>VIEW_LOG_RAW</option><option>ROTATE_CREDENTIAL</option></select>'
+    + '<select class="select"><option>全部对象</option><option>工作流</option><option>任务</option><option>凭据</option><option>触发器</option></select>'
+    + '<select class="select"><option>近 7 天</option><option>近 30 天</option><option>自定义</option></select>'
+    + '<span class="spacer"></span><span class="tiny faint">点击 trace_id 可串联查询该请求全链路（GET /trace/{trace_id}）</span>'
+    + '</div>'
+
+    + '<div id="body"></div>'
+
+    + '<div class="banner info mt-4"><span data-ic="info"></span><div>'
+    + '<b>审计范围（MVP 13 类）：</b>登录、项目/集群/节点/队列增删改、<b>凭据创建/轮换/删除</b>、算子操作、<b>算子试运行</b>、工作流生命周期、触发/停止/插队/重跑、<b>回填批次操作</b>、权限变更、<b>运维跨项目查看日志原文</b>。<br>'
+    + '<span class="b-sub">审计写入与业务事务解耦（REQUIRES_NEW），写失败计 P0 告警（合规风险等同生产事故）</span></div></div>';
+
+  FO.mountShell({ active: 'auditLog', title: '审计日志', crumb: [{ label: '系统管理' }], content: content });
+
+  document.querySelectorAll('#modeSeg button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.querySelectorAll('#modeSeg button').forEach(function (x) { x.classList.remove('on'); });
+      b.classList.add('on');
+      mode = b.dataset.m;
+      render();
+    });
+  });
+
+  function render() {
+    document.getElementById('flatFilter').style.display = mode === 'flat' ? 'flex' : 'none';
+    document.getElementById('body').innerHTML = mode === 'flat' ? flatView() : groupView();
+    FO.applyPerms(document);
+    document.querySelectorAll('[data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+  }
+
+  /* ---------- 流水视图（含字段级 diff 展开） ---------- */
+  function flatView() {
+    return '<div class="panel"><div class="table-wrap"><table class="tbl"><thead><tr>'
+      + '<th>时间</th><th>操作人</th><th>动作</th><th>对象</th><th>结果</th><th>trace_id</th><th style="text-align:right">详情</th>'
+      + '</tr></thead><tbody>'
+      + MOCK.auditLogs.map(function (a, i) {
+          var actColor = { VIEW_LOG_RAW: 'fail', STOP_TASK: 'warn', PUBLISH_WORKFLOW: 'pri', ROTATE_CREDENTIAL: 'warn', ENQUEUE_FRONT: 'info' }[a.action] || 'plain';
+          return '<tr class="js-main" data-i="' + i + '">'
+            + '<td class="mono tiny nowrap">' + a.time + '</td>'
+            + '<td class="tiny">' + a.name + ' <span class="faint mono">' + a.operator + '</span></td>'
+            + '<td><span class="tag ' + actColor + '" style="font-size:10px">' + a.action + '</span>'
+            + (a.cross ? ' <span class="cross-flag">跨项目</span>' : '') + '</td>'
+            + '<td class="tiny">' + a.target + '</td>'
+            + '<td>' + (a.result === 'SUCCESS' ? '<span class="tag ok">成功</span>' : '<span class="tag fail">失败</span>') + '</td>'
+            + '<td><span class="trace-chip" title="点击串联查询">' + a.trace + '</span></td>'
+            + '<td><div class="actions">' + (a.diff || a.reason ? '<button class="btn xs js-exp" data-i="' + i + '">展开</button>' : '—') + '</div></td></tr>'
+            + (a.diff || a.reason ? '<tr class="expand-row hide js-exp-row" data-i="' + i + '"><td colspan="7">' + expBody(a) + '</td></tr>' : '');
+        }).join('')
+      + '</tbody></table></div>'
+      + '<div class="pager"><span>共 8 条（演示）· 审计保留 3 年（合规）</span><div class="pgs"><button disabled>‹</button><button class="on">1</button><button disabled>›</button></div></div></div>';
+  }
+
+  function expBody(a) {
+    var h = '';
+    if (a.reason) h += '<div class="mb-3"><span class="tiny faint">操作原因：</span><span class="small">' + FO.esc(a.reason) + '</span>'
+      + (a.cross ? ' <span class="tag fail" style="font-size:9px">跨项目访问 · 单次授权 · 已留痕</span>' : '') + '</div>';
+    if (a.diff) {
+      h += '<table class="diff-tbl"><thead><tr><th style="width:160px">字段</th><th>操作前</th><th>操作后</th></tr></thead><tbody>'
+        + Object.keys(a.diff).map(function (k) {
+            var v = a.diff[k];
+            return '<tr><td class="mono tiny">' + k + '</td>'
+              + '<td><span class="old">' + FO.esc(v[0]) + '</span></td>'
+              + '<td><span class="new">' + FO.esc(v[1]) + '</span></td></tr>';
+          }).join('') + '</tbody></table>';
+    }
+    h += '<div class="tiny faint mt-3">来源 IP ' + a.ip + ' · before/after 摘要由 @Audited 切面自动采集 · 本记录只增不改不删</div>';
+    return h;
+  }
+
+  document.addEventListener('click', function (e) {
+    var exp = e.target.closest && e.target.closest('.js-exp');
+    if (exp) {
+      var row = document.querySelector('.js-exp-row[data-i="' + exp.dataset.i + '"]');
+      if (row) row.classList.toggle('hide');
+    }
+    var tc = e.target.closest && e.target.closest('.trace-chip');
+    if (tc) openTrace(tc.textContent);
+  });
+
+  /* ---------- trace 全链路视图（07 §7.1：一个 trace 贯穿触发→调度→执行→审计） ---------- */
+  function openTrace(traceId) {
+    var row = MOCK.auditLogs.filter(function (a) { return a.trace === traceId; })[0];
+    if (!row) return;
+    var chain = [
+      { t: '客户端发起请求', d: row.ip + ' · X-Trace-Id 注入（32 位 hex，无连字符）', s: 'ok' },
+      { t: '服务端处理', d: 'Controller → Service → Mapper，日志 MDC 贯穿 trace_id=' + traceId, s: 'ok' },
+      { t: '业务结果', d: row.action + ' → ' + (row.result === 'SUCCESS' ? '执行成功' : (row.failReason || '执行失败')), s: row.result === 'SUCCESS' ? 'ok' : 'fail' },
+      { t: '审计落库', d: row.id + ' · ' + row.time + ' · 操作人 ' + row.name, s: 'pri' }
+    ];
+    if (row.action === 'SUBMIT_BACKFILL' || row.action === 'SUBMIT_TASK' || row.action === 'STOP_TASK') {
+      chain.splice(3, 0, { t: '调度器感知（DB 状态变化）', d: 'scheduler 下一 tick 扫描并推进（server 与 scheduler 通过 DB 状态 + Redis 队列解耦）', s: '' });
+    }
+    FO.drawer({
+      title: 'trace 链路 · ' + traceId.slice(0, 16) + '…',
+      body: '<div class="tline mb-3">' + chain.map(function (c) {
+          return '<div class="tline-item ' + c.s + '"><div class="tl-title">' + c.t + '</div><div class="tl-body">' + c.d + '</div></div>';
+        }).join('') + '</div>'
+        + '<div class="banner info" style="margin-bottom:0"><span data-ic="info"></span><div>同一 trace_id 在 应用日志、审计表、调度决策表 中可串联查询（GET /trace/{trace_id}）；调度器内部动作为每次决策生成独立 trace</div></div>'
+    });
+  }
+
+  /* ---------- 按对象聚合（关联追踪视图，PRD §10.13） ---------- */
+  function groupView() {
+    return '<div class="grid" style="grid-template-columns:280px 1fr">'
+      + '<div class="panel"><div class="panel-h"><b>选择对象</b></div><div class="panel-b">'
+      + '<div class="vl-item pass js-obj sel" data-o="WF-0001">' + FO_ICONS.get('workflow') + '<div><b class="small">WF-0001 每日订单数据同步</b><div class="tiny faint">工作流 · 6 条相关记录</div></div></div>'
+      + '<div class="vl-item js-obj" data-o="TASK">' + FO_ICONS.get('tasks') + '<div><b class="small">TASK-20260924-0035</b><div class="tiny faint">任务 · 3 条相关记录</div></div></div>'
+      + '<div class="vl-item js-obj" data-o="CR">' + FO_ICONS.get('credential') + '<div><b class="small">CR-0001 生产节点SSH密钥</b><div class="tiny faint">凭据 · 1 条相关记录</div></div></div>'
+      + '</div></div>'
+      + '<div class="panel"><div class="panel-h"><b>操作链路时间线 · WF-0001</b><span class="hint">谁改过 → 改了什么 → 何时发布 → 谁触发 → 谁干预</span></div><div class="panel-b">'
+      + '<div class="tline">'
+      + tl('2026-09-23 17:58:40', 'pm-ecom 保存草稿', '字段级 diff：特征计算.CPU 4 → 8（SAVE_DRAFT）', 'warn')
+      + tl('2026-09-23 18:22:09', 'pm-ecom 发布 v3', 'diff：步骤数 4→5；数据清洗.互斥锁 （空）→ orders_rw · trace 5d11…f8aa', 'pri')
+      + tl('2026-09-24 02:00:03', '触发器 TR-0001 定时触发', '生成 TASK-20260924-0042（绑定版本 v3）', '')
+      + tl('2026-09-24 14:22:31', 'ops001 停止 TASK-20260924-0038', '原因：业务要求临时让路大促回填批次（STOP_TASK）', 'fail')
+      + tl('2026-09-24 15:28:11', 'ops001 插队 TASK-20260924-0051', 'ENQUEUE_FRONT · score 更新', '')
+      + '</div>'
+      + '<div class="tiny faint mt-3">聚合视图回答「这个对象经历了什么」：选择一个任务或工作流，展示完整操作链路时间线。</div>'
+      + '</div></div></div>';
+  }
+  function tl(time, title, body, cls) {
+    return '<div class="tline-item ' + cls + '"><div class="tl-time">' + time + '</div><div class="tl-title">' + title + '</div><div class="tl-body">' + body + '</div></div>';
+  }
+
+  document.addEventListener('click', function (e) {
+    var obj = e.target.closest && e.target.closest('.js-obj');
+    if (obj) {
+      document.querySelectorAll('.js-obj').forEach(function (x) { x.classList.remove('sel'); });
+      obj.classList.add('sel');
+      FO.toast('已切换聚合对象（演示数据固定为 WF-0001 链路）', 'info');
+    }
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

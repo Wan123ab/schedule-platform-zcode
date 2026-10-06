@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- task_log（按日 RANGE 分区，docs/05 §7.2）：只追加、按 seq 续读、按分区 DROP 清理。
+     命中分区键 log_time 的谓词由 seq 过滤天然走最新分区（重放只查近期行）。 -->
+<mapper namespace="com.flowops.domain.mapper.task.TaskLogMapper">
+
+    <insert id="batchInsert">
+        INSERT INTO task_log (task_step_id, task_id, seq, stream, content)
+        VALUES
+        <foreach collection="rows" item="r" separator=",">
+            (#{r.taskStepId}, #{r.taskId}, #{r.seq}, #{r.stream}, #{r.content})
+        </foreach>
+    </insert>
+
+    <select id="selectAfterSeq"
+            resultType="com.flowops.domain.dto.query.TaskLogRow">
+        SELECT task_step_id AS taskStepId,
+               task_id      AS taskId,
+               seq,
+               stream,
+               content,
+               log_time     AS logTime
+          FROM task_log
+         WHERE task_step_id = #{taskStepId}
+           AND seq &gt; #{afterSeq}
+         ORDER BY seq
+         LIMIT #{limit}
+    </select>
+
+</mapper>

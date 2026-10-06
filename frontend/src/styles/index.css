@@ -1,0 +1,8 @@
+/* 样式汇总入口（docs/04 §2.2 顺序）：
+   tokens.css → theme-light.css → reset(base.css) → atmosphere.css → skeleton.css
+   ⚠️ element-override.scss 必须在 Element Plus 基础样式之后引入（main.ts 第 3 步） */
+@import './tokens.css';
+@import './theme-light.css';
+@import './base.css';
+@import './atmosphere.css';
+@import './skeleton.css';

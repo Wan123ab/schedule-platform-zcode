@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>算子详情 · FlowOps</title>
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+</head>
+<body>
+<script src="assets/js/icons.js"></script>
+<script src="assets/js/mock.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+(function () {
+  var oid = FO.qs('id') || 'OP-0002';
+  var o = MOCK.operators.filter(function (x) { return x.id === oid; })[0] || MOCK.operators[1];
+  var vers = MOCK.opVersions[o.id] || [];
+  var cur = vers.filter(function (v) { return v.isDefault; })[0] || vers[0];
+
+  var content = ''
+    + '<div class="page-header"><div><h1 class="row" style="gap:10px">' + o.name + '<span class="tag info">' + FO.L.OPTYPE[o.type] + '</span>' + FO.tag('OP_STATUS', o.status) + '</h1>'
+    + '<div class="sub"><span class="mono">' + o.id + '</span> · ' + o.project + ' · 创建人 ' + o.creator + ' · ' + o.desc + '</div></div>'
+    + '<div class="actions">'
+    + '<a class="btn" href="operator-version.html?op=' + o.id + '&v=' + (cur ? cur.no : 'v1') + '" data-perm="schedule:operator:dryrun">' + FO_ICONS.get('play') + '试运行</a>'
+    + '<button class="btn" data-perm="schedule:operator:write" onclick="FO.toast(\'进入基础信息编辑（演示）\',\'info\')">' + FO_ICONS.get('edit') + '编辑</button>'
+    + '<button class="btn danger" data-perm="schedule:operator:delete" onclick="FO.toast(\'被已发布工作流引用，不可删除（42211）\',\'fail\')">' + FO_ICONS.get('trash') + '删除</button>'
+    + '</div></div>'
+
+    + '<div class="tabs">'
+    + '<button class="tab-btn on" data-tab="ver">版本列表 <span class="cnt">' + vers.length + '</span></button>'
+    + '<button class="tab-btn" data-tab="param">参数模板</button>'
+    + '<button class="tab-btn" data-tab="output">输出声明</button>'
+    + '<button class="tab-btn" data-tab="refs">被引用</button>'
+    + '</div>'
+    + '<div class="panel"><div id="tabBody"></div></div>';
+
+  FO.mountShell({ active: 'operatorList', title: '算子详情', crumb: [{ label: '算子管理', href: 'operator-list.html' }], content: content });
+
+  var TABS = {
+    ver: function () {
+      return '<div class="table-wrap"><table class="tbl"><thead><tr><th>版本</th><th>状态</th><th>文件</th><th>发布人</th><th>发布时间</th><th>参数项</th><th>输出项</th><th style="text-align:right">操作</th></tr></thead><tbody>'
+        + vers.map(function (v) {
+            return '<tr>'
+              + '<td><b class="mono">' + v.no + '</b>' + (v.isDefault ? ' <span class="tag pri">默认</span>' : '') + '</td>'
+              + '<td>' + FO.tag('OPV_STATUS', v.status) + '</td>'
+              + '<td class="mono tiny">' + v.file + ' · ' + v.size + '</td>'
+              + '<td class="tiny">' + v.publisher + '</td>'
+              + '<td class="mono tiny">' + v.publishedAt + '</td>'
+              + '<td class="num">' + v.params.length + '</td>'
+              + '<td class="num">' + v.outputs.length + '</td>'
+              + '<td><div class="actions">'
+              + '<a class="btn xs" href="operator-version.html?op=' + o.id + '&v=' + v.no + '">查看</a>'
+              + (v.status === 'PUBLISHED' ? '<button class="btn xs" data-perm="schedule:operator:dryrun" onclick="location.href=\'operator-version.html?op=' + o.id + '&v=' + v.no + '&dryrun=1\'">试运行</button>' : '')
+              + '</div></td></tr>';
+          }).join('')
+        + '</tbody></table></div>'
+        + '<div class="panel-b banner info" style="margin:0"><span data-ic="info"></span><div>参数定义与输出声明<b>随版本快照，版本发布后不可改</b>；每算子仅一个默认版本（部分唯一索引约束）</div></div>';
+    },
+    param: function () {
+      var ps = (cur || { params: [] }).params;
+      return '<div class="table-wrap"><table class="tbl"><thead><tr><th>#</th><th>参数名称</th><th>标识</th><th>类型</th><th>必填</th><th>默认值</th><th>校验规则</th><th>运行时可覆盖</th><th>敏感</th></tr></thead><tbody>'
+        + ps.map(function (p, i) {
+            return '<tr><td class="num">' + (i + 1) + '</td><td>' + p.name + '</td><td class="mono">' + p.key + '</td>'
+              + '<td><span class="tag info">' + p.type + '</span></td>'
+              + '<td>' + (p.required ? '<span class="tag fail">必填</span>' : '<span class="tag">选填</span>') + '</td>'
+              + '<td class="mono tiny">' + (p.default || '—') + '</td>'
+              + '<td class="tiny">' + (p.rule || '—') + '</td>'
+              + '<td>' + (p.overridable ? '<span class="tag ok">可覆盖</span>' : '<span class="tag">锁定</span>') + '</td>'
+              + '<td>' + (p.sensitive ? '<span class="tag fail">敏感（全链路脱敏）</span>' : '—') + '</td></tr>';
+          }).join('')
+        + '</tbody></table></div>'
+        + '<div class="panel-b banner warn" style="margin:0"><span data-ic="alert"></span><div>标记为「敏感」的参数：在所有日志、变量快照、任务详情展示中<b>永久脱敏为 ***</b>（PRD §13.3-2），脱敏在服务端执行，前端不接触原文</div></div>';
+    },
+    output: function () {
+      var os = (cur || { outputs: [] }).outputs;
+      if (!os.length) return '<div class="empty">' + FO_ICONS.get('info') + '<p>该版本未声明输出变量</p></div>';
+      return '<div class="table-wrap"><table class="tbl"><thead><tr><th>输出名称</th><th>标识</th><th>类型</th><th>取值方式</th><th>提取规则</th><th>必填</th><th>示例值</th></tr></thead><tbody>'
+        + os.map(function (x) {
+            return '<tr><td>' + x.name + '</td><td class="mono">' + x.key + '</td><td><span class="tag info">' + x.type + '</span></td>'
+              + '<td>' + (x.mode === 'REGEX' ? '标准输出正则提取' : '从指定文件读取') + '</td>'
+              + '<td><code class="mono tiny">' + x.expr + '</code></td>'
+              + '<td>' + (x.required ? '<span class="tag fail">必填</span><div class="tiny faint">未产出 → 步骤判失败</div>' : '<span class="tag">选填</span>') + '</td>'
+              + '<td class="mono tiny">' + x.example + '</td></tr>';
+          }).join('')
+        + '</tbody></table></div>'
+        + '<div class="panel-b banner info" style="margin:0"><span data-ic="info"></span><div>输出声明让 DAG 具备数据流转能力：下游步骤以 <span class="mono">${step.' + '数据清洗.output.outputFilePath}</span> 引用（变量分层最高优先级层，PRD §10.0.2）</div></div>';
+    },
+    refs: function () {
+      return '<div class="table-wrap"><table class="tbl"><thead><tr><th>工作流</th><th>版本</th><th>步骤</th><th>项目</th><th>工作流状态</th></tr></thead><tbody>'
+        + '<tr><td><a href="workflow-detail.html?id=WF-0001">每日订单数据同步</a></td><td class="mono">v3</td><td>数据清洗</td><td>PRJ-0001</td><td>' + FO.tag('WF_STATUS', 'PUBLISHED') + '</td></tr>'
+        + '<tr><td><a href="workflow-detail.html?id=WF-0002">用户画像宽表刷新</a></td><td class="mono">v7</td><td>明细清洗</td><td>PRJ-0001</td><td>' + FO.tag('WF_STATUS', 'PUBLISHED') + '</td></tr>'
+        + '</tbody></table></div>'
+        + '<div class="panel-b banner warn" style="margin:0"><span data-ic="alert"></span><div>删除算子版本前必须校验引用计数 = 0；已发布工作流引用的版本受外键 RESTRICT 保护</div></div>';
+    }
+  };
+
+  function showTab(key) {
+    document.querySelectorAll('.tab-btn').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === key); });
+    document.getElementById('tabBody').innerHTML = TABS[key]();
+    FO.applyPerms(document);
+    document.querySelectorAll('[data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+  }
+  document.querySelectorAll('.tab-btn').forEach(function (b) { b.addEventListener('click', function () { showTab(b.dataset.tab); }); });
+  showTab('ver');
+})();
+</script>
+</body>
+</html>

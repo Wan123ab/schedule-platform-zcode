@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>评审工作台 · FlowOps 原型</title>
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+<style>
+  .rw { position: relative; z-index: 1; display: flex; height: 100vh; width: 100%; }
+  .rw-side {
+    width: 308px; flex: 0 0 308px; display: flex; flex-direction: column;
+    background: linear-gradient(180deg, rgba(17,24,39,.62), rgba(7,10,17,.9));
+    border-right: 1px solid var(--line-faint); backdrop-filter: blur(14px);
+  }
+  body[data-theme="light"] .rw-side { background: #fff; }
+  .rw-head { padding: 14px 16px 10px; border-bottom: 1px solid var(--line-faint); }
+  .rw-head h1 { font-size: 15px; font-weight: 650; display: flex; align-items: center; gap: 8px; }
+  .rw-head h1 svg { width: 15px; height: 15px; color: var(--pri); }
+  .rw-head .rw-sub { font-size: 11px; color: var(--t3); margin-top: 2px; }
+  .rw-prog { margin-top: 10px; }
+  .rw-list { flex: 1; overflow-y: auto; padding: 8px; }
+  .rw-item {
+    display: flex; align-items: center; gap: 8px; padding: 7px 9px; margin-bottom: 2px;
+    border-radius: var(--r-sm); cursor: pointer; border: 1px solid transparent; transition: all var(--dur-fast);
+  }
+  .rw-item:hover { background: var(--bg-hover); }
+  .rw-item.on { background: var(--pri-dim); border-color: var(--pri-line); }
+  .rw-item .rw-no { font-family: var(--mono); font-size: 10px; color: var(--t4); width: 20px; flex: none; }
+  .rw-item .rw-name { font-size: 12.5px; color: var(--t1); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rw-item .rw-file { display: block; font-size: 9.5px; color: var(--t4); font-family: var(--mono); }
+  .rw-state { width: 17px; height: 17px; border-radius: 50%; flex: none; display: grid; place-items: center; font-size: 10px; border: 1px solid var(--line-strong); color: var(--t4); }
+  .rw-item[data-st="pass"] .rw-state { background: var(--ok-dim); border-color: var(--ok-line); color: var(--ok); }
+  .rw-item[data-st="issue"] .rw-state { background: var(--fail-dim); border-color: var(--fail-line); color: var(--fail); }
+  .rw-item[data-st="note"] .rw-state { background: var(--warn-dim); border-color: var(--warn-line); color: var(--warn); }
+  .rw-foot { padding: 10px 14px; border-top: 1px solid var(--line-faint); display: flex; flex-direction: column; gap: 8px; }
+  .rw-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .rw-toolbar {
+    height: 50px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 16px;
+    border-bottom: 1px solid var(--line-faint); background: rgba(12,17,26,.72); backdrop-filter: blur(14px);
+  }
+  body[data-theme="light"] .rw-toolbar { background: rgba(255,255,255,.8); }
+  .rw-toolbar b { font-size: 13.5px; }
+  .rw-frame-wrap { flex: 1; min-height: 0; position: relative; background: var(--bg-void); }
+  .rw-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .rw-notes { height: 190px; flex: none; border-top: 1px solid var(--line-faint); display: flex; flex-direction: column; background: var(--bg-panel); }
+  .rw-notes-h { display: flex; align-items: center; gap: 8px; padding: 8px 16px 0; }
+  .rw-notes-h b { font-size: 12.5px; }
+  .rw-notes-h .tiny { color: var(--t3); }
+  .rw-notes textarea {
+    flex: 1; margin: 8px 16px 12px; padding: 10px 12px; resize: none; border-radius: var(--r-sm);
+    background: var(--bg-inset); border: 1px solid var(--line); color: var(--t1); font-size: 12.5px; line-height: 1.7; outline: none;
+    font-family: var(--font);
+  }
+  .rw-notes textarea:focus { border-color: var(--pri-line); }
+  .rw-tip { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); z-index: 5; }
+  .rw-tip .toast { position: static; }
+  @media (max-width: 980px) { .rw-side { display: none; } }
+</style>
+</head>
+<body>
+<script src="assets/js/icons.js"></script>
+<script src="assets/js/mock.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+(function () {
+  var PAGES = [
+    ['01', '登录页', 'login.html', '§17(R-8) §7.1'],
+    ['02', '首页工作台', 'index.html', '§10.1（角色重排/环图/趋势）'],
+    ['03', '项目空间', 'project-list.html', '§10.2 §11.4（额度/影响面/四态）'],
+    ['04', '集群列表', 'cluster-list.html', '§10.3'],
+    ['05', '集群详情', 'cluster-detail.html', '§10.3 §10.10（停止/插队）'],
+    ['06', '执行节点详情', 'node-detail.html', '§10.4 §12.2（心跳/连通测试）'],
+    ['07', '凭据管理', 'credential-list.html', '§10.5（禁删/轮换/过期条）'],
+    ['08', '算子列表', 'operator-list.html', '§10.6'],
+    ['09', '算子详情', 'operator-detail.html', '§10.6（3 版本/输出声明）'],
+    ['10', '算子版本详情', 'operator-version.html', '§10.6（试运行）'],
+    ['11', '工作流列表', 'workflow-list.html', '§10.7'],
+    ['12', '工作流编辑器', 'workflow-editor.html', '§10.8 §12.3（画布/校验10条）'],
+    ['13', '工作流详情', 'workflow-detail.html', '§10.7 §10.9（运营指标带/拓扑×最近运行/版本对比/继承链/历史趋势）'],
+    ['14', '任务列表', 'task-list.html', '§10.10（行级权限/URL同步/进度条）'],
+    ['15', '任务详情', 'task-detail.html', '§10.0.4 §10.10（5场景/8格运行档案/调度带/步骤四页签/日志计数）'],
+    ['16', '回填补数', 'backfill.html', '§10.11（双闸门/进度模拟）'],
+    ['17', '告警配置', 'alert-config.html', '§10.12（趋势/送达率环）'],
+    ['18', '审计日志', 'audit-log.html', '§10.13（trace视图/diff/聚合）'],
+    ['19', '平台健康度', 'platform-health.html', '§15.5-5（租约/决策表）'],
+    ['20', 'API 接入', 'api-trigger.html', '§10.9/§17（API 触发提前纳入一期）：Key 鉴权（一次性明文/轮换双活）、开放接口（创建/详情/终止/重试）、调用记录、Webhook 通知（HMAC 签名+重试链路）']
+  ];
+  var cur = localStorage.getItem('flowops.rw.page') || PAGES[0][2];
+
+  var content = ''
+    + '<div class="rw">'
+    + '<aside class="rw-side">'
+    +   '<div class="rw-head"><h1><span data-ic="audit"></span>评审工作台</h1>'
+    +   '<div class="rw-sub">FlowOps 原型 V0.2 · 20 页 · 点状态圆圈循环「未看→通过→有意见」</div>'
+    +   '<div class="rw-prog" id="prog"></div></div>'
+    +   '<div class="rw-list" id="list"></div>'
+    +   '<div class="rw-foot">'
+    +     '<button class="btn sm primary" id="btnExport"><span data-ic="download"></span>导出评审报告（Markdown）</button>'
+    +     '<button class="btn sm" id="btnResetAll">清空全部标记与笔记</button>'
+    +   '</div>'
+    + '</aside>'
+    + '<div class="rw-main">'
+    +   '<div class="rw-toolbar"><b id="curName">—</b><span class="tag pri" id="curPrd"></span>'
+    +   '<span class="spacer"></span>'
+    +   '<button class="btn xs" id="btnCycle"><span data-ic="check"></span>标记状态</button>'
+    +   '<a class="btn xs" id="btnOpen" href="#" target="_blank">新窗口打开</a>'
+    +   '<button class="icon-btn" id="themeBtn" title="明暗主题">' + FO_ICONS.get('sun') + '</button></div>'
+    +   '<div class="rw-frame-wrap"><iframe class="rw-frame" id="frame" title="原型预览"></iframe></div>'
+    +   '<div class="rw-notes">'
+    +     '<div class="rw-notes-h"><b>评审笔记</b><span class="tiny" id="noteHint"></span><span class="spacer"></span><span class="tiny faint">自动保存到本机</span></div>'
+    +     '<textarea id="noteBox" placeholder="记录该页的评审意见，如：诊断面板的 ETA 口径需要业务确认……（按「页面 + 现象 + 期望」记录）"></textarea>'
+    +   '</div>'
+    + '</div></div>';
+
+  document.body.setAttribute('data-theme', FO.theme);
+  document.body.innerHTML = content
+    + '<div class="toasts" id="toasts"></div>';
+
+  /* ---------- 渲染清单 ---------- */
+  function stOf(page) { return localStorage.getItem('flowops.rs.' + page) || 'todo'; }
+  function renderList() {
+    var f = localStorage.getItem('flowops.rw.filter') || 'all';
+    var items = PAGES.filter(function (p) {
+      var s = stOf(p[2]);
+      return f === 'all' || (f === 'todo' && s === 'todo') || (f === 'pass' && s === 'pass') || (f === 'issue' && s === 'issue');
+    });
+    document.getElementById('list').innerHTML = items.map(function (p) {
+      var s = stOf(p[2]);
+      var mark = s === 'pass' ? '✓' : s === 'issue' ? '✕' : s === 'note' ? '●' : '';
+      return '<div class="rw-item' + (p[2] === cur ? ' on' : '') + '" data-page="' + p[2] + '" data-st="' + s + '">'
+        + '<span class="rw-state">' + mark + '</span>'
+        + '<span style="flex:1;min-width:0"><span class="rw-name">' + p[1] + '</span><span class="rw-file">' + p[2] + ' · ' + p[3] + '</span></span>'
+        + '<span class="rw-no">' + p[0] + '</span></div>';
+    }).join('') || '<div class="empty tiny">该筛选下没有页面</div>';
+    /* 分组小过滤条 */
+    var done = PAGES.filter(function (p) { return stOf(p[2]) !== 'todo'; }).length;
+    var pass = PAGES.filter(function (p) { return stOf(p[2]) === 'pass'; }).length;
+    var issue = PAGES.filter(function (p) { return stOf(p[2]) === 'issue'; }).length;
+    document.getElementById('prog').innerHTML =
+      '<div class="row tiny muted"><span>已处理 <b class="mono">' + done + '</b> / ' + PAGES.length + '</span>'
+      + '<span class="spacer"></span><span style="color:var(--ok)">通过 ' + pass + '</span>'
+      + '<span style="color:var(--fail)">有意见 ' + issue + '</span></div>'
+      + '<div class="prog mt-2"><i style="width:' + (done / PAGES.length * 100) + '%"></i></div>'
+      + '<div class="row mt-2" style="gap:4px">' + [['all', '全部'], ['todo', '未处理'], ['pass', '通过'], ['issue', '有意见']].map(function (x) {
+          return '<button class="btn xs' + (f === x[0] ? ' primary' : '') + '" data-f="' + x[0] + '">' + x[1] + '</button>';
+        }).join('') + '</div>';
+    document.querySelectorAll('#list .rw-item').forEach(function (el) {
+      el.addEventListener('click', function (e) {
+        if (e.target.closest('.rw-state')) { cycleSt(el.dataset.page); return; }
+        select(el.dataset.page);
+      });
+    });
+    document.querySelectorAll('#prog [data-f]').forEach(function (b) {
+      b.addEventListener('click', function () { localStorage.setItem('flowops.rw.filter', b.dataset.f); renderList(); });
+    });
+  }
+
+  function select(page) {
+    cur = page;
+    localStorage.setItem('flowops.rw.page', page);
+    var meta = PAGES.filter(function (p) { return p[2] === page; })[0];
+    document.getElementById('curName').textContent = meta[0] + ' · ' + meta[1];
+    document.getElementById('curPrd').textContent = meta[3];
+    document.getElementById('btnOpen').href = page;
+    document.getElementById('frame').src = page + '?from=review';
+    var note = localStorage.getItem('flowops.rn.' + page) || '';
+    document.getElementById('noteBox').value = note;
+    document.getElementById('noteHint').textContent = note ? note.length + ' 字' : '该页暂无笔记';
+    renderList();
+  }
+
+  function cycleSt(page) {
+    var order = ['todo', 'pass', 'issue', 'note'];
+    var cur2 = stOf(page);
+    var next = order[(order.indexOf(cur2) + 1) % order.length];
+    localStorage.setItem('flowops.rs.' + page, next);
+    renderList();
+    var names = { todo: '未看', pass: '评审通过', issue: '有意见', note: '有备注' };
+    FO.toast('「' + page + '」标记为：' + names[next], next === 'pass' ? 'ok' : next === 'issue' ? 'fail' : 'info');
+  }
+
+  /* ---------- 笔记自动保存 ---------- */
+  var noteTimer = null;
+  document.getElementById('noteBox').addEventListener('input', function () {
+    clearTimeout(noteTimer);
+    var v = this.value;
+    noteTimer = setTimeout(function () {
+      localStorage.setItem('flowops.rn.' + cur, v);
+      document.getElementById('noteHint').textContent = v ? '已保存 · ' + v.length + ' 字' : '该页暂无笔记';
+    }, 400);
+  });
+
+  /* ---------- 顶部按钮 ---------- */
+  document.getElementById('btnCycle').addEventListener('click', function () { cycleSt(cur); });
+  document.getElementById('themeBtn').addEventListener('click', function () {
+    FO.toggleTheme();
+    this.innerHTML = FO_ICONS.get(FO.theme === 'dark' ? 'sun' : 'moon');
+  });
+  document.getElementById('btnResetAll').addEventListener('click', function () {
+    FO.confirm({
+      title: '清空评审进度',
+      message: '将清除全部 20 页的状态标记与评审笔记（仅影响本浏览器的 localStorage）。',
+      okText: '确认清空',
+      onOk: function () {
+        PAGES.forEach(function (p) { localStorage.removeItem('flowops.rs.' + p[2]); localStorage.removeItem('flowops.rn.' + p[2]); });
+        renderList(); FO.toast('已清空（演示）', 'ok');
+      }
+    });
+  });
+  document.getElementById('btnExport').addEventListener('click', function () {
+    var md = '# FlowOps 原型 V0.2 · 评审报告\n\n> 导出时间：' + new Date().toLocaleString() + ' · 共 20 页\n\n';
+    md += '| # | 页面 | 文件 | 状态 | 评审笔记 |\n|---|---|---|---|---|\n';
+    PAGES.forEach(function (p) {
+      var s = stOf(p[2]);
+      var sn = { todo: '未看', pass: '✅ 通过', issue: '❌ 有意见', note: '📝 有备注' }[s];
+      var note = (localStorage.getItem('flowops.rn.' + p[2]) || '').replace(/\n/g, '<br>').replace(/\|/g, '\\|');
+      md += '| ' + p[0] + ' | ' + p[1] + ' | `' + p[2] + '` | ' + sn + ' | ' + (note || '—') + ' |\n';
+    });
+    md += '\n## 汇总意见\n\n（在此补充全局性意见）\n';
+    var blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'flowops-原型评审报告-' + new Date().toISOString().slice(0, 10) + '.md';
+    a.click(); URL.revokeObjectURL(a.href);
+    FO.toast('评审报告已导出为 Markdown', 'ok');
+  });
+
+  document.querySelectorAll('[data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+  select(cur);
+})();
+</script>
+</body>
+</html>

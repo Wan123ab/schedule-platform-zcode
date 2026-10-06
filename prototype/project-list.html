@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>项目空间 · FlowOps</title>
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+</head>
+<body>
+<script src="assets/js/icons.js"></script>
+<script src="assets/js/mock.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+(function () {
+  var content = ''
+    + '<div class="page-header"><div><h1>项目空间</h1><div class="sub">多团队隔离单元：项目内算子、工作流、任务、凭据与资源额度互不可见（平台管理员除外）· PRD §10.2 / §11.1</div></div>'
+    + '<div class="actions"><button class="btn primary" data-perm="schedule:project:write" id="btnNew">' + FO_ICONS.get('plus') + '新建项目</button></div></div>'
+
+    + '<div class="filter-bar">'
+    + '<input class="input" placeholder="搜索项目名称 / 编号">'
+    + '<select class="select"><option>全部状态</option><option>启用</option><option>停用</option><option>归档</option></select>'
+    + '<select class="select"><option>全部租户</option><option>默认租户</option></select>'
+    + FO.stateDemoControl()
+    + '<span class="spacer"></span><span class="tiny faint">一期仅 1 个默认租户，租户层 UI 不暴露（M-01）</span>'
+    + '</div>'
+
+    + '<div class="panel"><div class="table-wrap" id="prjWrap"><table class="tbl"><thead><tr>'
+    + '<th>项目</th><th>负责人</th><th>成员</th><th>可用集群</th><th>最大并发 / 等待</th><th>工作流 / 任务</th><th>状态</th><th style="text-align:right">操作</th>'
+    + '</tr></thead><tbody id="tb"></tbody></table></div>'
+    + '<div class="pager"><span>共 4 个项目 · 第 1 / 1 页</span><div class="pgs"><button disabled>‹</button><button class="on">1</button><button disabled>›</button></div></div>'
+    + '</div>'
+
+    + '<div class="banner info mt-4"><span data-ic="info"></span><div>'
+    + '<b>项目级额度默认值（v3 回写 R-7，来自 05 DDL）：</b>最大并发任务数 <span class="mono">5</span> · 最大等待任务数 <span class="mono">50</span> · 可用集群/队列创建时<b>显式指定</b>（不提供默认全选）<br>'
+    + '<span class="b-sub">队列级额度与项目级是串联关系：任务需同时满足两级别度（PRD §11.4 / §12.3）</span></div></div>';
+
+  FO.mountShell({ active: 'projectList', title: '项目空间', crumb: [{ label: '系统管理' }], content: content });
+
+  render();
+
+  /* 项目总览指标 */
+  (function () {
+    var html = FO.metricsStrip([
+      { label: '项目总数', value: MOCK.projects.length, icon: 'users' },
+      { label: '启用中', value: MOCK.projects.filter(function (p) { return p.status === 'ENABLED'; }).length, tone: 'ok', icon: 'check' },
+      { label: '累计任务', value: FO.fmt.num(MOCK.projects.reduce(function (s, p) { return s + p.tasks; }, 0)), icon: 'tasks' },
+      { label: '绑定集群', value: 4, icon: 'cluster' }
+    ]);
+    var anchor = document.querySelector('.page-header');
+    anchor.insertAdjacentHTML('afterend', html);
+  })();
+  /* 四态演示 */
+  FO.bindStateDemo('#prjWrap', '<table class="tbl"><thead><tr><th>项目</th><th>负责人</th><th>成员</th><th>可用集群</th><th>最大并发 / 等待</th><th>工作流 / 任务</th><th>状态</th><th style="text-align:right">操作</th></tr></thead><tbody id="tb"></tbody></table>');
+
+  function render() {
+    document.getElementById('tb').innerHTML = MOCK.projects.map(function (p) {
+      var cls = p.clusters.map(function (id) {
+        var c = MOCK.clusters.filter(function (x) { return x.id === id; })[0];
+        return '<span class="node-tag">' + (c ? c.name : id) + '</span>';
+      }).join(' ');
+      var status = p.status === 'ENABLED' ? '<span class="tag ok">启用</span>' : '<span class="tag">停用</span>';
+      return '<tr>'
+        + '<td><b>' + p.name + '</b><div class="tiny faint mono">' + p.id + '</div></td>'
+        + '<td>' + p.owner + '</td>'
+        + '<td class="num">' + p.members + ' <a class="tiny" href="javascript:void(0)" onclick="openMembers(\'' + p.id + '\')">管理</a></td>'
+        + '<td>' + cls + '</td>'
+        + '<td class="num">' + p.maxConcurrent + ' / ' + p.maxWaiting + '</td>'
+        + '<td class="num">' + p.workflows + ' / ' + FO.fmt.num(p.tasks) + '</td>'
+        + '<td>' + status + '</td>'
+        + '<td><div class="actions">'
+        + '<button class="btn xs" data-perm="schedule:project:quota" onclick="editQuota(\'' + p.id + '\')">额度</button>'
+        + '<button class="btn xs danger" data-perm="schedule:project:write" onclick="stopProject(\'' + p.id + '\')">停用</button>'
+        + '</div></td></tr>';
+    }).join('');
+    FO.applyPerms(document);
+  }
+
+  /* 成员与角色管理（PRD：项目管理员可管理本项目成员并分配项目角色） */
+  window.openMembers = function (pid) {
+    var p = MOCK.projects.filter(function (x) { return x.id === pid; })[0];
+    FO.drawer({
+      title: '成员管理 · ' + p.name,
+      body: '<table class="tbl"><thead><tr><th>用户</th><th>项目角色</th><th></th></tr></thead><tbody>'
+        + [['陈晓明', 'PROJECT_ADMIN'], ['王芳', 'BUSINESS_USER'], ['林一', 'OPERATOR_MAINTAINER'], ['赵磊', 'OPERATOR_MAINTAINER']]
+          .map(function (m, i) {
+            return '<tr><td>' + m[0] + '</td><td><select class="select" style="height:28px" ' + (i === 0 ? 'disabled' : '') + '>'
+              + ['PROJECT_ADMIN', 'OPERATOR_MAINTAINER', 'BUSINESS_USER'].map(function (r) {
+                  return '<option' + (r === m[1] ? ' selected' : '') + '>' + MOCK.roles[r].name + '</option>';
+                }).join('') + '</select></td>'
+              + '<td>' + (i === 0 ? '<span class="tag pri">负责人不可移除</span>' : '<button class="btn xs danger">移除</button>') + '</td></tr>';
+          }).join('')
+        + '</tbody></table>'
+        + '<button class="btn sm mt-3" data-perm="schedule:project:member">' + FO_ICONS.get('plus') + '添加成员</button>'
+        + '<div class="banner info mt-3" style="margin-bottom:0"><span data-ic="info"></span><div>同一用户可拥有多个角色，权限取并集；数据范围（DataScope）由服务端会话收敛，<b>不接受前端传入的项目 ID 作为授权依据</b></div></div>',
+      footer: '<button class="btn" onclick="this.closest(\'.drawer\').previousElementSibling.click()">关闭</button>'
+    });
+    FO.applyPerms(document);
+  };
+
+  window.editQuota = function (pid) {
+    var p = MOCK.projects.filter(function (x) { return x.id === pid; })[0];
+    FO.modal({
+      title: '资源额度 · ' + p.name,
+      body: '<div class="form-grid">'
+        + '<div class="field"><label>最大并发任务数</label><input class="input" value="' + p.maxConcurrent + '"></div>'
+        + '<div class="field"><label>最大等待任务数</label><input class="input" value="' + p.maxWaiting + '"><div class="help">超出则新任务直接被拒（40902）</div></div>'
+        + '</div>'
+        + '<div class="field"><label>项目级默认参数</label><input class="input" value=\'{"dataRoot":"/data/ecom"}\'><div class="help">供工作流以 ${project.dataRoot} 引用（变量分层第 2 层）</div></div>'
+        + '<div class="field"><label>可用集群</label><div class="row wrap">'
+        + MOCK.clusters.map(function (c) {
+            var on = p.clusters.indexOf(c.id) >= 0;
+            return '<label class="ck"><input type="checkbox" ' + (on ? 'checked' : '') + '> ' + c.name + ' <span class="tag ' + (c.env === '生产' ? 'fail' : 'info') + '" style="margin-left:2px">' + c.env + '</span></label>';
+          }).join('') + '</div></div>',
+      onOk: function () { FO.toast('额度已保存（演示）', 'ok'); }
+    });
+  };
+
+  /* 停用影响面闸门：PRD §6.1 项目停用（07 §6.1 impact 接口演示） */
+  window.stopProject = function (pid) {
+    var p = MOCK.projects.filter(function (x) { return x.id === pid; })[0];
+    FO.modal({
+      title: '停用前影响面 · ' + p.name, width: 480,
+      body: '<div class="kv mb-3">'
+        + '<span class="k">运行中任务</span><span class="v"><b style="color:var(--' + (pid === 'PRJ-0002' ? 'fail' : 'ok') + ')">' + (pid === 'PRJ-0002' ? 9 : 0) + '</b> 个</span>'
+        + '<span class="k">工作流</span><span class="v">' + p.workflows + ' 个（含启用中触发器 ' + (pid === 'PRJ-0002' ? 4 : 2) + ' 个）</span>'
+        + '<span class="k">成员</span><span class="v">' + p.members + ' 人</span></div>'
+        + (pid === 'PRJ-0002'
+          ? '<div class="banner danger" style="margin-bottom:0"><span data-ic="alert"></span><div>存在运行中任务，<b>停用被阻断</b>（42203）<br><span class="b-sub">blocking: TASK-20260924-0051 等 9 个；需先停止或等待完成</span></div></div>'
+          : '<div class="banner warn" style="margin-bottom:0"><span data-ic="alert"></span><div>停用为<b>软停用</b>：不删数据、不中断任务；停用后不可提交新任务，触发器自动暂停并记录原启用状态（重新启用时恢复）</div></div>'),
+      okText: pid === 'PRJ-0002' ? '我知道了' : '确认停用',
+      onOk: function () {
+        if (pid === 'PRJ-0002') return false;
+        p.status = 'DISABLED'; render();
+        FO.toast('项目已停用，触发器已自动暂停并记录原状态（演示）', 'ok');
+      }
+    });
+  };
+
+  document.getElementById('btnNew').addEventListener('click', function () {
+    FO.modal({
+      title: '新建项目空间',
+      body: '<div class="field"><label>项目名称 <span class="req">*</span></label><input class="input" placeholder="如：供应链数据平台"></div>'
+        + '<div class="form-grid">'
+        + '<div class="field"><label>最大并发任务数</label><input class="input" value="5"><div class="help">默认值 5（R-7）</div></div>'
+        + '<div class="field"><label>最大等待任务数</label><input class="input" value="50"></div></div>'
+        + '<div class="field"><label>可用集群（显式指定，不默认全选）</label><div class="row wrap">'
+        + MOCK.clusters.map(function (c) { return '<label class="ck"><input type="checkbox"> ' + c.name + '</label>'; }).join('')
+        + '</div></div>',
+      onOk: function () { FO.toast('项目已创建：PRJ-0004（演示）', 'ok'); }
+    });
+  });
+
+  document.querySelectorAll('[data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+})();
+</script>
+</body>
+</html>

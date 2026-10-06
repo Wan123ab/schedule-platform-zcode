@@ -1,0 +1,19 @@
+# 构建产物
+backend/**/target/
+frontend/dist/
+frontend/node_modules/
+
+# 环境与密钥（M-06：主密钥不入库）
+deploy/.env
+*.local
+.env
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# 日志
+*.log

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FlowOps</title>
+    <!-- 首屏防闪（docs/04 §2.5）：主题 + 视图模式必须早于任何样式表 -->
+    <script>
+      ;(function () {
+        var t = localStorage.getItem('flowops.theme') || 'dark'
+        document.documentElement.setAttribute('data-theme', t)
+        document.body && document.body.setAttribute('data-theme', t)
+        var vm = localStorage.getItem('flowops.viewMode') || 'business'
+        document.documentElement.setAttribute('data-view-mode', vm)
+        var apply = function () {
+          document.body && document.body.setAttribute('data-theme', t)
+          document.body && document.body.setAttribute('data-view-mode', vm)
+        }
+        document.addEventListener('DOMContentLoaded', apply)
+      })()
+    </script>
+  </head>
+  <body data-theme="dark">
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

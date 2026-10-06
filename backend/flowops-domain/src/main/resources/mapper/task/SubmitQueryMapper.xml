@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 提交期查询 SQL（docs/06 §6.2 createTask 的取数）。 -->
+<mapper namespace="com.flowops.domain.mapper.task.SubmitQueryMapper">
+
+    <!-- 版本解析：未发布（DRAFT）的版本不可被任务绑定（DAG 校验规则 7 的运行时对偶）；
+         versionId 显式给定时精确匹配，否则取工作流当前发布版本 -->
+    <select id="resolveVersionForSubmit"
+            resultType="com.flowops.domain.dto.query.SubmitVersionRow">
+        SELECT v.id           AS versionId,
+               v.version_no   AS versionNo,
+               w.workflow_name AS workflowName,
+               w.project_id   AS projectId
+          FROM workflow w
+          JOIN workflow_version v
+            ON v.workflow_id = w.id
+           AND v.publish_status = 'PUBLISHED'
+           AND v.deleted = false
+         WHERE w.id = #{workflowId}
+           AND w.deleted = false
+           AND ((#{versionId} IS NULL AND v.id = w.current_version_id) OR v.id = #{versionId})
+         LIMIT 1
+    </select>
+
+    <!-- M1 缺省队列：项目可用集群的任意启用队列（R4：queue_project_scope） -->
+    <select id="findAnyEnabledQueueIdByProject" resultType="long">
+        SELECT q.id
+          FROM queue q
+          JOIN queue_project_scope s ON s.queue_id = q.id
+         WHERE s.project_id = #{projectId}
+           AND q.status = 'ENABLED'
+           AND q.deleted = false
+         LIMIT 1
+    </select>
+
+</mapper>

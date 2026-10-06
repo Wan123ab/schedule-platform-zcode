@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 重试调度读模型与重试历史（docs/06 §9.1 / docs/05 R19）。 -->
+<mapper namespace="com.flowops.domain.mapper.task.RetryQueryMapper">
+
+    <!-- 到期重试：命中部分索引 idx_tstep_next_retry（只含 RETRYING 且 next_retry_at 非空的行）；
+         回退重入队沿用原 enqueue_seq（§4.5 防饥饿），priority/queue 经 task 冗余取出 -->
+    <select id="findDueRetrying"
+            resultType="com.flowops.domain.dto.query.RetryingStepRow">
+        SELECT ts.id,
+               ts.step_instance_id AS stepInstanceId,
+               ts.status,
+               ts.enqueue_seq      AS enqueueSeq,
+               t.id                AS taskId,
+               t.queue_id          AS queueId,
+               t.priority          AS priority
+          FROM task_step ts
+          JOIN task t ON t.id = ts.task_id
+         WHERE ts.status = 'RETRYING'
+           AND ts.next_retry_at &lt;= now()
+           AND t.deleted = false
+         ORDER BY ts.next_retry_at
+         LIMIT #{limit}
+    </select>
+
+    <insert id="insertRetryRecord">
+        INSERT INTO task_step_retry (task_step_id, attempt_no, status, machine_ip, exit_code, fail_reason)
+        VALUES (#{taskStepId}, #{attemptNo}, #{status}, #{machineIp}, #{exitCode}, #{failReason})
+    </insert>
+
+</mapper>

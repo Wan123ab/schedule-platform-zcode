@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title id="pgTitle">远程操作 · FlowOps</title>
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+<style>
+  .tp { position: relative; z-index: 1; display: flex; flex-direction: column; height: 100vh; padding: 14px 18px 12px; }
+  .tp-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex: none; }
+  .tp-head b { font-size: 15px; }
+  .tp-root { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+</style>
+</head>
+<body>
+<div class="tp">
+  <div class="tp-head">
+    <b id="hdTitle">远程操作</b>
+    <span class="tag pri" id="hdNode"></span>
+    <span class="tiny faint" id="hdCred"></span>
+    <span class="spacer"></span>
+    <span class="tiny faint">全屏终端 · 会话录制进审计</span>
+    <a class="btn sm" href="javascript:history.length > 1 ? history.back() : location.href = 'node-detail.html'">返回</a>
+  </div>
+  <div class="tp-root" id="root"></div>
+</div>
+<script src="assets/js/icons.js"></script>
+<script src="assets/js/mock.js"></script>
+<script src="assets/js/ui.js"></script>
+<script src="assets/js/term.js"></script>
+<script>
+(function () {
+  var q = new URLSearchParams(location.search);
+  var opt = {
+    nodeName: q.get('n') || 'node',
+    ip: q.get('i') || '0.0.0.0',
+    credFp: q.get('c') || '****0000',
+    ctxTitle: q.get('t') || '',
+    ctxSub: q.get('s') || '',
+    startPath: q.get('p') || '',
+    termHeight: 'fill'
+  };
+  document.getElementById('pgTitle').textContent = '远程操作 · ' + opt.nodeName + ' · FlowOps';
+  document.getElementById('hdTitle').textContent = opt.ctxTitle || '远程操作';
+  document.getElementById('hdNode').textContent = opt.nodeName + '（' + opt.ip + '）';
+  document.getElementById('hdCred').textContent = '凭据 ' + opt.credFp + ' · 平台注入';
+  FlowTerm.mount(document.getElementById('root'), opt);
+  document.querySelectorAll('[data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+})();
+</script>
+</body>
+</html>

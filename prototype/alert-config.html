@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>告警配置 · FlowOps</title>
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+</head>
+<body>
+<script src="assets/js/icons.js"></script>
+<script src="assets/js/mock.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+(function () {
+  var content = ''
+    + '<div class="page-header"><div><h1>告警配置</h1><div class="sub">让异常在发生时主动触达相关人，而不是等业务侧先发现 · PRD §10.12 —— 生产可用性底线（V0.2 从 V1.1 提入 MVP）</div></div>'
+    + '<div class="actions"><button class="btn primary" data-perm="schedule:alert:write" onclick="FO.toast(\'新建告警规则（演示）：事件 × 范围（项目/集群）× 渠道 × 接收人 × 抑制窗口\',\'info\')">' + FO_ICONS.get('plus') + '新建规则</button></div></div>'
+
+    + '<div class="banner ok mb-4"><span data-ic="check"></span><div><b>设计原则：告警默认开启</b>，用户主动去关，而不是让用户主动去开——5 类 MVP 事件已随系统初始化为启用（Flyway V5 种子数据）</div></div>'
+
+    + '<div class="grid g2 mb-4">'
+    + '<div class="panel"><div class="panel-h"><b><span data-ic="health"></span>24 小时告警趋势</b><span class="hint">按小时触发条数</span></div><div class="panel-b">'
+    + FO.sparkline({ data: [[3,2,1,0,1,2,4,1,0,0,2,1,3,2,1,0,2,5,3,1,0,2,1,1], [0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0]] }, { h: 90 })
+    + '<div class="row mt-2 tiny faint"><span class="row" style="gap:6px"><i class="live-dot" style="background:var(--warn)"></i>全部告警</span>'
+    + '<span class="row" style="gap:6px"><i class="live-dot" style="background:var(--fail)"></i>其中 P0/P1</span>'
+    + '<span class="spacer"></span>18:00 峰值 5 条（节点离线潮）</div></div></div>'
+    + '<div class="panel"><div class="panel-h"><b><span data-ic="check"></span>送达质量（近 24h）</b></div><div class="panel-b">'
+    + '<div class="row" style="gap:22px;align-items:center">'
+    + FO.ring(97.2, 92, '送达成功率')
+    + '<div class="grid" style="gap:7px;align-content:center">'
+    + '<div class="tiny muted">总告警 <b class="mono">36</b> 条</div>'
+    + '<div class="tiny muted">已送达 <b class="mono" style="color:var(--ok)">35</b> · 部分送达 <b class="mono" style="color:var(--warn)">1</b></div>'
+    + '<div class="tiny muted">抑制 <b class="mono">9</b> 次（省去重复打扰）</div>'
+    + '<div class="tiny muted">平均送达 <b class="mono">286ms</b> · 5 分钟内达标率 <b class="mono" style="color:var(--ok)">100%</b></div>'
+    + '</div></div></div></div>'
+    + '</div>'
+
+    + '<div class="panel mb-4"><div class="panel-h"><b>告警规则</b><span class="hint">MVP 5 类事件 · V1.1 扩展队列积压/资源水位/凭据失效/触发器连续失败</span></div>'
+    + '<div class="table-wrap"><table class="tbl"><thead><tr><th>规则</th><th>事件</th><th>级别</th><th>渠道</th><th>接收人</th><th>抑制窗口</th><th>范围</th><th>启用</th></tr></thead><tbody id="ruleTb"></tbody></table></div></div>'
+
+    + '<div class="grid g3 mb-4" id="chCards"></div>'
+
+    + '<div class="panel"><div class="panel-h"><b>告警记录</b><span class="hint">含逐渠道送达状态（deliver_result）</span></div>'
+    + '<div class="table-wrap"><table class="tbl"><thead><tr><th>时间</th><th>事件</th><th>级别</th><th>对象</th><th>渠道</th><th>送达结果</th><th>直达链接</th></tr></thead><tbody id="recTb"></tbody></table></div></div>'
+
+    + '<div class="banner info mt-4"><span data-ic="info"></span><div>'
+    + '<b>抑制与聚合（MVP 基础版）：</b>同一任务同一告警 N 分钟内只发一次（默认 30 分钟）；同一工作流 1 小时内连续失败聚合为一封通知（含失败次数与最近 5 条任务链接）。<br>'
+    + '<span class="b-sub">通知内容固定模板：级别 + 对象名 + 失败原因摘要 + 发生时间 + 直达链接（邮件验收标准：5 分钟内送达，§20.9）</span></div></div>';
+
+  FO.mountShell({ active: 'alertConfig', title: '告警配置', crumb: [{ label: '系统管理' }], content: content });
+
+  document.getElementById('ruleTb').innerHTML = MOCK.alertRules.map(function (r) {
+    return '<tr><td><b>' + r.name + '</b><div class="tiny faint mono">' + r.id + '</div></td>'
+      + '<td class="mono tiny">' + r.event + '</td>'
+      + '<td>' + FO.tag('LEVEL', { '严重': 'CRITICAL', '警告': 'WARN', '提示': 'INFO' }[r.level]) + '</td>'
+      + '<td>' + r.channels.map(function (c) { return '<span class="node-tag">' + c + '</span>'; }).join(' ') + '</td>'
+      + '<td class="tiny">' + r.receivers.join('、') + '</td>'
+      + '<td class="num">' + r.suppress + ' 分钟</td>'
+      + '<td class="tiny">' + r.scope + '</td>'
+      + '<td><label class="switch"><input type="checkbox" ' + (r.enabled ? 'checked' : '') + ' onchange="FO.toast(\'规则已\' + (this.checked ? \'启用\' : \'停用\') + \'（写审计，演示）\',\'info\')"><i></i></label></td></tr>';
+  }).join('');
+
+  document.getElementById('chCards').innerHTML = MOCK.alertChannels.map(function (c) {
+    return '<div class="panel metric"><div class="m-label row">' + FO_ICONS.get(c.type === 'EMAIL' ? 'audit' : 'external')
+      + c.name + '<span class="spacer"></span>' + (c.verified ? '<span class="tag ok">已验证</span>' : '<span class="tag warn">未验证</span>') + '</div>'
+      + '<div class="tiny mono mt-3 ellipsis" style="word-break:break-all">' + c.endpoint + '</div>'
+      + '<div class="m-foot mt-3"><span>' + (c.enabled ? '<span class="tag ok">启用</span>' : '<span class="tag">停用</span>') + '</span>'
+      + '<span class="spacer"></span><button class="btn xs" data-perm="schedule:alert:write" onclick="testCh(\'' + c.type + '\')">发送测试</button></div>'
+      + '<div class="tiny faint mt-2">' + c.lastTest + '</div></div>';
+  }).join('');
+
+  document.getElementById('recTb').innerHTML = MOCK.alertRecords.map(function (a) {
+    return '<tr><td class="mono tiny">' + a.time + '</td>'
+      + '<td>' + a.event + '</td>'
+      + '<td>' + FO.tag('LEVEL', a.level) + '</td>'
+      + '<td class="mono tiny">' + a.target + '</td>'
+      + '<td>' + a.channels.map(function (c) { return '<span class="node-tag">' + c + '</span>'; }).join(' ') + '</td>'
+      + '<td>' + FO.tag('ALERT_RESULT', a.result) + '<div class="tiny faint">' + a.latency + '</div></td>'
+      + '<td><a class="tiny" href="task-detail.html?id=TASK-20260924-0035">任务详情 →</a></td></tr>';
+  }).join('');
+
+  window.testCh = function (type) {
+    var c = MOCK.alertChannels.filter(function (x) { return x.type === type; })[0];
+    FO.toast('正在向「' + c.name + '」发送测试消息…', 'info');
+    setTimeout(function () {
+      if (type === 'WECOM') FO.toast('42242：渠道未验证（verified=false）——请先在企业微信后台确认机器人可用', 'fail', '测试失败');
+      else FO.toast('测试消息已送达（' + (120 + Math.round(Math.random() * 300)) + 'ms）· 渠道可用', 'ok', '测试成功');
+    }, 900);
+  };
+
+  document.querySelectorAll('[data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+})();
+</script>
+</body>
+</html>

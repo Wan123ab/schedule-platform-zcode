@@ -1,0 +1,5 @@
+/* 浅色主题覆盖（docs/04 §2.3：theme-light.css 原样搬运）。
+   tokens.css 已含 body[data-theme="light"] 的变量覆盖块（搬运保持零修改）；
+   此处补充布局部件在浅色下的微调。 */
+body[data-theme="light"] .panel { border-color: rgba(15,23,42,.08); }
+body[data-theme="light"] .content { background: #F6F8FC; }

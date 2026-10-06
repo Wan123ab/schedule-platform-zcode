@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>工作流列表 · FlowOps</title>
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+</head>
+<body>
+<script src="assets/js/icons.js"></script>
+<script src="assets/js/mock.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+(function () {
+  var content = ''
+    + '<div class="page-header"><div><h1>工作流</h1><div class="sub">DAG 编排定义 · 编辑永远发生在草稿上，发布生成不可变版本快照（D-11）· PRD §10.7</div></div>'
+    + '<div class="actions"><a class="btn primary" href="workflow-editor.html?new=1" data-perm="schedule:workflow:write">' + FO_ICONS.get('plus') + '新建工作流</a></div></div>'
+
+    + '<div class="filter-bar">'
+    + '<div class="seg" id="seg"><button class="on" data-v="all">全部</button><button data-v="DRAFT">草稿</button><button data-v="PUBLISHED">已发布</button><button data-v="DISABLED">已停用</button></div>'
+    + '<input class="input" placeholder="搜索工作流名称">'
+    + '<span class="spacer"></span><span class="tiny faint">同一页面多入口必须靠 query 产生可感知差异（原型 F-11 教训）</span>'
+    + '</div>'
+
+    + '<div class="panel"><div class="table-wrap"><table class="tbl"><thead><tr>'
+    + '<th>工作流</th><th>所属项目</th><th>状态</th><th>当前版本</th><th>未发布修改</th><th>最近运行</th><th>最近运行时间</th><th>创建人</th><th style="text-align:right">操作</th>'
+    + '</tr></thead><tbody id="tb"></tbody></table></div></div>'
+
+    + '<div class="banner info mt-4"><span data-ic="info"></span><div>'
+    + '<b>版本规则：</b>① 编辑先存草稿 ② 发布生成不可变版本 ③ 任务强绑定执行时版本 ④ 已发布版本可查看、不可修改、<b>不可删除</b>（历史任务回溯）⑤ 修改已发布工作流 = 基于当前版本新开草稿<br>'
+    + '<span class="b-sub">并发控制为发布必填项（DAG 校验规则 8）：最大并发实例数默认 1，超限策略默认「跳过本次触发并告警」</span></div></div>';
+
+  FO.mountShell({ active: 'workflowList', title: '工作流列表', crumb: [{ label: '工作流管理' }], content: content });
+
+  var filter = 'all';
+  document.querySelectorAll('#seg button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.querySelectorAll('#seg button').forEach(function (x) { x.classList.remove('on'); });
+      b.classList.add('on');
+      filter = b.dataset.v;
+      render();
+    });
+  });
+
+  function render() {
+    var rows = MOCK.workflows.filter(function (w) { return filter === 'all' || w.status === filter; });
+    document.getElementById('tb').innerHTML = rows.map(function (w) {
+      return '<tr>'
+        + '<td><a href="workflow-detail.html?id=' + w.id + '"><b>' + w.name + '</b></a><div class="tiny faint mono">' + w.id + '</div></td>'
+        + '<td class="tiny">' + w.project + '</td>'
+        + '<td>' + FO.tag('WF_STATUS', w.status) + '</td>'
+        + '<td class="mono">' + w.currentVersion + '</td>'
+        + '<td>' + (w.hasDraft ? '<span class="tag warn">有未发布修改</span>' : '<span class="faint tiny">—</span>') + '</td>'
+        + '<td>' + (w.lastRun ? FO.statusTag(w.lastRun) : '<span class="faint tiny">未运行</span>') + '</td>'
+        + '<td class="mono tiny">' + (w.lastRunAt || '—') + '</td>'
+        + '<td class="tiny">' + w.creator + '</td>'
+        + '<td><div class="actions">'
+        + FO.iconAct('eye', '查看详情', 'location.href=\'workflow-detail.html?id=' + w.id + '\'')
+        + FO.iconAct('edit', '编辑画布', 'location.href=\'workflow-editor.html?id=' + w.id + '\'', '', 'schedule:workflow:write')
+        + FO.iconAct('play', '运行', 'runWf(\'' + w.id + '\')', '', 'schedule:workflow:execute')
+        + FO.iconAct('stop', '停用工作流', 'disableWf(\'' + w.id + '\')', 'danger', 'schedule:workflow:publish')
+        + '</div></td></tr>';
+    }).join('');
+    FO.applyPerms(document);
+  }
+  render();
+
+  window.runWf = function (id) {
+    var w = MOCK.workflows.filter(function (x) { return x.id === id; })[0];
+    FO.modal({
+      title: '运行工作流 · ' + w.name,
+      body: '<p class="small muted mb-3">按工作流参数定义动态渲染表单，仅可填写「允许运行时覆盖」的参数（PRD §10.9）：</p>'
+        + (w.wfParams || [{ key: 'bizDate', name: '业务日期', required: true, default: '2026-09-24' }]).map(function (p) {
+            return '<div class="field"><label>' + p.name + ' <span class="mono tiny">(' + p.key + ')</span>' + (p.required ? ' <span class="req">*</span>' : '') + '</label>'
+              + '<input class="input" value="' + (p.default || '') + '"></div>';
+          }).join('')
+        + '<div class="field"><label>目标队列</label><select class="select"><option>default（默认）</option><option>high-priority</option></select></div>'
+        + '<div class="banner warn" style="margin-bottom:0"><span data-ic="alert"></span><div>该工作流并发策略 <b>FORBID</b>（最大并发 1）：若已有实例在运行，本次触发将被跳过并告警（40901），<b>不会静默排队</b></div></div>',
+      okText: '创建任务',
+      onOk: function () { FO.toast('已创建任务 TASK-20260924-0107（PENDING），可到任务详情查看调度过程', 'ok'); }
+    });
+  };
+
+  window.disableWf = function (id) {
+    FO.confirm({
+      title: '停用工作流',
+      message: '停用后触发器自动暂停（<b>记录每个触发器的原启用状态</b>，重新启用时恢复至停用前状态）；进行中任务不受影响。',
+      okText: '确认停用', requireReason: true,
+      onOk: function () { FO.toast('工作流已停用，触发器已暂停并记录原状态（演示）', 'ok'); }
+    });
+  };
+
+  document.querySelectorAll('[data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+})();
+</script>
+</body>
+</html>

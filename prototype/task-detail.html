@@ -1,0 +1,1068 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>任务详情 · FlowOps</title>
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+<style>
+  /* ---------- 运行档案：固定 4 列节奏（窄屏降 2 列） ---------- */
+  #statRow .statgrid { grid-template-columns: repeat(4, 1fr); }
+  @media (max-width: 1100px) { #statRow .statgrid { grid-template-columns: repeat(2, 1fr); } }
+
+  /* ---------- 场景控制台：压成单行药丸 ---------- */
+  .scene-console .scene-btn { flex-direction: row; align-items: center; gap: 7px; padding: 4px 11px; }
+  .scene-console .scene-btn span { font-family: var(--mono); font-size: 9.5px; color: var(--t4); }
+  .scene-console .scene-btn.on span { color: var(--pri-hi); }
+
+  /* ---------- 执行视图画布（与工作流 DAG 同视觉语言 · 平移/缩放） ---------- */
+  .dag-view { border: 1px solid var(--line-faint); border-radius: var(--r); overflow: hidden; background: var(--bg-void); }
+  .dag-canvas {
+    position: relative; height: 420px; overflow: hidden; cursor: grab; touch-action: none;
+    background: radial-gradient(600px 260px at 30% 0%, rgba(46,144,250,.08), transparent 60%),
+                radial-gradient(500px 240px at 85% 100%, rgba(167,139,250,.07), transparent 60%);
+  }
+  body[data-theme="light"] .dag-view { background: var(--bg-inset); }
+  body[data-theme="light"] .dag-canvas { background: var(--bg-inset); }
+  .dag-canvas.dragging, .dag-canvas.dragging * { cursor: grabbing !important; }
+  #dagSvg { display: block; transform-origin: 0 0; }
+
+  /* 节点卡片：与工作流详情/编辑器同视觉语言（foreignObject） */
+  .eg-node {
+    width: 100%; height: 100%; border-radius: 10px; border: 1.5px solid var(--line-strong);
+    background: linear-gradient(180deg, #1A2338, #0D1420);
+    box-shadow: 0 8px 22px rgba(0,0,0,.42), inset 0 1px 0 rgba(255,255,255,.06);
+    padding: 8px 11px; user-select: none; cursor: pointer;
+    font-family: var(--font); font-size: 12px; color: var(--t1); line-height: 1.35;
+  }
+  body[data-theme="light"] .eg-node { background: linear-gradient(180deg, #FFFFFF, #F4F7FC); box-shadow: 0 6px 18px rgba(16,30,60,.1); }
+  .eg-node.st-success { border-color: rgba(40,199,111,.6); }
+  .eg-node.st-running { border-color: var(--info); }
+  .eg-node.st-failed  { border-color: var(--fail-line); }
+  .eg-node.st-timeout { border-color: var(--warn-line); }
+  .eg-node.st-stopped { border-color: var(--line); opacity: .82; }
+  .eg-node.cur { animation: curGlow 1.6s infinite; }
+  .eg-node.selv { border-color: var(--mut) !important; box-shadow: 0 0 0 3px rgba(167,139,250,.28), 0 8px 22px rgba(0,0,0,.42); }
+  body[data-theme="light"] .eg-node.selv { box-shadow: 0 0 0 3px rgba(122,92,226,.25), 0 6px 18px rgba(16,30,60,.1); }
+  .eg-h { display: flex; align-items: center; gap: 6px; font-weight: 600; min-width: 0; }
+  .eg-ic { width: 17px; height: 17px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+  .eg-ic svg { width: 10px; height: 10px; }
+  .eg-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .eg-dur { margin-left: auto; font-family: var(--mono); font-size: 9.5px; color: var(--t3); font-weight: 400; flex: none; }
+  .eg-op { font-size: 10px; color: var(--t3); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .eg-ft { display: flex; align-items: center; gap: 5px; font-size: 10px; margin-top: 5px; font-family: var(--mono); }
+  .eg-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .eg-live { margin-left: auto; color: var(--info); animation: pulse 1.5s ease-in-out infinite; }
+  @keyframes curGlow { 0%,100% { filter: drop-shadow(0 0 3px rgba(59,155,255,.5)); } 50% { filter: drop-shadow(0 0 10px rgba(59,155,255,.95)); } }
+  .dg-edge { stroke: var(--t3); stroke-width: 1.4; fill: none; }
+  .dg-edge.hot { stroke: var(--ok); }
+  .dg-edge.flow { stroke: var(--info); stroke-dasharray: 7 7; animation: dashFlow 1.1s linear infinite; }
+  @keyframes dashFlow { to { stroke-dashoffset: -14; } }
+
+  /* ---------- 步骤甘特时间条 ---------- */
+  .gantt { padding: 4px 16px 12px; }
+  .gantt-ruler { position: relative; height: 16px; margin-left: 128px; margin-right: 12px; }
+  .gantt-ruler span { position: absolute; transform: translateX(-50%); font-size: 9.5px; color: var(--t4); font-family: var(--mono); }
+  .gantt-row { display: flex; align-items: center; height: 23px; border-radius: 4px; cursor: pointer; transition: background var(--dur-fast); }
+  .gantt-row:hover { background: var(--bg-hover); }
+  .gantt-label { width: 128px; flex: none; font-size: 11px; color: var(--t2); padding-right: 8px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gantt-label b { color: var(--t1); font-weight: 500; }
+  .gantt-label .g-dur { font-family: var(--mono); font-size: 9.5px; color: var(--t4); margin-left: 5px; }
+  .gantt-track { flex: 1; position: relative; height: 13px; margin-right: 12px; background: var(--bg-inset); border-radius: 3px; border: 1px solid transparent; overflow: hidden; transition: all var(--dur-fast); }
+  .gantt-seg { position: absolute; top: 0; bottom: 0; }
+  .gantt-seg.wait { background: repeating-linear-gradient(45deg, rgba(148,163,184,.22) 0 4px, transparent 4px 8px); }
+  .gantt-seg.run { border-radius: 3px; }
+  /* 选中行：紫色轨道描边 + 名称高亮（与 DAG 联动） */
+  .gantt-row.selv { background: rgba(167,139,250,.12); }
+  .gantt-row.selv .gantt-label b { color: var(--mut); font-weight: 650; }
+  .gantt-row.selv .gantt-track { border-color: var(--mut); box-shadow: 0 0 0 1px rgba(167,139,250,.35), 0 0 10px rgba(167,139,250,.25); }
+  .gantt-now { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--fail); box-shadow: var(--glow-fail); z-index: 3; }
+  .gantt-legend { display: flex; gap: 14px; padding: 0 16px 10px; font-size: 10px; color: var(--t3); }
+
+  /* ---------- 底部双栏：步骤详情（左） + 步骤日志（右） ---------- */
+  .td-bottom { display: grid; grid-template-columns: 10fr 11fr; gap: 14px; align-items: start; }
+  @media (max-width: 1180px) { .td-bottom { grid-template-columns: 1fr; } }
+
+  /* 步骤导航 chips */
+  .schips { display: flex; gap: 5px; flex-wrap: wrap; }
+  .schip {
+    display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; font-size: 11px; border-radius: var(--r-full);
+    border: 1px solid var(--line); background: var(--bg-raise); color: var(--t2); transition: all var(--dur-fast);
+  }
+  .schip i { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+  .schip:hover { border-color: var(--pri-line); color: var(--t1); }
+  .schip.on { border-color: var(--mut); color: var(--t1); background: var(--mut-dim); box-shadow: inset 0 0 0 1px var(--mut-line); }
+  /* 详情内分页签 */
+  .d-seg { display: flex; gap: 2px; background: var(--bg-inset); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 2px; width: fit-content; }
+  .d-seg button { border: 0; background: transparent; color: var(--t3); font-size: 11px; padding: 3px 10px; border-radius: var(--r-xs); transition: all var(--dur-fast); }
+  .d-seg button.on { background: var(--pri-dim); color: var(--pri-hi); font-weight: 600; box-shadow: inset 0 0 0 1px var(--pri-line); }
+  .side-kv { display: grid; grid-template-columns: 96px 1fr; row-gap: 8px; column-gap: 10px; font-size: 12px; }
+  .side-kv .k { color: var(--t3); }
+  .side-kv .v { color: var(--t1); word-break: break-all; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+  /* ---------- 资源申请 vs 实际（双条 + 比率徽章） ---------- */
+  .res2 { margin-bottom: 11px; }
+  .res2-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+  .res2-head .rp-label { font-size: 11px; color: var(--t2); font-weight: 600; }
+  .res2-head .rp-nums { font-size: 10px; color: var(--t4); font-family: var(--mono); }
+  .res2-head .rp-badge { margin-left: auto; font-family: var(--mono); font-size: 10px; font-weight: 700; padding: 0 6px; border-radius: var(--r-full); line-height: 16px; }
+  .res2-head .rp-badge.good { color: var(--ok); background: var(--ok-dim); }
+  .res2-head .rp-badge.over { color: var(--warn); background: var(--warn-dim); }
+  .res2-head .rp-badge.burst { color: #fff; background: var(--fail); }
+  .res2-head .rp-badge.idle2 { color: var(--t3); background: var(--idle-dim); }
+  .res2-track { position: relative; height: 9px; border-radius: var(--r-full); background: var(--bg-inset); border: 1px solid var(--line-faint); overflow: hidden; }
+  .res2-track .req { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, rgba(46,144,250,.34), rgba(46,144,250,.14)); border-right: 1.5px solid var(--pri); }
+  .res2-track .act { position: absolute; left: 0; top: 0; bottom: 0; border-radius: var(--r-full); background: linear-gradient(90deg, var(--ok), var(--cyan)); box-shadow: 0 0 8px rgba(40,199,111,.4); transition: width .5s var(--ease); }
+  .res2-track .act.over { background: linear-gradient(90deg, var(--warn), #ffb84d); box-shadow: 0 0 8px rgba(245,165,36,.4); }
+  .res2-track .act.burst { background: linear-gradient(90deg, var(--fail), #ff7b85); box-shadow: var(--glow-fail); }
+  .res2-legend { display: flex; gap: 12px; font-size: 9.5px; color: var(--t4); margin-top: 8px; }
+  .res2-legend i { display: inline-block; width: 14px; height: 5px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .snap-note { font-size: 10.5px; color: var(--t4); display: block; margin-top: 1px; }
+  /* 侧栏窄表格：固定布局 + 单元格省略，防止长值把标签列顶出屏幕 */
+  .tbl.fx { table-layout: fixed; width: 100%; }
+  .tbl.fx td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tbl.fx td.tagcell { width: 96px; }
+  .var-filter .seg button { font-size: 11px; padding: 3px 9px; }
+
+  /* ---------- 可折叠面板（变量快照默认收起） ---------- */
+  .collapse .panel-h { cursor: pointer; user-select: none; }
+  .collapse .chev { margin-left: auto; transition: transform var(--dur); color: var(--t3); font-size: 11px; }
+  .collapse.closed .chev { transform: rotate(-90deg); }
+  .collapse.closed .panel-b, .collapse.closed .collapse-foot { display: none; }
+
+  /* ---------- 格式化日志 ---------- */
+  .log-ops { display: flex; gap: 6px; align-items: center; padding: 8px 10px; flex-wrap: wrap; background: var(--bg-inset); border: 1px solid var(--line-faint); border-bottom: 0; border-radius: var(--r-sm) var(--r-sm) 0 0; }
+  .log-ops .input { width: 150px; height: 24px; font-size: 11px; }
+  .log-ops .seg button { font-size: 10px; padding: 2px 8px; }
+  .log-stats { font-family: var(--mono); font-size: 10px; color: var(--t4); }
+  .log-panel.fmt { padding: 0; font-size: 11.5px; }
+  .lg-row { display: flex; gap: 0; padding: 0 10px; border-bottom: 1px solid rgba(148,163,184,.04); line-height: 1.9; }
+  .lg-row:hover { background: rgba(148,163,184,.06); }
+  .lg-row .lg-t { width: 74px; flex: none; color: var(--t4); }
+  .lg-row .lg-no { width: 40px; flex: none; color: var(--t4); text-align: right; padding-right: 8px; }
+  .lg-lv { width: 42px; flex: none; }
+  .lg-lv b { display: inline-block; font-size: 9px; font-weight: 700; padding: 0 4px; border-radius: 3px; line-height: 15px; font-family: var(--mono); }
+  .lg-lv .INFO { color: var(--info); background: var(--info-dim); }
+  .lg-lv .WARN { color: var(--warn); background: var(--warn-dim); }
+  .lg-lv .ERROR { color: #fff; background: var(--fail); }
+  .lg-lv .SYS { color: var(--t3); background: var(--bg-raise); border: 1px solid var(--line); }
+  .lg-lv .DATA { color: var(--cyan); background: rgba(34,211,238,.1); }
+  .lg-row .lg-src { width: 88px; flex: none; color: var(--violet); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lg-row .lg-msg { flex: 1; min-width: 0; word-break: break-all; color: #C4D0E2; }
+  .lg-row.stream-err .lg-msg { color: #FF8589; }
+  .lg-row .lg-msg mark { background: rgba(245,165,36,.35); color: inherit; padding: 0 1px; border-radius: 2px; }
+  .lg-cursor { display: inline-block; width: 7px; height: 13px; background: var(--ok); vertical-align: text-bottom; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .log-body { height: 520px; border-radius: 0 0 var(--r-sm) var(--r-sm); }
+
+  /* ---------- 调度带（等待调度场景） ---------- */
+  .sched-band { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+  @media (max-width: 1180px) { .sched-band { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<script src="assets/js/icons.js"></script>
+<script src="assets/js/mock.js"></script>
+<script src="assets/js/ui.js"></script>
+<script src="assets/js/term.js"></script>
+<script>
+(function () {
+  var SC = MOCK.showcase;
+  var sceneKey = FO.qs('scene') || 'running';
+  var scene = SC.scenes[sceneKey] || SC.scenes.running;
+  var selStep = null;
+  var isOps = FO.viewMode === 'ops';
+  var logGranted = false;
+  var BASE_TS = new Date(2026, 8, 25, 2, 0, 3).getTime();
+  var detailTab = 'ov';
+
+  /* ---------- 拓扑与时间线推演 ---------- */
+  var defs = SC.stepDef;
+  var defById = {};
+  defs.forEach(function (d) { defById[d.id] = d; });
+  var edges = [];
+  defs.forEach(function (d) { d.deps.forEach(function (p) { edges.push({ from: p, to: d.id }); }); });
+  /* 优先复用工作流编辑器保存的版图坐标（任务 = 工作流实例，两边版图一致）；不可用时退回分层布局 */
+  var pos = (function () {
+    var out = {};
+    var wfRef = MOCK.workflows.filter(function (x) { return x.id === 'WF-0001'; })[0];
+    var coordMap = {};
+    (wfRef && wfRef.steps || []).forEach(function (s) { if (s.type === 'TASK') coordMap[s.id] = s; });
+    var canUse = defs.every(function (d) { return coordMap[d.id] && coordMap[d.id].x != null; });
+    var fallback = canUse ? null : FO.dagLayout(defs.map(function (d) { return { id: d.id, type: 'TASK' }; }), edges);
+    defs.forEach(function (d) {
+      out[d.id] = canUse ? { x: coordMap[d.id].x, y: coordMap[d.id].y } : fallback[d.id];
+    });
+    return out;
+  })();
+
+  function computeTimeline(sc) {
+    var finish = {}, out = {};
+    var ordered = defs.slice().sort(function (a, b) { return level(a.id) - level(b.id); });
+    function level(id) {
+      var d = defById[id], l = 0;
+      d.deps.forEach(function (p) { l = Math.max(l, level(p) + 1); });
+      return l;
+    }
+    ordered.forEach(function (d) {
+      var m = SC.meta[d.id];
+      var st = sc.steps[d.id];
+      var depEnd = 0;
+      d.deps.forEach(function (p) { if (finish[p] != null) depEnd = Math.max(depEnd, finish[p]); });
+      var start = (depEnd || 6) + m.wait;
+      var end = null;
+      if (st === 'SUCCESS') end = start + m.dur;
+      else if (st === 'RUNNING') end = sc.nowOffset;
+      else if (st === 'FAILED' || st === 'TIMEOUT') end = start + Math.round(m.dur * 0.86);
+      finish[d.id] = end;
+      out[d.id] = { start: start, end: end, st: st, execStart: start };
+    });
+    return out;
+  }
+  var timeline = computeTimeline(scene);
+  function clock(sec) { if (sec == null) return '—'; var d = new Date(BASE_TS + sec * 1000); return [d.getHours(), d.getMinutes(), d.getSeconds()].map(function (x) { return String(x).padStart(2, '0'); }).join(':'); }
+
+  function pickDefault() {
+    var prefer = { running: ['RUNNING'], scheduling: ['WAITING_DEPENDENCY'], failed: ['FAILED'], timeout: ['TIMEOUT'], success: ['SUCCESS'] }[sceneKey];
+    for (var i = 0; i < defs.length; i++) {
+      if (prefer && prefer.indexOf(scene.steps[defs[i].id]) >= 0) return defs[i].id;
+    }
+    return defs[0].id;
+  }
+  selStep = pickDefault();
+  /* 支持从工作流详情 DAG 节点直达：?step=s5 */
+  var stepQ = FO.qs('step');
+  if (stepQ && defById[stepQ]) selStep = stepQ;
+
+  /* ---------- 节点名 → 节点详情页（Mock 拓扑） ---------- */
+  var nodePageId = {};
+  MOCK.nodes.forEach(function (n) { nodePageId[n.name] = n.id; });
+
+  /* 失败场景的重试历史：mock 中 success/failed 共用 attempts，失败场景取「重试耗尽」版本 */
+  function attemptsOf(sid) {
+    if (sceneKey === 'failed' && SC.attemptsFailed && SC.attemptsFailed[sid]) return SC.attemptsFailed[sid];
+    return SC.attempts[sid];
+  }
+  /* 场景化日志收尾：失败/超时场景的结尾行与场景叙事一致（基础日志仍取自 mock 单源） */
+  function logsFor(sid) {
+    var lines = (SC.logs[sid] || []).slice();
+    if (sceneKey === 'failed' && sid === 's4') {
+      lines = lines.slice(0, -2).concat([
+        ['err', 'FATAL  FeatureJob - Executor 容器被 OOM Killer 终止（峰值 31.9GB / 上限 32GB）'],
+        ['sys', '重试 2 次均失败，重试次数耗尽 · 状态 FAILED · 下游步骤全部终止']
+      ]);
+    }
+    if (sceneKey === 'timeout' && sid === 's5') {
+      lines = lines.concat([
+        ['warn', 'WARN  ScoreJob - 单批次耗时持续上升（9.1s），疑似显存压力'],
+        ['err', 'FATAL  flowops - 步骤执行超过 5400s，触发超时终止（kill -TERM → 10s → kill -KILL）'],
+        ['sys', '状态 TIMEOUT · 已通知 提交人 / 项目管理员（AR-0002）']
+      ]);
+    }
+    return lines;
+  }
+
+  /* ---------- 静态骨架 ---------- */
+  var content = ''
+    + '<div class="page-header"><div><h1 class="row" style="gap:8px"><span class="mono">TASK-20260925-0042</span>'
+    + FO.iconAct('copy', '复制任务编号', 'FO.copyText(\'TASK-20260925-0042\')')
+    + '<span id="hStatus"></span></h1>'
+    + '<div class="sub"><a href="workflow-detail.html?id=WF-0001">每日订单数据同步</a><span>·</span><span class="mono">版本 v3</span><span>·</span>'
+    + '<span class="tag info">定时</span><span>·</span><span>业务日期 <span class="mono">2026-09-25</span></span><span>·</span>'
+    + '<span>提交 <span class="mono">02:00:03</span></span><span>·</span><span>提交人 系统（TR-0001）</span>'
+    + '<span>·</span><span>优先级 <span class="mono">8</span></span><span>·</span><span>runId <span class="mono">run-7f2a91c4</span></span></div></div>'
+    + '<div class="actions" id="headActs"></div></div>'
+
+    + '<div class="panel mb-3"><div class="panel-b row" style="gap:12px;padding:9px 16px;flex-wrap:wrap">'
+    + '<b class="small">场景控制台</b>'
+    + '<div class="scene-console" id="sceneBar"></div>'
+    + '<span class="spacer"></span><span class="scene-hint tiny faint" id="sceneDesc"></span>'
+    + '</div></div>'
+
+    + '<div id="failSlot"></div>'
+    + '<div class="panel mb-3" id="statRow"></div>'
+    + '<div id="schedSlot"></div>'
+
+    + '<div class="panel mb-3"><div class="panel-h"><b><span data-ic="workflow"></span>执行视图</b><span class="hint">与工作流同版图 · 绿边 = 已完成数据流 · 蓝色流动边 = 运行中步骤的下游 · 拖拽平移 / 滚轮缩放</span>'
+    + '<span class="more row" style="gap:5px"><span class="tiny faint" id="dagMeta"></span>'
+    + '<button class="btn xs icon-only" id="dagZoomOut" title="缩小">' + FO_ICONS.get('minus') + '</button>'
+    + '<span class="mono tiny faint" id="dagZoomLabel" style="min-width:38px;text-align:center">100%</span>'
+    + '<button class="btn xs icon-only" id="dagZoomIn" title="放大">' + FO_ICONS.get('zoomIn') + '</button>'
+    + '<button class="btn xs" id="dagFit" title="缩放至完整版图">适应</button>'
+    + '</span></div>'
+    + '<div class="dag-view"><div class="dag-canvas" id="dagCanvas"><svg id="dagSvg"></svg></div></div>'
+    + '<div class="gantt" id="gantt"></div>'
+    + '</div>'
+
+    + '<div class="td-bottom mb-3">'
+    + '<div class="panel" id="detailPanel">'
+    +   '<div class="panel-h"><b><span data-ic="tasks"></span>步骤详情 · <span id="dStepName">—</span></b>'
+    +   '<span class="more row tiny faint" style="gap:6px" id="dStepPos"></span></div>'
+    +   '<div class="panel-b" style="padding-top:10px">'
+    +     '<div class="schips mb-3" id="schips"></div>'
+    +     '<div class="d-seg mb-3" id="dTabs"></div>'
+    +     '<div id="dTabBody"></div>'
+    +   '</div>'
+    + '</div>'
+    + '<div class="panel">'
+    +   '<div class="panel-h"><b><span data-ic="audit"></span>步骤日志 · <span id="logStepName">—</span></b>'
+    +   '<span class="row tiny faint" style="gap:6px"><i class="live-dot off" id="logDot"></i><span id="logChan">WebSocket · offset 续传</span></span></div>'
+    +   '<div id="logWrap"></div>'
+    + '</div>'
+    + '</div>'
+
+    + '<div class="panel collapse closed" id="snapPanel"><div class="panel-h" id="snapHead"><b><span data-ic="diag"></span>运行时变量快照</b><span class="hint">六层覆盖链的实际解析结果 · 默认收起，点击展开（PRD §10.0.4）</span>'
+    + '<span class="chev">▼</span></div>'
+    + '<div class="panel-b" id="snapBody" style="padding-top:8px"></div>'
+    + '<div class="collapse-foot" style="padding:0 16px 12px"><div class="seg var-filter" id="varFilter">'
+    +   '<button class="on" data-l="all">全部</button><button data-l="0">平台变量</button><button data-l="1">项目参数</button>'
+    +   '<button data-l="2">工作流参数</button><button data-l="3">触发时覆盖</button><button data-l="4">上游输出</button></div></div></div>';
+
+  FO.mountShell({ active: 'taskList', title: '任务详情', crumb: [{ label: '任务管理', href: 'task-list.html' }, { label: '每日订单数据同步', href: 'workflow-detail.html?id=WF-0001' }], content: content });
+
+  /* ---------- 场景控制台 ---------- */
+  var SCENE_INFO = [
+    ['running', '运行中', 's1~s4 已完成，评分(s5)与入库(s6)并行执行中'],
+    ['scheduling', '等待调度', '队列已满 + 无匹配节点，展示调度诊断与链路'],
+    ['success', '全部成功', '7 步全绿，s3/s4 各含一次失败重试的历史'],
+    ['failed', '失败（重试耗尽）', '特征计算 OOM 重试 2 次耗尽，下游未执行'],
+    ['timeout', '超时', '模型评分超过 5400s 被强制终止']
+  ];
+  function renderSceneBar() {
+    document.getElementById('sceneBar').innerHTML = SCENE_INFO.map(function (s) {
+      return '<button class="scene-btn' + (s[0] === sceneKey ? ' on' : '') + '" data-scene="' + s[0] + '"><b>' + s[1] + '</b></button>';
+    }).join('');
+    var info = SCENE_INFO.filter(function (s) { return s[0] === sceneKey; })[0];
+    document.getElementById('sceneDesc').textContent = info ? info[2] : '';
+    document.querySelectorAll('#sceneBar .scene-btn').forEach(function (b) {
+      b.addEventListener('click', function () { location.href = 'task-detail.html?scene=' + b.dataset.scene; });
+    });
+  }
+
+  /* ---------- 头部操作 ---------- */
+  function headActions() {
+    var h = '';
+    if (sceneKey === 'running')
+      h += '<button class="btn danger" data-perm="schedule:task:stop" id="btnStop"><span data-ic="stop"></span>停止任务</button>';
+    if (sceneKey === 'scheduling')
+      h += '<button class="btn" data-perm="schedule:task:enqueue_front" id="btnJump"><span data-ic="bolt"></span>插队</button>';
+    if (sceneKey === 'failed' || sceneKey === 'timeout')
+      h += '<button class="btn primary" data-perm="schedule:task:retry" id="btnRerun"><span data-ic="retry"></span>重跑失败步骤</button>';
+    h += '<a class="btn" href="task-list.html">返回列表</a>';
+    document.getElementById('headActs').innerHTML = h;
+    FO.applyPerms(document);
+    document.querySelectorAll('#headActs [data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+    var bs = document.getElementById('btnStop');
+    if (bs) bs.addEventListener('click', doStop);
+    var br = document.getElementById('btnRerun');
+    if (br) br.addEventListener('click', doRerun);
+    var bj = document.getElementById('btnJump');
+    if (bj) bj.addEventListener('click', function () {
+      FO.confirm({ title: '任务插队', message: '将 <b class="mono">TASK-20260925-0042</b> 移到队首（调整 ZSet score），下次出队立即生效。注意：互斥锁步骤禁止插队（R-5）。', okText: '确认插队',
+        onOk: function () { FO.toast('score 已更新，下次出队本任务第一个被匹配（演示）', 'ok', '插队成功'); } });
+    });
+  }
+
+  function renderFailBanner() {
+    var sc = SC.scenes[sceneKey];
+    var h = '';
+    if (sc.failReason) {
+      h = '<div class="banner danger mb-3"><span data-ic="alert"></span><div><b>失败原因：</b>' + sc.failReason
+        + '<br><span class="b-sub">失败已结构化归因（' + (sc.failCode || 'TIMEOUT') + '）并通知 提交人 / 项目管理员 / 工作流通知人（AL-2401，EMAIL + WECOM）</span></div></div>';
+    } else if (sceneKey === 'scheduling') {
+      h = '<div class="banner warn mb-3"><span data-ic="clock"></span><div><b>任务尚未开始执行：</b>队列并发已满且无匹配节点，已等待 <span class="mono">1h 15m 20s</span>——下方运行档案与调度带回答「为什么还没跑」</div></div>';
+    }
+    document.getElementById('failSlot').innerHTML = h;
+    document.querySelectorAll('#failSlot [data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+  }
+
+  /* ---------- 运行档案（场景化 8 格密排） ---------- */
+  function stateCounts() {
+    var cnt = {};
+    defs.forEach(function (d) { var s = scene.steps[d.id]; cnt[s] = (cnt[s] || 0) + 1; });
+    return cnt;
+  }
+  function segBar() {
+    var cnt = stateCounts(), total = defs.length;
+    function seg(n, col) { return n ? '<i style="width:' + (n / total * 100) + '%;background:' + col + '"></i>' : ''; }
+    return '<span class="segbar" style="margin-top:5px">'
+      + seg(cnt.SUCCESS, 'var(--ok)') + seg(cnt.RUNNING, 'var(--info)') + seg(cnt.RETRYING, 'var(--warn)')
+      + seg(cnt.WAITING_DEPENDENCY, 'rgba(59,155,255,.55)') + seg(cnt.WAITING_RESOURCE, 'rgba(245,165,36,.55)')
+      + seg(cnt.FAILED, 'var(--fail)') + seg(cnt.TIMEOUT, 'var(--warn)') + seg(cnt.STOPPED, 'var(--t3)')
+      + '</span>';
+  }
+  function progSub() {
+    var cnt = stateCounts();
+    var parts = [];
+    if (cnt.SUCCESS) parts.push('成功 ' + cnt.SUCCESS);
+    if (cnt.RUNNING) parts.push('运行中 ' + cnt.RUNNING);
+    if (cnt.FAILED) parts.push('失败 ' + cnt.FAILED);
+    if (cnt.TIMEOUT) parts.push('超时 ' + cnt.TIMEOUT);
+    if (cnt.STOPPED) parts.push('已停止 ' + cnt.STOPPED);
+    if (cnt.NOT_STARTED) parts.push('未开始 ' + cnt.NOT_STARTED);
+    if (cnt.WAITING_DEPENDENCY) parts.push('等待依赖 ' + cnt.WAITING_DEPENDENCY);
+    return parts.join(' · ');
+  }
+  function runningNodes() {
+    return defs.filter(function (d) { return scene.steps[d.id] === 'RUNNING'; })
+      .map(function (d) { return SC.meta[d.id]; });
+  }
+  function logCount() {
+    var n = 0, warn = 0;
+    Object.keys(SC.logs).forEach(function (k) {
+      SC.logs[k].forEach(function (l) { n++; if (l[0] === 'warn') warn++; });
+    });
+    return { n: n, warn: warn };
+  }
+  function cellsFor() {
+    var first = timeline[defs[0].id];
+    var cnt = stateCounts();
+    var m0 = SC.meta[defs[0].id];
+    var c = [];
+    if (sceneKey === 'scheduling') {
+      c = [
+        { k: '排队位置', v: '第 7 <span class="sg-unit">位</span> / 12', s: 'high-priority 队列 · 共 12 个等待任务', icon: 'queue' },
+        { k: '已等待', v: '<span style="color:var(--warn)">1h 15m 20s</span>', s: '02:00:03 提交 · TR-0001', icon: 'clock' },
+        { k: '队列并发', v: '<span style="color:var(--warn)">6 / 6 已占满</span>', s: 'high-priority · 并发上限 6', icon: 'cluster' },
+        { k: '阻塞约束', v: 'CPU≥8核 · 32GB', s: '标签 etl-heavy · near-miss 3 台', icon: 'diag' },
+        { k: '预计开始', v: '约 12 分钟后', s: '基于近 7 天平均排队时长估算', icon: 'calendar' },
+        { k: '并发闸门', v: 'FORBID · 已通过', s: '工作流内无其他运行实例', icon: 'shield' },
+        { k: '步骤进度', v: '0 / ' + defs.length, s: '首步「数据抽取」等待依赖', raw: segBar(), icon: 'tasks' },
+        { k: '调度链路', v: '已走 4 站 / 7', s: '卡在「等待可用的执行节点」↓', icon: 'flag' }
+      ];
+    } else if (sceneKey === 'failed') {
+      c = [
+        { k: '失败步骤', v: '<span style="color:var(--fail)">特征计算</span>', s: 'exit 137 · OOM（RESOURCE_EXHAUSTED）', icon: 'alert' },
+        { k: '重试', v: '<span style="color:var(--fail)">2 次耗尽</span>', s: '02:32 / 02:52 两次尝试均 OOM', icon: 'retry' },
+        { k: '已运行', v: FO.fmtDur(scene.nowOffset), s: '终止于 ' + clock(scene.nowOffset), icon: 'clock' },
+        { k: '下游影响', v: '3 个步骤', s: '评分/入库 已停止 · 报告推送未执行', icon: 'workflow' },
+        { k: '告警通知', v: '<span style="color:var(--ok)">已送达</span>', s: 'EMAIL + WECOM · AL-2401', icon: 'alert' },
+        { k: '集群 / 队列', v: m0.cluster, s: '队列 ' + m0.queue + ' · 优先级 8', icon: 'cluster' },
+        { k: '步骤进度', v: (cnt.SUCCESS || 0) + ' / ' + defs.length + ' <span class="sg-unit">成功</span>', s: progSub(), raw: segBar(), icon: 'tasks' },
+        { k: '处置', v: '<button class="btn sm primary" data-perm="schedule:task:retry" onclick="doRerun()">' + FO_ICONS.get('retry') + '重跑失败步骤</button>', s: '复用上游产出 · 不产生新任务编号', icon: 'bolt' }
+      ];
+    } else if (sceneKey === 'timeout') {
+      c = [
+        { k: '超时步骤', v: '<span style="color:var(--warn)">模型评分</span>', s: '阈值 5400s（90 分钟）', icon: 'clock' },
+        { k: '任务已运行', v: FO.fmtDur(scene.nowOffset), s: clock(scene.nowOffset) + ' 强制终止', icon: 'bolt' },
+        { k: '终止方式', v: 'TERM → KILL', s: 'kill -TERM → 10s → kill -KILL', icon: 'stop' },
+        { k: '并行分支', v: '<span style="color:var(--ok)">结果入库 已成功</span>', s: 's6 不受 s5 超时影响', icon: 'check' },
+        { k: '下游影响', v: '报告推送 未执行', s: '等待评分重跑后推送', icon: 'workflow' },
+        { k: '告警通知', v: '<span style="color:var(--ok)">已送达</span>', s: 'AR-0002 · EMAIL + WEBHOOK', icon: 'alert' },
+        { k: '步骤进度', v: (cnt.SUCCESS || 0) + ' / ' + defs.length + ' <span class="sg-unit">成功</span>', s: progSub(), raw: segBar(), icon: 'tasks' },
+        { k: '处置', v: '<button class="btn sm primary" data-perm="schedule:task:retry" onclick="doRerun()">' + FO_ICONS.get('retry') + '重跑失败步骤</button>', s: '仅重置「模型评分」及其下游', icon: 'bolt' }
+      ];
+    } else if (sceneKey === 'success') {
+      var outsTotal = 0; defs.forEach(function (d) { outsTotal += SC.meta[d.id].outs.length; });
+      var clusters = {}, nodesCnt = {};
+      defs.forEach(function (d) { var m = SC.meta[d.id]; clusters[m.cluster] = 1; nodesCnt[m.node] = 1; });
+      c = [
+        { k: '步骤进度', v: '<span style="color:var(--ok)">' + defs.length + ' / ' + defs.length + '</span>', s: '全部成功', raw: segBar(), icon: 'check' },
+        { k: '总耗时', v: FO.fmtDur(scene.nowOffset), s: '02:00:09 → ' + clock(scene.nowOffset), icon: 'clock' },
+        { k: '调度延迟', v: first.start + '<span class="sg-unit">s</span>', s: '02:00:03 提交 → ' + clock(first.start) + ' 起跑（目标 <5s）', icon: 'bolt' },
+        { k: '自动重试', v: '2 次', s: 's3 · s4 各 1 次失败重试，均自动恢复', icon: 'retry' },
+        { k: '数据产出', v: outsTotal + ' <span class="sg-unit">项产物</span>', s: '入库 1,284,729 行（dws.order_score_daily）', icon: 'db' },
+        { k: '执行足迹', v: Object.keys(clusters).length + ' <span class="sg-unit">集群</span> · ' + Object.keys(nodesCnt).length + ' <span class="sg-unit">节点</span>', s: Object.keys(clusters).join(' / '), icon: 'cluster' },
+        { k: '开始 / 结束', v: '02:00:09 → ' + clock(scene.nowOffset), s: '提交 02:00:03 · TR-0001', icon: 'calendar' },
+        { k: '报告推送', v: '<span style="color:var(--ok)">已送达</span>', s: 'ops-daily@example.com · 日报已生成', icon: 'file' }
+      ];
+    } else {
+      var rn = runningNodes();
+      var lc = logCount();
+      c = [
+        { k: '步骤进度', v: (cnt.SUCCESS || 0) + ' / ' + defs.length, s: progSub(), raw: segBar(), icon: 'tasks' },
+        { k: '运行时长', v: '<span id="mElapsed">' + FO.fmtDur(scene.nowOffset) + '</span>', s: '自 02:00:09 起', icon: 'clock' },
+        { k: '调度延迟', v: first.start + '<span class="sg-unit">s</span>', s: '02:00:03 提交 → ' + clock(first.start) + ' 起跑（目标 <5s）', icon: 'bolt' },
+        { k: '集群 / 队列', v: SC.meta['s1'].cluster, s: '队列 ' + SC.meta['s1'].queue + ' · 优先级 8', icon: 'cluster' },
+        { k: '当前执行', v: rn[0] ? rn[0].node : '待分配', s: (rn[0] ? rn[0].ip : '—') + (rn.length > 1 ? ' · 另有 ' + (rn.length - 1) + ' 台并行' : ''), icon: 'server' },
+        { k: '自动重试', v: '2 次', s: 's3 · s4 各 1 次失败重试，均自动恢复', icon: 'retry' },
+        { k: '开始 / 结束', v: '02:00:09 → <span style="color:var(--info)">进行中</span>', s: '提交 02:00:03 · TR-0001', icon: 'calendar' },
+        { k: '步骤日志', v: lc.n + ' <span class="sg-unit">行</span>', s: 'WARN ' + lc.warn + ' · 实时推送 WebSocket', icon: 'audit' }
+      ];
+    }
+    return c;
+  }
+  function renderStats() {
+    document.getElementById('statRow').innerHTML = '<div class="statgrid">' + cellsFor().map(function (c) {
+      return '<div class="sg-cell"><div class="sg-k">' + FO_ICONS.get(c.icon) + c.k + '</div>'
+        + '<div class="sg-v">' + c.v + '</div>'
+        + (c.raw || '') + '<div class="sg-s">' + c.s + '</div></div>';
+    }).join('') + '</div>';
+    FO.applyPerms(document);
+  }
+
+  /* ---------- 调度带（仅等待调度场景）：链路 + 诊断 ---------- */
+  function renderSchedBand() {
+    var slot = document.getElementById('schedSlot');
+    if (sceneKey !== 'scheduling') { slot.innerHTML = ''; return; }
+    var d = SC.diag;
+    slot.innerHTML = '<div class="sched-band mb-3">'
+      + '<div class="panel"><div class="panel-h"><b><span data-ic="flag"></span>调度链路</b><span class="hint">从提交到执行的每一步</span></div><div class="panel-b">'
+      + '<div class="tline">' + d.chain.map(function (c) {
+          return '<div class="tline-item ' + c.s + (c.s === '' ? ' dim' : '') + '"><div class="tl-title">' + c.t + '</div><div class="tl-body">' + c.d + '</div></div>';
+        }).join('') + '</div></div></div>'
+      + '<div class="panel"><div class="panel-h"><b><span data-ic="diag"></span>调度诊断</b><span class="hint">为什么还没跑（数据源 schedule_decision_log）</span></div><div class="panel-b">'
+      + '<div class="tree" style="background:var(--bg-inset);border:1px solid var(--line-faint);border-radius:var(--r-sm);padding:12px 14px">'
+      + '<div class="tr-node">当前状态：<span class="tr-warn">等待资源</span></div>'
+      + '<div><span class="tr-branch">├</span>队列位置：<span class="tr-val">' + d.queuePos + '</span></div>'
+      + '<div><span class="tr-branch">├</span>队列并发：<span class="tr-val">' + d.queueConc + '</span></div>'
+      + '<div><span class="tr-branch">├</span>已等待：<span class="tr-val">' + d.waited + '</span></div>'
+      + '<div><span class="tr-branch">├</span>阻塞原因：<span class="tr-warn">' + d.block + '</span></div>'
+      + '<div><span class="tr-branch">├</span>节点情况：</div>'
+      + d.nearMiss.map(function (n) { return '<div class="tr-sub"><span class="tr-branch">│</span><span class="tr-bad">' + n.node + '</span> <span class="tr-node">' + n.detail + '</span></div>'; }).join('')
+      + '<div><span class="tr-branch">├</span>预计开始：<span class="tr-val">' + d.eta + '</span></div>'
+      + '<div><span class="tr-branch">└</span>建议操作：</div>'
+      + d.suggestions.map(function (sg, i) { return '<div class="tr-sub"><span class="tr-branch">&nbsp;</span><span class="tr-act">' + '①②③'[i] + ' ' + sg + '</span></div>'; }).join('')
+      + '</div>'
+      + '<div class="tiny faint mt-3">ETA 基于该队列近 7 天平均排队时长估算，样本不足时显示「数据不足」；建议项可点击直达对应操作</div>'
+      + '</div></div></div>';
+    slot.querySelectorAll('[data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+  }
+
+  /* ---------- 执行视图：与工作流同版图（卡片节点 + 平移/缩放） ---------- */
+  var NW = 176, NH = 84;
+  var dagView = { z: 1, tx: 0, ty: 0 };
+  var dagBounds = { x: 0, y: 0, w: 100, h: 100 };
+  var dagInited = false, dagMoved = false;
+  var ACT_STATES = ['RUNNING', 'RETRYING', 'WAITING_RESOURCE', 'WAITING_DEPENDENCY', 'SCHEDULING'];
+  var ST_COLOR = { SUCCESS: 'var(--ok)', FAILED: 'var(--fail)', TIMEOUT: 'var(--warn)', RUNNING: 'var(--info)', WAITING_DEPENDENCY: 'var(--info)', WAITING_RESOURCE: 'var(--warn)', RETRYING: 'var(--warn)', NOT_STARTED: 'var(--t4)', STOPPED: 'var(--t3)', SCHEDULING: 'var(--info)' };
+  var ST_CLS = { SUCCESS: 'st-success', RUNNING: 'st-running', FAILED: 'st-failed', TIMEOUT: 'st-timeout', STOPPED: 'st-stopped' };
+  var OP_ICON = { SHELL: 'bolt', JAR: 'cluster', PYTHON: 'diag', BAT: 'file', EXE: 'play', CUSTOM: 'settings' };
+  var OP_COLOR = { SHELL: 'var(--cyan)', JAR: 'var(--info)', PYTHON: 'var(--mut)', BAT: 'var(--warn)', EXE: 'var(--ok)', CUSTOM: 'var(--t2)' };
+  var OP_TINT = { SHELL: 'rgba(34,211,238,.14)', JAR: 'rgba(59,155,255,.14)', PYTHON: 'rgba(167,139,250,.14)', BAT: 'rgba(245,165,36,.14)', EXE: 'rgba(40,199,111,.14)', CUSTOM: 'rgba(130,150,174,.14)' };
+
+  function dagApply() {
+    var svg = document.getElementById('dagSvg');
+    svg.style.transform = 'translate(' + dagView.tx + 'px,' + dagView.ty + 'px) scale(' + dagView.z + ')';
+    var lb = document.getElementById('dagZoomLabel');
+    if (lb) lb.textContent = Math.round(dagView.z * 100) + '%';
+  }
+  function dagFit() {
+    var c = document.getElementById('dagCanvas');
+    if (!c.clientWidth) return;
+    var pad = 36;
+    var s = Math.min((c.clientWidth - pad * 2) / dagBounds.w, (c.clientHeight - pad * 2) / dagBounds.h, 1.3);
+    dagView.z = Math.max(0.3, s);
+    dagView.tx = (c.clientWidth - dagBounds.w * dagView.z) / 2 - dagBounds.x * dagView.z;
+    dagView.ty = (c.clientHeight - dagBounds.h * dagView.z) / 2 - dagBounds.y * dagView.z;
+    dagApply();
+  }
+  function dagZoomAt(cx, cy, factor) {
+    var nz = Math.max(0.35, Math.min(2.6, dagView.z * factor));
+    var k = nz / dagView.z;
+    dagView.tx = cx - (cx - dagView.tx) * k;
+    dagView.ty = cy - (cy - dagView.ty) * k;
+    dagView.z = nz;
+    dagApply();
+  }
+  /* 平移/缩放交互只绑一次（renderDag 只重建 svg 内容，容器不变） */
+  function initDagNav() {
+    var c = document.getElementById('dagCanvas');
+    var drag = null;
+    c.addEventListener('pointerdown', function (e) {
+      drag = { x: e.clientX, y: e.clientY, tx: dagView.tx, ty: dagView.ty };
+      dagMoved = false;
+      c.classList.add('dragging');
+      if (c.setPointerCapture) { try { c.setPointerCapture(e.pointerId); } catch (err) {} }
+    });
+    c.addEventListener('pointermove', function (e) {
+      if (!drag) return;
+      var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      if (Math.abs(dx) + Math.abs(dy) > 4) dagMoved = true;
+      dagView.tx = drag.tx + dx; dagView.ty = drag.ty + dy;
+      dagApply();
+    });
+    function endDrag() { drag = null; c.classList.remove('dragging'); setTimeout(function () { dagMoved = false; }, 0); }
+    c.addEventListener('pointerup', endDrag);
+    c.addEventListener('pointercancel', endDrag);
+    c.addEventListener('wheel', function (e) {
+      e.preventDefault();
+      var r = c.getBoundingClientRect();
+      dagZoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.15 : 1 / 1.15);
+    }, { passive: false });
+    document.getElementById('dagZoomIn').onclick = function () { var r = c.getBoundingClientRect(); dagZoomAt(r.width / 2, r.height / 2, 1.25); };
+    document.getElementById('dagZoomOut').onclick = function () { var r = c.getBoundingClientRect(); dagZoomAt(r.width / 2, r.height / 2, 1 / 1.25); };
+    document.getElementById('dagFit').onclick = dagFit;
+  }
+  function renderDag() {
+    var svg = document.getElementById('dagSvg');
+    var flowOn = sceneKey === 'running'; /* 已结束任务不播放流动动画 */
+    /* 内容边界（含边距），供适应/缩放定位 */
+    var minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+    defs.forEach(function (d) {
+      var p = pos[d.id];
+      minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x + NW); maxY = Math.max(maxY, p.y + NH);
+    });
+    minX -= 50; minY -= 40; maxX += 60; maxY += 46;
+    dagBounds = { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+    var s = '<defs>'
+      + '<marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--t3)"/></marker>'
+      + '<marker id="arrHot" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--ok)"/></marker>'
+      + '<marker id="arrInfo" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--info)"/></marker></defs>';
+    edges.forEach(function (e) {
+      var su = scene.steps[e.from], sv = scene.steps[e.to];
+      /* 绿色 = 已完成数据流（成功步骤 → 已推进步骤，静态） */
+      var hot = su === 'SUCCESS' && ['SUCCESS', 'RUNNING', 'FAILED', 'TIMEOUT', 'STOPPED', 'NOT_STARTED'].indexOf(sv) >= 0;
+      /* 蓝色流动 = 运行中步骤的下游边（动效跟随执行中节点向后传导） */
+      var active = flowOn && hot === false && ACT_STATES.indexOf(su) >= 0 && sv === 'NOT_STARTED';
+      var a = pos[e.from], b = pos[e.to];
+      var x1 = a.x + NW, y1 = a.y + NH / 2, x2 = b.x, y2 = b.y + NH / 2;
+      var dx = Math.max(36, Math.abs(x2 - x1) / 2);
+      var marker = active ? 'arrInfo' : (hot ? 'arrHot' : 'arr');
+      s += '<path class="dg-edge' + (hot ? ' hot' : '') + (active ? ' flow' : '') + '" marker-end="url(#' + marker + ')"'
+        + ' d="M' + x1 + ' ' + y1 + ' C' + (x1 + dx) + ' ' + y1 + ' ' + (x2 - dx) + ' ' + y2 + ' ' + (x2 - 8) + ' ' + y2 + '"/>';
+    });
+    defs.forEach(function (d) {
+      var st = scene.steps[d.id];
+      var p = pos[d.id];
+      var isCur = flowOn && ACT_STATES.indexOf(st) >= 0;
+      var m = SC.meta[d.id];
+      var t = timeline[d.id];
+      var dur = t.end != null ? FO.fmtDur(t.end - t.start) : (st === 'RUNNING' ? FO.fmtDur(scene.nowOffset - t.start) : '—');
+      var opName = String(d.op).split('@')[0];
+      var opRec = MOCK.operators.filter(function (o) { return o.name === opName; })[0];
+      var opType = opRec ? opRec.type : 'CUSTOM';
+      var icon = OP_ICON[opType] || 'operator';
+      var color = OP_COLOR[opType] || 'var(--t2)';
+      var tint = OP_TINT[opType] || 'var(--idle-dim)';
+      var stCol = ST_COLOR[st] || 'var(--t4)';
+      s += '<g class="eg-g" data-id="' + d.id + '" transform="translate(' + p.x + ',' + p.y + ')">'
+        + '<foreignObject width="' + NW + '" height="' + NH + '">'
+        + '<div xmlns="http://www.w3.org/1999/xhtml" class="eg-node ' + (ST_CLS[st] || '') + (isCur ? ' cur' : '') + (d.id === selStep ? ' selv' : '') + '" title="' + FO.esc(d.name + ' · ' + FO.STEP_L[st]) + '">'
+        + '<div class="eg-h"><span class="eg-ic" style="color:' + color + ';background:' + tint + '">' + FO_ICONS.get(icon) + '</span>'
+        + '<span class="eg-nm">' + FO.esc(d.name) + '</span><span class="eg-dur">' + dur + '</span></div>'
+        + '<div class="eg-op">' + FO.esc(d.op) + '</div>'
+        + '<div class="eg-ft" style="color:' + stCol + '"><i class="eg-dot" style="background:' + stCol + (st === 'RUNNING' ? ';box-shadow:0 0 7px var(--info)' : '') + '"></i>' + FO.STEP_L[st]
+        + (isCur && st === 'RUNNING' ? '<span class="eg-live">●</span>' : '') + '</div>'
+        + '</div></foreignObject></g>';
+    });
+    svg.style.width = dagBounds.w + 'px';
+    svg.style.height = dagBounds.h + 'px';
+    svg.innerHTML = s;
+    if (!dagInited) { dagInited = true; initDagNav(); dagFit(); }
+    svg.querySelectorAll('.eg-g').forEach(function (g) {
+      g.addEventListener('click', function () { if (!dagMoved) select(g.dataset.id); });
+    });
+    document.getElementById('dagMeta').textContent = defs.length + ' 步骤 · ' + edges.length + ' 依赖';
+  }
+
+  /* ---------- 步骤甘特时间条 ---------- */
+  function renderGantt() {
+    var span = 0;
+    defs.forEach(function (d) { var t = timeline[d.id]; if (t.end != null) span = Math.max(span, t.end); });
+    if (sceneKey === 'running') span = Math.max(span, scene.nowOffset);
+    span = Math.max(span, 60);
+    var pct = function (sec) { return Math.max(0, Math.min(100, sec / span * 100)); };
+    var stateColor = { SUCCESS: 'var(--ok)', FAILED: 'var(--fail)', TIMEOUT: 'var(--warn)', RUNNING: 'var(--info)', NOT_STARTED: 'var(--t4)', STOPPED: 'var(--t3)' };
+    var rows = defs.map(function (d) {
+      var t = timeline[d.id];
+      var m = SC.meta[d.id];
+      var st = t.st;
+      var waitL = pct(t.start - m.wait);
+      var execL = pct(t.start), execW = t.end != null ? Math.max(0.6, pct(t.end) - execL) : (st === 'RUNNING' ? Math.max(1, pct(span) - execL) : 0);
+      var col = stateColor[st] || 'var(--t3)';
+      var glow = st === 'RUNNING' ? 'box-shadow:var(--glow-info);animation:pulse 1.6s infinite;' : '';
+      return '<div class="gantt-row clickable' + (d.id === selStep ? ' selv' : '') + '" data-id="' + d.id + '">'
+        + '<div class="gantt-label"><b>' + d.name + '</b><span class="g-dur">' + (t.end != null ? FO.fmtDur(t.end - t.start) : st === 'RUNNING' ? '运行中' : '—') + '</span></div>'
+        + '<div class="gantt-track">'
+        + (st !== 'NOT_STARTED' ? '<div class="gantt-seg wait" style="left:' + waitL + '%;width:' + Math.max(0, execL - waitL) + '%" title="排队/等待 ' + FO.fmtDur(m.wait) + '"></div>' : '')
+        + (execW > 0 ? '<div class="gantt-seg run" style="left:' + execL + '%;width:' + execW + '%;background:' + col + ';' + glow + '" title="' + clock(t.start) + ' ~ ' + (t.end != null ? clock(t.end) : '运行中') + '"></div>' : '')
+        + '</div></div>';
+    }).join('');
+    /* 时间标尺 + 当前时刻线 */
+    var ticks = [];
+    for (var i = 0; i <= 4; i++) {
+      var sec = span * i / 4;
+      ticks.push('<span style="left:' + (i * 25) + '%">' + clock(sec) + '</span>');
+    }
+    var nowLine = sceneKey === 'running'
+      ? '<div class="gantt-now" style="left:' + pct(scene.nowOffset) + '%" title="当前时刻 ' + clock(scene.nowOffset) + '"></div>' : '';
+    document.getElementById('gantt').innerHTML = '<div class="tiny faint" style="padding:8px 16px 0">步骤时间线（斜纹 = 排队等待 · 实色 = 执行 · 红线 = 当前时刻）</div>'
+      + '<div class="gantt-ruler">' + ticks.join('') + '</div>'
+      + '<div style="position:relative">' + rows + (sceneKey === 'running' ? '<div class="gantt-now" style="left:calc(128px + (100% - 140px) * ' + (scene.nowOffset / span).toFixed(4) + ')"></div>' : '') + '</div>'
+      + '<div class="gantt-legend"><span>■ 成功</span><span style="color:var(--info)">■ 运行中</span><span style="color:var(--fail)">■ 失败</span><span style="color:var(--warn)">■ 超时</span></div>';
+    document.querySelectorAll('.gantt-row').forEach(function (r) {
+      r.addEventListener('click', function () { select(r.dataset.id); });
+    });
+  }
+
+  /* 排障直达：步骤工作目录与凭据指纹 */
+  function credFpOf(m) { var mm = (m.cred || '').match(/\*\*\*\*[0-9a-f]+/); return mm ? mm[0] : '****0000'; }
+  function stepDir(name) {
+    var p = '/opt/flowops/work/TASK-20260925-0042/' + name;
+    return window.FlowTerm.FS[p] ? p : '/opt/flowops/work/TASK-20260925-0042';
+  }
+
+  /* ---------- 步骤详情（导航 chips + 分页签） ---------- */
+  var D_TABS = [['ov', '概览'], ['params', '参数'], ['outs', '输出'], ['retry', '重试']];
+  function renderDetailTabs() {
+    var att = attemptsOf(selStep);
+    document.getElementById('dTabs').innerHTML = D_TABS.map(function (t) {
+      var cnt = t[0] === 'retry' && att ? ' <span style="color:var(--warn)">' + att.length + '</span>' : '';
+      return '<button data-t="' + t[0] + '"' + (detailTab === t[0] ? ' class="on"' : '') + '>' + t[1] + cnt + '</button>';
+    }).join('');
+    document.querySelectorAll('#dTabs button').forEach(function (b) {
+      b.addEventListener('click', function () { detailTab = b.dataset.t; renderDetail(); });
+    });
+  }
+  function renderChips() {
+    var stateColor = { SUCCESS: 'var(--ok)', FAILED: 'var(--fail)', TIMEOUT: 'var(--warn)', RUNNING: 'var(--info)', WAITING_DEPENDENCY: 'var(--info)', WAITING_RESOURCE: 'var(--warn)', RETRYING: 'var(--warn)', NOT_STARTED: 'var(--t4)', STOPPED: 'var(--t3)' };
+    document.getElementById('schips').innerHTML = defs.map(function (d) {
+      var st = scene.steps[d.id];
+      return '<button class="schip' + (d.id === selStep ? ' on' : '') + '" data-id="' + d.id + '"><i style="background:' + (stateColor[st] || 'var(--t4)') + '"></i>' + d.name + '</button>';
+    }).join('');
+    document.querySelectorAll('#schips .schip').forEach(function (b) {
+      b.addEventListener('click', function () { select(b.dataset.id); });
+    });
+  }
+  function renderDetail() {
+    var d = defById[selStep];
+    var m = SC.meta[selStep];
+    var t = timeline[selStep];
+    var st = scene.steps[selStep];
+    window.__tdCmd = m.cmd; /* 参数页签「复制命令」使用 */
+    document.getElementById('dStepName').textContent = d.name;
+    var idx = defs.indexOf(d);
+    document.getElementById('dStepPos').textContent = '步骤 ' + (idx + 1) + ' / ' + defs.length;
+    renderChips();
+    renderDetailTabs();
+    var att = attemptsOf(selStep);
+    var h = '';
+    if (detailTab === 'ov') {
+      var nodeLink = (m.node && nodePageId[m.node]) ? '<a href="node-detail.html?id=' + nodePageId[m.node] + '" title="打开节点详情">' + m.node + '</a>' : m.node;
+      h += '<div class="row mb-3" style="gap:8px">' + FO.statusTag(st) + (att ? '<span class="tag warn">重试 ' + att.length + ' 次</span>' : '') + '</div>'
+      + '<div class="side-kv">'
+      + '<span class="k">执行集群/队列</span><span class="v">' + m.cluster + ' / ' + m.queue + '</span>'
+      + '<span class="k">执行机器</span><span class="v mono">' + (st === 'NOT_STARTED' ? '—' : nodeLink + '（' + m.ip + '）') + '</span>'
+      + '<span class="k">绑定凭据</span><span class="v mono tiny">' + m.cred + '</span>'
+      + '<span class="k">开始 / 结束</span><span class="v mono tiny">' + clock(t.start) + ' ~ ' + (t.end != null ? clock(t.end) : (st === 'RUNNING' ? '<span class="js-live-end" style="color:var(--info)">运行中</span>' : '—')) + '</span>'
+      + '<span class="k">耗时 / 等待</span><span class="v mono">' + (t.end != null ? FO.fmtDur(t.end - t.start) : (st === 'RUNNING' ? '<span class="js-live-dur" style="color:var(--info)">' + FO.fmtDur(scene.nowOffset - t.start) + '</span>（跳动中）' : '—')) + ' / ' + FO.fmtDur(m.wait) + '</span>'
+      + '<span class="k">退出码</span><span class="v mono">' + (st === 'SUCCESS' ? 0 : st === 'FAILED' ? 137 : st === 'TIMEOUT' ? '—（超时终止）' : '—') + '</span>'
+      + '</div>'
+      + '<div class="mt-4"><div class="tiny faint mb-2">资源申请 vs 实际峰值</div>'
+      + resPair('CPU', m.res.cpu, ' 核') + resPair('内存', m.res.mem, ' GB') + (m.res.gpu[1] > 0 || m.res.gpu[0] > 0 ? resPair('GPU', m.res.gpu, ' 卡') : '')
+      + '<div class="res2-legend"><span><i style="background:linear-gradient(90deg,rgba(46,144,250,.34),rgba(46,144,250,.14));border-right:1.5px solid var(--pri)"></i>申请量（蓝色边界）</span>'
+      + '<span><i style="background:linear-gradient(90deg,var(--ok),var(--cyan))"></i>实际峰值（比率健康）</span>'
+      + '<span><i style="background:linear-gradient(90deg,var(--warn),#ffb84d)"></i>接近申请值</span>'
+      + '<span><i style="background:linear-gradient(90deg,var(--fail),#ff7b85)"></i>超申请</span></div></div>'
+      + (m.node
+        ? '<div class="mt-4"><div class="tiny faint mb-2">排障直达（单次授权 + 全程录制 · 打开后直接落在步骤工作目录）</div><div class="row" style="gap:6px;flex-wrap:wrap">'
+          + '<button class="btn sm primary" data-perm="opsView" onclick="FlowTerm.open({nodeName:\'' + m.node + '\',ip:\'' + m.ip + '\',credFp:\'' + credFpOf(m) + '\',ctxTitle:\'来源：任务详情 · 步骤「' + d.name + '」\',ctxSub:\'凭据复用步骤绑定凭据\',startPath:\'' + stepDir(d.name) + '\'})">' + FO_ICONS.get('external') + 'SSH 登录该节点</button>'
+          + '<button class="btn sm" data-perm="opsView" onclick="FlowTerm.open({nodeName:\'' + m.node + '\',ip:\'' + m.ip + '\',credFp:\'' + credFpOf(m) + '\',ctxTitle:\'SFTP · 步骤「' + d.name + '」工作目录\',ctxSub:\'预览/下载走审批白名单\',startPath:\'' + stepDir(d.name) + '\'})">' + FO_ICONS.get('file') + 'SFTP 文件浏览</button>'
+        + '</div></div>'
+        : '<div class="tiny faint mt-3">步骤未分配节点，暂不可登录</div>')
+      + (m.mutexWait ? '<div class="banner warn mt-4" style="margin-bottom:0"><span data-ic="clock"></span><div>' + m.mutexWait + '<br><span class="b-sub">互斥锁在步骤结束（成功/失败/超时/停止）后自动释放；持锁超 30min 触发平台告警</span></div></div>' : '');
+    } else if (detailTab === 'params') {
+      var masked = isOps && !logGranted;
+      h += '<div class="tiny faint mb-2">运行参数（含注入来源层）</div><table class="tbl fx"><tbody>'
+        + m.params.map(function (p) {
+            var layerShort = p[2].split('·')[0].trim();
+            return '<tr><td class="mono tiny" style="width:96px" title="' + FO.esc(p[0]) + '">' + p[0] + '</td>'
+              + '<td class="mono tiny" title="' + (masked ? '已脱敏' : FO.esc(p[1])) + '">' + (masked ? '***' : FO.esc(p[1])) + '</td>'
+              + '<td class="tagcell" title="' + FO.esc(p[2]) + '"><span class="tag ' + layerCls(p[2]) + '" style="font-size:9.5px">' + layerShort + '</span></td></tr>';
+          }).join('')
+        + '</tbody></table>'
+        + '<div class="mt-4"><div class="row mb-2"><span class="tiny faint">解析后的实际命令（resolved_command）</span><span class="spacer"></span>'
+        + '<button class="btn xs" onclick="FO.copyText(window.__tdCmd)">复制命令</button></div>'
+        + '<div class="code" style="font-size:11px">' + FO.esc(m.cmd) + '</div></div>'
+        + (masked ? '<div class="tiny faint mt-2">当前为运维视图：参数值已脱敏（仅见参数名与层）</div>' : '');
+    } else if (detailTab === 'outs') {
+      h += '<div class="tiny faint mb-2">输出声明产出（task_step.output_vars）</div><table class="tbl fx"><tbody>'
+        + m.outs.map(function (o) {
+            var v = (st === 'SUCCESS' || st === 'RUNNING') ? o.v : '—';
+            return '<tr><td class="mono tiny" style="width:110px" title="' + FO.esc(o.n) + '">' + o.n + '</td>'
+              + '<td class="tiny muted" title="' + FO.esc(o.label) + '">' + o.label + '</td>'
+              + '<td class="mono tiny" title="' + FO.esc(v) + '">' + FO.esc(v) + '</td></tr>';
+          }).join('')
+        + '</tbody></table>'
+        + '<div class="tiny faint mt-3">下游步骤经 <span class="mono">${step.' + d.name + '.output.{变量名}}</span> 引用（D-20）；引用目录见工作流详情「参数与变量」</div>';
+    } else {
+      h += att ? retryTable(selStep)
+        : '<div class="empty" style="padding:26px 16px">' + FO_ICONS.get('check') + '<p class="tiny">本步骤无重试记录</p></div>';
+      h += '<div class="tiny faint mt-3">重试策略：指数退避（30s → 60s → 120s…），重试期间步骤状态 RETRYING；每次尝试的节点/退出码/结论均入库</div>';
+    }
+    document.getElementById('dTabBody').innerHTML = h;
+    document.querySelectorAll('#dTabBody [data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+    FO.applyPerms(document.getElementById('dTabBody'));
+    startLiveDur();
+  }
+  function layerCls(l) {
+    return { '平台变量': 'cyan', '项目参数': 'info', '工作流参数': 'pri', '触发时覆盖': 'warn', '上游步骤输出': 'ok', '步骤参数': 'idle', '配置注入': 'mut' }[l] || 'plain';
+  }
+  function resPair(label, pair, unit) {
+    var req = pair[0], act = pair[1];
+    var ratio = req ? act / req : 0;
+    var pct = Math.min(100, ratio * 100);
+    var badge = req === 0 ? ['未申请', 'idle2']
+      : ratio > 1 ? ['超申请 ' + Math.round(ratio * 100) + '%', 'burst']
+      : ratio > 0.85 ? [Math.round(ratio * 100) + '% · 接近申请值', 'over']
+      : ratio < 0.35 ? [Math.round(ratio * 100) + '% · 申请偏高', 'idle2']
+      : [Math.round(ratio * 100) + '%', 'good'];
+    var actCls = ratio > 1 ? 'burst' : ratio > 0.85 ? 'over' : '';
+    return '<div class="res2">'
+      + '<div class="res2-head"><span class="rp-label">' + label + '</span>'
+      + '<span class="rp-nums">申请 ' + req + unit + ' · 峰值 ' + act + unit + '</span>'
+      + '<span class="rp-badge ' + badge[1] + '">' + badge[0] + '</span></div>'
+      + '<div class="res2-track"><i class="req" style="width:100%"></i><i class="act ' + actCls + '" style="width:' + pct.toFixed(1) + '%"></i></div>'
+      + '</div>';
+  }
+  function retryTable(sid) {
+    return '<div class="tiny faint mb-2">重试历史（task_step_retry）</div><table class="tbl"><thead><tr><th>#</th><th>节点</th><th>开始</th><th>耗时</th><th>退出码</th><th>结果</th></tr></thead><tbody>'
+      + attemptsOf(sid).map(function (r) {
+          return '<tr><td class="num">' + r.n + '</td><td class="tiny mono">' + r.node + '</td><td class="mono tiny">' + r.start + '</td>'
+            + '<td class="num tiny">' + r.dur + '</td><td class="num" style="color:' + (r.exit === 0 ? 'var(--ok)' : 'var(--fail)') + '">' + r.exit + '</td>'
+            + '<td>' + FO.statusTag(r.result) + '<div class="cell-sub" style="max-width:190px;white-space:normal">' + r.note + '</div></td></tr>';
+        }).join('') + '</tbody></table>';
+  }
+  /* 运行中步骤的耗时/结束时间跳动 */
+  var liveTimer = null;
+  function startLiveDur() {
+    clearInterval(liveTimer);
+    if (sceneKey !== 'running' || scene.steps[selStep] !== 'RUNNING') return;
+    var base = scene.nowOffset - timeline[selStep].start;
+    liveTimer = setInterval(function () {
+      base++;
+      var dur = document.querySelector('.js-live-dur');
+      if (dur) dur.textContent = FO.fmtDur(base);
+      var end = document.querySelector('.js-live-end');
+      if (end) end.textContent = '运行中 · ' + clock(scene.nowOffset + base - (scene.nowOffset - timeline[selStep].start));
+    }, 1000);
+  }
+
+  /* ---------- 选中联动 ---------- */
+  function select(id) {
+    selStep = id;
+    renderDag(); renderGantt(); renderDetail(); renderLogShell();
+  }
+
+  /* ---------- 变量快照 ---------- */
+  var varFilter = 'all';
+  function renderSnap() {
+    var LAYER = { 0: ['平台变量', 'cyan'], 1: ['项目参数', 'info'], 2: ['工作流参数', 'pri'], 3: ['触发时覆盖', 'warn'], 4: ['上游步骤输出', 'ok'] };
+    var rows = SC.varDefs.filter(function (v) { return varFilter === 'all' || String(v.l) === varFilter; });
+    var maskAll = isOps && !logGranted;
+    document.getElementById('snapBody').innerHTML = '<table class="tbl"><thead><tr><th style="width:210px">变量</th><th>解析后的值</th><th style="width:100px">来源层</th><th>说明</th></tr></thead><tbody>'
+      + rows.map(function (v) {
+          var lay = LAYER[v.l];
+          var masked = v.masked || maskAll;
+          return '<tr><td class="mono tiny">' + FO.esc(v.n) + (v.by ? '<span class="snap-note">by ' + v.by + '</span>' : '') + '</td>'
+            + '<td class="mono tiny">' + (masked ? '••••••••' : FO.esc(v.v)) + (masked || v.masked ? ' <span class="tag warn" style="font-size:9px">脱敏</span>' : '') + '</td>'
+            + '<td><span class="tag ' + lay[1] + '" style="font-size:9.5px">' + lay[0] + '</span></td>'
+            + '<td class="tiny faint">' + FO.esc(v.t) + '</td></tr>';
+        }).join('')
+      + '</tbody></table>'
+      + '<div class="tiny faint mt-2">' + (maskAll
+          ? '当前为运维视图：参数值已脱敏（仅见参数名与层）'
+          : '敏感参数（sensitive=true）在快照与日志中永久脱敏且不落原文（M-07）；快照共 ' + SC.varDefs.length + ' 项，按层筛选查看') + '</div>';
+  }
+  document.getElementById('snapHead').addEventListener('click', function () {
+    document.getElementById('snapPanel').classList.toggle('closed');
+  });
+  document.getElementById('varFilter').addEventListener('click', function (e) {
+    e.stopPropagation();
+    var b = e.target.closest('button'); if (!b) return;
+    document.querySelectorAll('#varFilter button').forEach(function (x) { x.classList.remove('on'); });
+    b.classList.add('on'); varFilter = b.dataset.l; renderSnap();
+  });
+
+  /* ============================================================
+     格式化日志：时间 / 级别徽章 / 来源组件 / 消息 + 级别过滤 + 搜索
+     ============================================================ */
+  var logLvFilter = 'all', logKw = '';
+  /* 日志行 = [type, text]；type ∈ sys/out/warn/ok/data/err */
+  function parseLine(entry, seq, stepStartSec) {
+    var type = entry[0], raw = entry[1];
+    var sec = stepStartSec + seq * 7;
+    var time = clock(sec) + '.' + String((seq * 137) % 1000).padStart(3, '0');
+    if (type === 'sys') return { lv: 'SYS', src: 'flowops', msg: raw, sec: sec, time: time };
+    if (type === 'data') return { lv: 'DATA', src: 'stdout', msg: raw, sec: sec, time: time };
+    if (type === 'err') return { lv: 'ERROR', src: 'stderr', msg: raw, sec: sec, time: time };
+    var m = raw.match(/^(INFO|WARN|ERROR)\s+([A-Za-z]+)\s+-\s([\s\S]*)$/);
+    if (m) return { lv: m[1], src: m[2], msg: m[3], sec: sec, time: time };
+    if (/^[A-Z_]+=/.test(raw)) return { lv: 'DATA', src: 'stdout', msg: raw, sec: sec, time: time };
+    if (raw.indexOf('═══') === 0) return { lv: 'SYS', src: 'flowops', msg: raw, sec: sec, time: time };
+    return { lv: type === 'warn' ? 'WARN' : 'INFO', src: 'stdout', msg: raw.replace(/^(INFO|WARN|ERROR)\s+/, ''), sec: sec, time: time };
+  }
+  function renderLogShell() {
+    var d = defById[selStep];
+    document.getElementById('logStepName').textContent = d.name;
+    var st = scene.steps[selStep];
+    var wrap = document.getElementById('logWrap');
+    clearInterval(liveLogTimer);
+    if (st === 'NOT_STARTED') {
+      wrap.innerHTML = '<div class="panel-b"><div class="empty">' + FO_ICONS.get('clock') + '<p>步骤尚未开始，暂无日志</p><p class="tiny faint">日志将在步骤被调度执行后实时推送（WebSocket + offset 续传）</p></div></div>';
+      document.getElementById('logDot').className = 'live-dot off';
+      document.getElementById('logChan').textContent = '等待步骤启动';
+      return;
+    }
+    if (isOps && !logGranted) {
+      wrap.innerHTML = '<div class="panel-b"><div class="empty">' + FO_ICONS.get('eyeOff')
+        + '<p><b>日志已脱敏（运维视图）</b><br><span class="tiny">项目隔离与运维排障的平衡（PRD §11.3）：可申请<b>单次有效</b>的日志查看授权</span></p>'
+        + '<button class="btn primary sm" data-perm="schedule:task:log:grant" id="btnGrant">申请日志查看授权</button></div></div>';
+      FO.applyPerms(wrap);
+      var bg = document.getElementById('btnGrant');
+      if (bg) bg.addEventListener('click', function () {
+        FO.modal({
+          title: '申请日志查看授权（单次有效）',
+          body: '<div class="field"><label>查看原因 <span class="req">*</span></label><textarea class="textarea js-reason" placeholder="如：排障 GPU OOM，需查看评分日志原文"></textarea></div>'
+            + '<div class="banner warn" style="margin-bottom:0"><span data-ic="alert"></span><div>签发一次性授权（绑定 任务 + 步骤 + 当前用户，TTL 10 分钟）；<b>本次查看自动写入审计</b>（action=VIEW_LOG_RAW + 原因）；切换步骤或离开页面即失效</div></div>',
+          okText: '签发并查看',
+          onOk: function (ov, close) {
+            if (ov.querySelector('.js-reason').value.trim().length < 5) { FO.toast('原因需至少 5 个字符', 'fail'); return false; }
+            logGranted = true; close();
+            FO.toast('已签发一次性授权 · 本次查看已记入审计', 'ok');
+            renderLogShell(); renderLog();
+          }
+        });
+      });
+      document.getElementById('logDot').className = 'live-dot warnbg';
+      document.getElementById('logChan').textContent = 'HTTP 降级轮询 · 脱敏中';
+      return;
+    }
+    /* 级别计数（含运行中模拟追加前的静态行） */
+    var lines = logsFor(selStep);
+    var cnt = { all: lines.length, INFO: 0, WARN: 0, DATA: 0, SYS: 0, ERROR: 0 };
+    lines.forEach(function (l, i) { var lv = parseLine(l, i, 0).lv; if (cnt[lv] != null) cnt[lv]++; });
+    wrap.innerHTML = ''
+      + '<div class="log-ops">'
+      +   '<div class="seg" id="lvFilter">'
+      +   [['all', '全部 ' + cnt.all], ['INFO', 'INFO ' + (cnt.INFO || '')], ['WARN', 'WARN ' + (cnt.WARN || '')], ['DATA', 'DATA ' + (cnt.DATA || '')], ['SYS', 'SYS ' + (cnt.SYS || '')]].map(function (x) {
+            return '<button data-lv="' + x[0] + '" class="' + (logLvFilter === x[0] ? 'on' : '') + '">' + x[1] + '</button>';
+          }).join('') + '</div>'
+      +   '<input class="input" id="logKw" placeholder="搜索日志关键词…" value="' + FO.esc(logKw) + '">'
+      +   '<span class="spacer"></span>'
+      +   '<span class="log-stats" id="logStats"></span>'
+      +   FO.iconAct('copy', '复制全部日志', 'copyAllLogs()')
+      +   FO.iconAct('download', '下载 .log 文件', 'downloadLog()')
+      +   '<button class="btn xs" id="logPause">暂停跟随</button>'
+      +   '<button class="btn xs" id="logReconn">断线重连</button>'
+      + '</div>'
+      + '<div class="log-panel fmt log-body" id="logBody"></div>';
+    document.getElementById('lvFilter').addEventListener('click', function (e) {
+      var b = e.target.closest('button'); if (!b) return;
+      logLvFilter = b.dataset.lv;
+      document.querySelectorAll('#lvFilter button').forEach(function (x) { x.classList.toggle('on', x === b); });
+      renderLog();
+    });
+    var kwTimer = null;
+    document.getElementById('logKw').addEventListener('input', function () {
+      clearTimeout(kwTimer);
+      kwTimer = setTimeout(function () { logKw = this.value.trim(); renderLog(); }.bind(this), 250);
+    });
+    document.getElementById('logPause').addEventListener('click', function () {
+      follow = !follow; this.textContent = follow ? '暂停跟随' : '恢复跟随';
+      if (follow) { var b = document.getElementById('logBody'); b.scrollTop = b.scrollHeight; }
+    });
+    document.getElementById('logReconn').addEventListener('click', function () {
+      clearInterval(liveLogTimer);
+      document.getElementById('logChan').textContent = '连接中断 · 按 offset 续传中…';
+      document.getElementById('logDot').className = 'live-dot warnbg';
+      setTimeout(function () {
+        document.getElementById('logChan').textContent = 'WebSocket 已恢复 · 从 offset 续传（不重复推送）';
+        document.getElementById('logDot').className = 'live-dot on';
+        renderLog();
+        FO.toast('断线重连：携带 seq/offset 从断点继续，不重复推送（PRD §13.2-4）', 'info');
+      }, 1500);
+    });
+    renderLog();
+  }
+  var liveLogTimer = null;
+  var follow = true;
+  function renderLog() {
+    var body = document.getElementById('logBody');
+    if (!body) return;
+    var st = scene.steps[selStep];
+    var lines = logsFor(selStep);
+    var pool = MOCK.showcase.livePool[selStep];
+    var running = st === 'RUNNING';
+    var stepStart = timeline[selStep].start;
+    var parsed = lines.map(function (raw, i) { return parseLine(raw, i, stepStart); });
+    if (running && pool) {
+      for (var i = 0; i < 8; i++) {
+        var tpl = pool[i % pool.length];
+        var txt = tpl[1].replace(/^(INFO|WARN)\s+(ScoreJob\s+-\s)?/, '')
+          .replace('{n}', String(48 + i)).replace('{rows}', FO.fmt.num((48 + i) * 16384)).replace('{part}', String(1 + i % 8).padStart(2, '0'));
+        parsed.push(parseLine([tpl[0] === 'warn' ? 'warn' : 'out', (tpl[0] === 'warn' ? 'WARN  ScoreJob - ' : 'INFO  ScoreJob - ') + txt], lines.length + i, stepStart));
+      }
+    }
+    var rows = parsed.filter(function (p) { return logLvFilter === 'all' || p.lv === logLvFilter; })
+      .filter(function (p) { return !logKw || p.msg.indexOf(logKw) >= 0; });
+    var bytes = parsed.reduce(function (s, p) { return s + p.msg.length + 18; }, 0);
+    var stats = document.getElementById('logStats');
+    if (stats) stats.textContent = rows.length + ' / ' + parsed.length + ' 行 · ' + FO.fmt.num(bytes) + ' B · 上限 100MB（超出截断）';
+    var cursor = running ? '<span class="lg-cursor"></span>' : '';
+    body.innerHTML = rows.map(function (p, ri) {
+      var msg = FO.esc(p.msg);
+      if (logKw) {
+        msg = msg.split(FO.esc(logKw)).join('<mark>' + FO.esc(logKw) + '</mark>');
+      }
+      return '<div class="lg-row"><span class="lg-t">' + p.time + '</span><span class="lg-no">' + (ri + 1) + '</span>'
+        + '<span class="lg-lv"><b class="' + p.lv + '">' + p.lv + '</b></span>'
+        + '<span class="lg-src">' + FO.esc(p.src) + '</span>'
+        + '<span class="lg-msg">' + msg + (running && ri === rows.length - 1 ? cursor : '') + '</span></div>';
+    }).join('');
+    if (follow) body.scrollTop = body.scrollHeight;
+  }
+  window.copyAllLogs = function () {
+    var lines = logsFor(selStep).map(function (l) { return l[1]; }).join('\n');
+    FO.copyText(lines, '已复制全部日志');
+  };
+  window.downloadLog = function () {
+    var lines = logsFor(selStep).map(function (l) { return l[1]; }).join('\n');
+    var blob = new Blob(['# TASK-20260925-0042 / ' + selStep + '\n' + lines], { type: 'text/plain;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = selStep + '.log';
+    a.click(); URL.revokeObjectURL(a.href);
+    FO.toast('日志文件已下载（演示：真实实现为冷存 30 天内秒取）', 'ok');
+  };
+
+  /* ---------- 停止 / 重跑 ---------- */
+  function doStop() {
+    FO.confirm({
+      title: '停止任务 · TASK-20260925-0042', requireReason: true,
+      message: 'server 将状态置为 <b>STOPPING</b> → 调度器下一 tick 终止所有运行中步骤进程（kill -TERM → 10s → kill -KILL）→ 全部步骤终结后收敛为 <b>STOPPED</b>。',
+      okText: '停止任务',
+      onOk: function (reason) {
+        FO.toast('已提交停止指令（演示）：状态 STOPPING → 调度器终止进程 → STOPPED，操作人与原因已写审计', 'warn', 'STOPPING');
+      }
+    });
+  }
+  function doRerun() {
+    FO.confirm({
+      title: '重跑失败步骤',
+      message: '将重置 <b>失败步骤及其全部下游</b>（拓扑可达），复用上游已成功步骤的 output_vars，不产生新任务编号。',
+      okText: '确认重跑',
+      onOk: function () {
+        FO.toast('已重置失败及下游步骤并转回 RUNNING（演示加速：可在场景控制台切回「运行中」观察）', 'ok', '重跑失败步骤');
+        setTimeout(function () { location.href = 'task-detail.html?scene=running'; }, 1200);
+      }
+    });
+  }
+  window.doRerun = doRerun;
+
+  /* ---------- 运维视图联动 ---------- */
+  document.addEventListener('viewmodechange', function (e) {
+    isOps = e.detail === 'ops';
+    if (!isOps) logGranted = false;
+    renderSnap(); renderLogShell(); renderDetail();
+  });
+
+  /* ---------- 首渲染 ---------- */
+  document.getElementById('hStatus').outerHTML = FO.statusTag(scene.status);
+  renderSceneBar(); renderFailBanner(); renderStats(); renderSchedBand(); renderDag(); renderGantt(); renderSnap(); renderDetail(); renderLogShell(); headActions();
+  document.querySelectorAll('[data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+
+  /* 运行中场景：任务级时长跳动 */
+  if (sceneKey === 'running') {
+    FO.liveTicker(function () {
+      scene.nowOffset++;
+      var el = document.getElementById('mElapsed');
+      if (el) el.textContent = FO.fmtDur(scene.nowOffset);
+    }, 1000);
+  }
+})();
+</script>
+</body>
+</html>

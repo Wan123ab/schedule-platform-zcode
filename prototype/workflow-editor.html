@@ -1,0 +1,1145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>工作流编辑器 · FlowOps</title>
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+<style>
+  .ed-wrap { display: flex; gap: 12px; height: calc(100vh - var(--topbar-h) - 108px); min-height: 520px; }
+  /* ---------- 左侧算子库（分类折叠 + 搜索） ---------- */
+  .ed-palette { width: 210px; flex: none; overflow-y: auto; }
+  .pal-search { margin-bottom: 8px; }
+  .pal-group-h { display: flex; align-items: center; gap: 6px; padding: 6px 4px; margin-top: 4px; cursor: pointer; user-select: none; font-size: 11px; color: var(--t2); font-weight: 600; }
+  .pal-group-h:hover { color: var(--t1); }
+  .pal-group-h .chev { transition: transform var(--dur-fast); color: var(--t4); font-size: 10px; }
+  .pal-group.closed .pal-group-h .chev { transform: rotate(-90deg); }
+  .pal-group.closed .pal-items { display: none; }
+  .pal-group-h .cnt { margin-left: auto; font-family: var(--font); font-size: 10px; color: var(--t4); }
+  .pal-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; margin-bottom: 6px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg-raise); cursor: grab; font-size: 12px; transition: all var(--dur-fast); }
+  .pal-item:hover { border-color: var(--pri-line); box-shadow: var(--glow-pri); }
+  .pal-item .pt { width: 26px; height: 26px; border-radius: var(--r-xs); background: var(--pri-dim); color: var(--pri); display: flex; align-items: center; justify-content: center; flex: none; }
+  .pal-item .pt svg { width: 14px; height: 14px; }
+  .pal-item.dis { opacity: .45; }
+  /* ---------- 画布 ---------- */
+  .ed-canvas-wrap { flex: 1; min-width: 0; position: relative; border: 1px solid var(--line-faint); border-radius: var(--r-md); overflow: hidden; background: var(--bg-void); }
+  #canvas { width: 100%; height: 100%; display: block; cursor: default; touch-action: none; }
+  #canvas.panning { cursor: grabbing; }
+  .ed-toolbar { position: absolute; top: 10px; left: 60px; right: 10px; display: flex; gap: 8px; z-index: 6; align-items: center; }
+  .ed-toolbar .tb { backdrop-filter: blur(6px); }
+  .ed-toolbar .zoom-info { font-family: var(--font); font-size: 11px; color: var(--t3); background: var(--bg-panel); border: 1px solid var(--line); padding: 4px 8px; border-radius: var(--r-sm); }
+  /* 工具箱：左侧竖排 */
+  .ed-tools { position: absolute; left: 10px; top: 10px; z-index: 6; display: flex; flex-direction: column; gap: 4px; padding: 6px 5px; background: var(--bg-panel); border: 1px solid var(--line); border-radius: var(--r-sm); box-shadow: var(--shadow-pop); }
+  .ed-tools .btn.icon-only { width: 30px; height: 30px; }
+  .ed-tools .btn.icon-only svg { width: 15px; height: 15px; }
+  .ed-tools .sep { height: 1px; background: var(--line-faint); margin: 2px 2px; }
+  /* 节点 */
+  .dag-node { position: relative; width: 100%; height: 100%; border-radius: var(--r-md); border: 1.5px solid rgba(46,144,250,.4); cursor: move; user-select: none; background: linear-gradient(180deg, rgba(26,35,56,.95), rgba(13,20,32,.97)); box-shadow: 0 8px 22px rgba(0,0,0,.42), inset 0 1px 0 rgba(255,255,255,.06); padding: 9px 12px; transition: border-color var(--dur-fast), box-shadow var(--dur-fast), transform var(--dur-fast); }
+  body[data-theme="light"] .dag-node { background: linear-gradient(180deg, #FFFFFF, #F4F7FC); box-shadow: 0 6px 18px rgba(16,30,60,.1); }
+  .dag-node::before { content: ""; position: absolute; top: 0; left: 10px; right: 10px; height: 1px; background: linear-gradient(90deg, transparent, rgba(255,255,255,.14), transparent); }
+  .dag-node .dn-name { font-size: 12.5px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .dn-ic { width: 18px; height: 18px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+  .dn-ic svg { width: 11px; height: 11px; }
+  .dag-node .dn-op { font-size: 10.5px; color: var(--t3); margin-top: 2px; font-family: var(--font); }
+  .dag-node .dn-meta { display: flex; gap: 4px; margin-top: 5px; flex-wrap: wrap; }
+  .dag-node .dn-chip { font-size: 9.5px; font-family: var(--font); padding: 0 5px; border-radius: 3px; background: rgba(46,144,250,.12); border: 1px solid var(--pri-line); color: var(--pri-hi); }
+  body[data-theme="light"] .dag-node .dn-chip { background: var(--pri-dim); }
+  .dag-node:hover { transform: translateY(-2px); border-color: var(--pri); box-shadow: 0 12px 28px rgba(0,0,0,.5), 0 0 0 1px var(--pri-line), 0 0 18px rgba(46,144,250,.18); z-index: 3; }
+  .dag-node.sel { border-color: var(--pri); transform: translateY(-1px); box-shadow: 0 0 0 3px var(--pri-dim), 0 0 22px rgba(46,144,250,.4), 0 10px 26px rgba(0,0,0,.45); }
+  .dag-node.sel::after { content: ""; position: absolute; right: 7px; top: 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--pri); box-shadow: 0 0 9px var(--pri); }
+  .dag-node.note { border-style: dashed; border-color: rgba(245,165,36,.5); background: linear-gradient(180deg, rgba(245,165,36,.14), rgba(245,165,36,.05)); cursor: move; }
+  .dag-node.note .dn-name { color: var(--warn); font-weight: 500; font-size: 11.5px; }
+  .dag-node.cfg { border: 1.5px solid rgba(167,139,250,.55); background: linear-gradient(160deg, rgba(58,47,99,.92), rgba(24,20,48,.96)); }
+  body[data-theme="light"] .dag-node.cfg { background: linear-gradient(160deg, #F3F0FC, #E9E4F8); }
+  .dag-node.cfg::before { background: linear-gradient(90deg, transparent, rgba(167,139,250,.5), transparent); }
+  .dag-node.cfg .dn-name { color: var(--mut); }
+  .dag-node.link-target { border-color: var(--ok); box-shadow: 0 0 0 3px var(--ok-dim), 0 0 16px rgba(40,199,111,.3); }
+  .ed-canvas-wrap::after { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 2; background: radial-gradient(ellipse 120% 90% at 50% 40%, transparent 55%, rgba(2,4,8,.5)); }
+  body[data-theme="light"] .ed-canvas-wrap::after { background: radial-gradient(ellipse 120% 90% at 50% 40%, transparent 60%, rgba(30,50,90,.08)); }
+  /* 端口 */
+  .port { fill: var(--bg-panel); stroke: var(--t3); stroke-width: 1.5; cursor: crosshair; transition: all var(--dur-fast); }
+  .port.out:hover, .port.out.hotp { fill: var(--pri); stroke: var(--pri); filter: drop-shadow(var(--glow-pri)); }
+  .port.in:hover { stroke: var(--ok); fill: var(--ok-dim); }
+  .port.cfgp { stroke: var(--mut); }
+  .port-hit { fill: transparent; cursor: crosshair; }
+  .node-g:hover .port { stroke: var(--pri); fill: #fff; }
+  .node-g:hover .port.cfgp { stroke: var(--mut); }
+  .edge-hit { stroke: transparent; stroke-width: 14; fill: none; cursor: pointer; }
+  .edge-line { fill: none; stroke: var(--pri-line); stroke-width: 1.8; transition: stroke var(--dur-fast); }
+  .edge-line.sel { stroke: var(--pri); stroke-width: 2.4; filter: drop-shadow(0 0 5px var(--pri-line)); }
+  .edge-line.cfg { stroke: rgba(167,139,250,.55); stroke-width: 1.4; stroke-dasharray: 6 5; }
+  .edge-line.cfg.sel { stroke: var(--mut); }
+  .edge-line.cycle { stroke: var(--fail); stroke-width: 2.2; stroke-dasharray: 7 4; filter: drop-shadow(var(--glow-fail)); }
+  .link-tmp { fill: none; stroke: var(--pri); stroke-width: 2; stroke-dasharray: 6 4; }
+  .bend-handle { fill: var(--pri); stroke: #fff; stroke-width: 1.5; cursor: grab; filter: drop-shadow(0 0 4px var(--pri-line)); }
+  .bend-hint { font-size: 9.5px; fill: var(--t3); font-family: var(--font); }
+  #minimap { position: absolute; right: 12px; bottom: 12px; width: 170px; height: 110px; background: color-mix(in srgb, var(--bg-panel) 85%, transparent); border: 1px solid var(--line); border-radius: var(--r-sm); z-index: 6; }
+  /* ---------- 右侧配置 ---------- */
+  .ed-config { width: 330px; flex: none; overflow-y: auto; }
+  .cfg-empty { text-align: center; color: var(--t3); padding: 40px 10px; font-size: 12px; }
+  .var-btn { font-size: 10px; border: 1px dashed var(--pri-line); color: var(--pri); background: var(--pri-dim); border-radius: 3px; padding: 0 5px; cursor: pointer; }
+  .inh-hint { font-size: 10.5px; color: var(--t3); margin-top: 3px; }
+  .inh-hint b { color: var(--info); font-weight: 500; }
+  .map-row { display: grid; grid-template-columns: 1fr 18px 1fr; gap: 6px; align-items: center; margin-bottom: 6px; }
+  .map-row .map-src { font-family: var(--font); font-size: 11px; color: var(--mut); background: var(--mut-dim); border: 1px solid var(--mut-line); border-radius: var(--r-xs); padding: 4px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .map-row .map-arrow { color: var(--t4); text-align: center; }
+  .cfg-vars { display: flex; flex-wrap: wrap; gap: 5px; }
+  .cfg-vars .tag { font-family: var(--font); font-size: 10px; }
+  .vl-item { display: flex; gap: 8px; padding: 8px 10px; border-radius: var(--r-sm); font-size: 12px; margin-bottom: 6px; align-items: flex-start; }
+  .vl-item.err { background: var(--fail-dim); color: var(--t1); cursor: pointer; }
+  .vl-item.warn { background: var(--warn-dim); color: var(--t1); }
+  .vl-item.pass { background: var(--ok-dim); color: var(--t1); }
+  .vl-item svg { width: 14px; height: 14px; flex: none; margin-top: 2px; }
+  .vl-item.err svg { color: var(--fail); } .vl-item.warn svg { color: var(--warn); } .vl-item.pass svg { color: var(--ok); }
+</style>
+</head>
+<body>
+<script src="assets/js/icons.js"></script>
+<script src="assets/js/mock.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+(function () {
+  var wid = FO.qs('id') || 'WF-0001';
+  var wf = MOCK.workflows.filter(function (x) { return x.id === wid; })[0] || MOCK.workflows[0];
+  var isNew = !!FO.qs('new');
+
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+  var model = (wf.steps && wf.steps.length && !isNew)
+    ? clone({ steps: wf.steps, edges: wf.edges })
+    : { steps: [{ id: 's1', name: '新步骤', type: 'TASK', op: 'OP-0002', opVer: 'v2', x: 80, y: 120, params: {}, res: { cpu: 2, gpu: 0, mem: 4096, disk: 4096 }, timeout: null, retry: null, interval: null, strategy: 'RETRY', mutex: '', tags: [] }], edges: [] };
+  var NW = 188, NH = 78, NNW = 220, NNH = 46, CFGW = 184, CFGH = 78;
+  function nsize(s) {
+    if (!s) return [NW, NH];
+    if (s.type === 'NOTE') return [NNW, NNH];
+    if (s.type === 'CONFIG') return [CFGW, CFGH];
+    return [NW, NH];
+  }
+  var MW = {
+    'PostgreSQL':  ['host', 'port', 'db', 'user', 'password*'],
+    'MySQL':       ['host', 'port', 'db', 'user', 'password*'],
+    'Redis':       ['host', 'port', 'db', 'password*'],
+    'RocketMQ':    ['namesrv', 'topic', 'group'],
+    'Kafka':       ['bootstrap', 'topic', 'group'],
+    'MQTT':        ['broker', 'port', 'user', 'password*'],
+    'MinIO/S3':    ['endpoint', 'access_key*', 'secret_key*', 'bucket'],
+    'NAS(NFS/SMB)': ['server', 'path', 'user', 'password*']
+  };
+  function mwVarList(mw) { return (MW[mw] || []).map(function (v) { return { k: v.replace(/\*$/, ''), sensitive: v.indexOf('*') >= 0 }; }); }
+  function mwDefaults(mw) {
+    var d = { 'PostgreSQL': { host: '', port: '5432', db: '', user: '', password: '' },
+      'MySQL': { host: '', port: '3306', db: '', user: '', password: '' },
+      'Redis': { host: '', port: '6379', db: '0', password: '' },
+      'RocketMQ': { namesrv: '', topic: '', group: '' },
+      'Kafka': { bootstrap: '', topic: '', group: '' },
+      'MQTT': { broker: '', port: '1883', user: '', password: '' },
+      'MinIO/S3': { endpoint: '', access_key: '', secret_key: '', bucket: '' },
+      'NAS(NFS/SMB)': { server: '', path: '', user: '', password: '' } };
+    return JSON.parse(JSON.stringify(d[mw] || {}));
+  }
+  function cfgFieldValue(node, key) { return String(node.cfg && node.cfg[key] != null ? node.cfg[key] : ''); }
+  /* 算子类型 → 画布图标与色系（一眼分辨节点类型） */
+  var OP_ICON = { SHELL: 'bolt', JAR: 'cluster', PYTHON: 'diag', BAT: 'file', EXE: 'play', CUSTOM: 'settings' };
+  var OP_COLOR = { SHELL: 'var(--cyan)', JAR: 'var(--info)', PYTHON: 'var(--mut)', BAT: 'var(--warn)', EXE: 'var(--ok)', CUSTOM: 'var(--t2)' };
+  var OP_TINT = { SHELL: 'rgba(34,211,238,.14)', JAR: 'rgba(59,155,255,.14)', PYTHON: 'rgba(167,139,250,.14)', BAT: 'rgba(245,165,36,.14)', EXE: 'rgba(40,199,111,.14)', CUSTOM: 'rgba(130,150,174,.14)' };
+  function typeIconOf(s) {
+    if (s.type === 'CONFIG') return 'db';
+    if (s.type === 'NOTE') return 'edit';
+    var op = MOCK.operators.filter(function (o) { return o.id === s.op; })[0];
+    return op ? (OP_ICON[op.type] || 'operator') : 'operator';
+  }
+  function typeColorOf(s) {
+    if (s.type === 'CONFIG') return 'var(--mut)';
+    if (s.type === 'NOTE') return 'var(--warn)';
+    var op = MOCK.operators.filter(function (o) { return o.id === s.op; })[0];
+    return op ? (OP_COLOR[op.type] || 'var(--t2)') : 'var(--t2)';
+  }
+  function typeTintOf(s) {
+    if (s.type === 'CONFIG') return 'var(--mut-dim)';
+    if (s.type === 'NOTE') return 'var(--warn-dim)';
+    var op = MOCK.operators.filter(function (o) { return o.id === s.op; })[0];
+    return op ? (OP_TINT[op.type] || 'var(--idle-dim)') : 'var(--idle-dim)';
+  }
+  function cfgSources(sid) {
+    return model.edges.filter(function (e) { return e.to === sid; })
+      .map(function (e) { return stepById(e.from); })
+      .filter(function (n) { return n && n.type === 'CONFIG'; });
+  }
+  var dirty = false;
+  function setDirty(v) {
+    dirty = v;
+    var dot = document.getElementById('dirtyDot');
+    if (dot) dot.classList.toggle('hide', !v);
+  }
+
+  var content = ''
+    + '<div class="page-header"><div><h1 class="row" style="gap:10px">' + (isNew ? '新建工作流' : '编辑 · ' + wf.name)
+    + '<span class="tag warn">草稿</span><span class="tag fail hide" id="dirtyDot">● 未保存的修改</span>'
+    + (wf.hasDraft && !isNew ? '<span class="tiny faint">基于 v' + wf.currentVersion.replace('v', '') + ' 的未发布修改</span>' : '') + '</h1>'
+    + '<div class="sub">DAG 整包保存（无步骤级增量接口）· 保存草稿仅做结构校验，发布才做全量 12 条（07 §9.2）· 连线支持四向/拖拽调偏/双击删除</div></div>'
+    + '<div class="actions">'
+    + '<button class="btn" id="btnCfg">' + FO_ICONS.get('settings') + '工作流设置</button>'
+    + '<button class="btn" id="btnSave">' + FO_ICONS.get('check') + '保存草稿</button>'
+    + '<button class="btn primary" id="btnPublish">' + FO_ICONS.get('upload') + '发布</button>'
+    + '</div></div>'
+    + '<div class="ed-wrap">'
+    + '<div class="panel ed-palette"><div class="panel-h" style="padding:10px 12px"><b>算子库</b></div><div class="panel-b" style="padding:10px 12px">'
+    + '<input class="input pal-search" id="palSearch" placeholder="搜索算子名称…">'
+    + '<div id="palList"></div>'
+    + '</div></div>'
+    + '<div class="ed-canvas-wrap">'
+    + '<div class="ed-toolbar">'
+    + '<button class="btn sm tb" id="btnRunWf">' + FO_ICONS.get('play') + '运行</button>'
+    + '<button class="btn sm tb" id="btnValidate">' + FO_ICONS.get('diag') + '校验</button>'
+    + '<span class="spacer"></span><span class="zoom-info" id="zoomInfo">100%</span>'
+    + '</div>'
+    + '<div class="ed-tools" id="toolbox"></div>'
+    + '<svg id="canvas"><defs>'
+    + '<pattern id="grid" width="22" height="22" patternUnits="userSpaceOnUse"><path d="M22 0H0V22" fill="none" stroke="var(--grid-a)" stroke-width="1"/></pattern>'
+    + '<marker id="edir" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--pri)"/></marker>'
+    + '<marker id="edirf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--fail)"/></marker>'
+    + '<marker id="emut" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--mut)"/></marker>'
+    + '</defs><rect width="100%" height="100%" fill="url(#grid)"/><g id="world"><g id="edgeLayer"></g><g id="nodeLayer"></g><path id="linkTmp" class="link-tmp hide"/></g></svg>'
+    + '<svg id="minimap"></svg>'
+    + '</div>'
+    + '<div class="panel ed-config" id="cfg"><div class="panel-h"><b>步骤配置</b></div><div class="panel-b" id="cfgBody">'
+    + '<div class="cfg-empty">点击画布中的步骤节点<br>或从左侧拖入新步骤</div></div></div>'
+    + '</div>';
+
+  FO.mountShell({ active: 'workflowList', title: '工作流编辑器', crumb: [{ label: '工作流管理', href: 'workflow-list.html' }, { label: wf.name, href: 'workflow-detail.html?id=' + wf.id }], content: content });
+
+  var svg = document.getElementById('canvas'), world = document.getElementById('world');
+  var edgeLayer = document.getElementById('edgeLayer'), nodeLayer = document.getElementById('nodeLayer');
+  var view = { x: 30, y: 20, k: 1 };
+  var sel = null, selEdge = null, drag = null, link = null;
+
+  function applyView() {
+    world.setAttribute('transform', 'translate(' + view.x + ',' + view.y + ') scale(' + view.k + ')');
+    document.getElementById('zoomInfo').textContent = Math.round(view.k * 100) + '%';
+    drawMinimap();
+  }
+  function fitView() {
+    if (!model.steps.length) return;
+    var r = svg.getBoundingClientRect();
+    if (!r.width) return;
+    var minX = Math.min.apply(null, model.steps.map(function (s) { return s.x; })) - 50;
+    var minY = Math.min.apply(null, model.steps.map(function (s) { return s.y; })) - 50;
+    var maxX = Math.max.apply(null, model.steps.map(function (s) { return s.x + nsize(s)[0]; })) + 70;
+    var maxY = Math.max.apply(null, model.steps.map(function (s) { return s.y + nsize(s)[1]; })) + 60;
+    var k = Math.min(1, Math.min(r.width / (maxX - minX), r.height / (maxY - minY)));
+    view.k = Math.max(0.4, k);
+    view.x = (r.width - (maxX - minX) * view.k) / 2 - minX * view.k;
+    view.y = (r.height - (maxY - minY) * view.k) / 2 - minY * view.k;
+    applyView();
+  }
+  function toWorld(cx, cy) {
+    var r = svg.getBoundingClientRect();
+    return { x: (cx - r.left - view.x) / view.k, y: (cy - r.top - view.y) / view.k };
+  }
+  function stepById(id) { return model.steps.filter(function (s) { return s.id === id; })[0]; }
+  function opVerOf(s) {
+    if (!s.op) return null;
+    var vs = MOCK.opVersions[s.op] || [];
+    return vs.filter(function (v) { return v.no === s.opVer; })[0] || vs[0] || null;
+  }
+
+  /* ---------- 连线几何：四向锚点 + 智能选边 + bend ---------- */
+  function anchorPoints(a, b) {
+    var aS = nsize(a), bS = nsize(b);
+    var acx = a.x + aS[0] / 2, acy = a.y + aS[1] / 2;
+    var bcx = b.x + bS[0] / 2, bcy = b.y + bS[1] / 2;
+    var dx = bcx - acx, dy = bcy - acy;
+    var sideA, sideB;
+    if (Math.abs(dx) >= Math.abs(dy)) { sideA = dx >= 0 ? 'r' : 'l'; sideB = dx >= 0 ? 'l' : 'r'; }
+    else { sideA = dy >= 0 ? 'b' : 't'; sideB = dy >= 0 ? 't' : 'b'; }
+    function pt(n, sd, S) {
+      if (sd === 'r') return [n.x + S[0], n.y + S[1] / 2];
+      if (sd === 'l') return [n.x, n.y + S[1] / 2];
+      if (sd === 'b') return [n.x + S[0] / 2, n.y + S[1]];
+      return [n.x + S[0] / 2, n.y];
+    }
+    return { p1: pt(a, sideA, aS), p2: pt(b, sideB, bS), sideA: sideA, sideB: sideB };
+  }
+  function ctrlPts(p1, p2, sA, sB) {
+    var dx = p2[0] - p1[0], dy = p2[1] - p1[1];
+    var dist = Math.max(30, Math.hypot(dx, dy) / 2);
+    var c1, c2;
+    if (sA === 'r') c1 = [p1[0] + dist, p1[1]]; else if (sA === 'l') c1 = [p1[0] - dist, p1[1]];
+    else if (sA === 'b') c1 = [p1[0], p1[1] + dist]; else c1 = [p1[0], p1[1] - dist];
+    if (sB === 'l') c2 = [p2[0] - dist, p2[1]]; else if (sB === 'r') c2 = [p2[0] + dist, p2[1]];
+    else if (sB === 't') c2 = [p2[0], p2[1] - dist]; else c2 = [p2[0], p2[1] + dist];
+    return [c1, c2];
+  }
+  function edgePath(p1, p2, sA, sB, bend) {
+    var cc = ctrlPts(p1, p2, sA, sB);
+    var dx = p2[0] - p1[0], dy = p2[1] - p1[1];
+    var len = Math.hypot(dx, dy) || 1;
+    var nx = -dy / len, ny = dx / len;
+    return 'M' + p1[0] + ' ' + p1[1] + ' C'
+      + (cc[0][0] + nx * bend) + ' ' + (cc[0][1] + ny * bend) + ' '
+      + (cc[1][0] + nx * bend) + ' ' + (cc[1][1] + ny * bend) + ' '
+      + p2[0] + ' ' + p2[1];
+  }
+  function bezMid(p1, p2, sA, sB, bend) {
+    var cc = ctrlPts(p1, p2, sA, sB);
+    var dx = p2[0] - p1[0], dy = p2[1] - p1[1];
+    var len = Math.hypot(dx, dy) || 1;
+    var nx = -dy / len, ny = dx / len;
+    var c1x = cc[0][0] + nx * bend, c1y = cc[0][1] + ny * bend;
+    var c2x = cc[1][0] + nx * bend, c2y = cc[1][1] + ny * bend;
+    var t = 0.5, mt = 1 - t;
+    return {
+      x: mt * mt * mt * p1[0] + 3 * mt * mt * t * c1x + 3 * mt * t * t * c2x + t * t * t * p2[0],
+      y: mt * mt * mt * p1[1] + 3 * mt * mt * t * c1y + 3 * mt * t * t * c2y + t * t * t * p2[1]
+    };
+  }
+  function hasPath(a, b) {
+    var seen = {}, q = [a];
+    while (q.length) {
+      var c = q.shift();
+      if (c === b) return true;
+      if (seen[c]) continue; seen[c] = true;
+      model.edges.forEach(function (e) { if (e.from === c) q.push(e.to); });
+    }
+    return false;
+  }
+  function findCycleEdges() {
+    var inCycle = [];
+    model.edges.forEach(function (e) { if (hasPath(e.to, e.from)) inCycle.push(e); });
+    return inCycle;
+  }
+
+  function renderEdges() {
+    var cycleSet = findCycleEdges();
+    edgeLayer.innerHTML = model.edges.map(function (e) {
+      var a = stepById(e.from), b = stepById(e.to);
+      if (!a || !b) return '';
+      var ap = anchorPoints(a, b);
+      var bend = e.bend || 0;
+      var d = edgePath(ap.p1, ap.p2, ap.sideA, ap.sideB, bend);
+      var isSel = selEdge && selEdge.from === e.from && selEdge.to === e.to;
+      var isCfg = a.type === 'CONFIG';
+      var inCycle = cycleSet.some(function (c) { return c.from === e.from && c.to === e.to; });
+      var cls = 'edge-line' + (isCfg ? ' cfg' : '') + (inCycle ? ' cycle' : '') + (isSel ? ' sel' : '');
+      var marker = inCycle ? 'edirf' : (isCfg ? 'emut' : 'edir');
+      var h = '';
+      if (isSel) {
+        var mid = bezMid(ap.p1, ap.p2, ap.sideA, ap.sideB, bend);
+        h = '<circle class="bend-handle" data-from="' + e.from + '" data-to="' + e.to + '" cx="' + mid.x + '" cy="' + mid.y + '" r="6"/>'
+          + '<text class="bend-hint" x="' + (mid.x + 10) + '" y="' + (mid.y + 4) + '">拖拽调偏 · 双击删除</text>';
+      }
+      return '<path class="' + cls + '" marker-end="url(#' + marker + ')" d="' + d + '"/>'
+        + '<path class="edge-hit" data-from="' + e.from + '" data-to="' + e.to + '" d="' + d + '"/>'
+        + h;
+    }).join('');
+  }
+
+  function renderNodes() {
+    nodeLayer.innerHTML = model.steps.map(function (s) {
+      var sz = nsize(s), w = sz[0], h = sz[1];
+      var op = s.type === 'TASK' ? MOCK.operators.filter(function (o) { return o.id === s.op; })[0] : null;
+      var chips = [];
+      if (s.type === 'TASK') {
+        if (s.res.cpu) chips.push('CPU ' + s.res.cpu);
+        if (s.res.gpu) chips.push('GPU ' + s.res.gpu);
+        if (s.timeout) chips.push('超时 ' + s.timeout + 's');
+        if (s.retry != null && s.retry > 0) chips.push('重试 ' + s.retry);
+        if (s.mutex) chips.push('🔒 ' + s.mutex);
+        (s.tags || []).forEach(function (t) { chips.push('#' + t); });
+      }
+      if (s.type === 'CONFIG') {
+        mwVarList(s.mw).slice(0, 3).forEach(function (v) { chips.push((v.sensitive ? '🔑 ' : '') + v.k); });
+        if (mwVarList(s.mw).length > 3) chips.push('…');
+      }
+      var inner;
+      if (s.type === 'NOTE') {
+        inner = '<div class="dn-name">📝 ' + FO.esc(s.name) + '</div>';
+      } else if (s.type === 'CONFIG') {
+        inner = '<div class="dn-name"><span class="dn-ic" style="color:var(--mut);background:var(--mut-dim)">' + FO_ICONS.get('db') + '</span>' + FO.esc(s.name) + '</div>'
+          + '<div class="dn-op">' + (s.mw || '未选择中间件') + ' · 配置注入</div>'
+          + '<div class="dn-meta">' + chips.slice(0, 4).map(function (c) { return '<span class="dn-chip">' + c + '</span>'; }).join('') + '</div>';
+      } else {
+        inner = '<div class="dn-name"><span class="dn-ic" style="color:' + typeColorOf(s) + ';background:' + typeTintOf(s) + '">'
+          + FO_ICONS.get(typeIconOf(s)) + '</span>' + FO.esc(s.name) + '</div>'
+          + '<div class="dn-op">' + (op ? op.name + ' · ' + s.opVer : '<span style="color:var(--fail)">未选择算子</span>') + '</div>'
+          + '<div class="dn-meta">' + chips.slice(0, 4).map(function (c) { return '<span class="dn-chip">' + c + '</span>'; }).join('') + '</div>';
+      }
+      var typeCls = s.type === 'CONFIG' ? ' cfg' : (s.type === 'NOTE' ? ' note' : '');
+      var ports = '';
+      if (s.type !== 'NOTE') {
+        var outCls = 'port out' + (s.type === 'CONFIG' ? ' cfgp' : '');
+        ports += '<circle class="' + outCls + '" data-id="' + s.id + '" data-dir="r" cx="' + w + '" cy="' + h / 2 + '" r="4.5"/>'
+          + '<circle class="port-hit" data-id="' + s.id + '" data-dir="r" cx="' + w + '" cy="' + h / 2 + '" r="10"/>'
+          + '<circle class="' + outCls + '" data-id="' + s.id + '" data-dir="b" cx="' + w / 2 + '" cy="' + h + '" r="4.5"/>'
+          + '<circle class="port-hit" data-id="' + s.id + '" data-dir="b" cx="' + w / 2 + '" cy="' + h + '" r="10"/>';
+        if (s.type === 'TASK') {
+          ports += '<circle class="port in" data-id="' + s.id + '" data-dir="l" cx="0" cy="' + h / 2 + '" r="4.5"/>'
+            + '<circle class="port-hit" data-id="' + s.id + '" data-dir="l" cx="0" cy="' + h / 2 + '" r="10"/>'
+            + '<circle class="port in" data-id="' + s.id + '" data-dir="t" cx="' + w / 2 + '" cy="0" r="4.5"/>'
+            + '<circle class="port-hit" data-id="' + s.id + '" data-dir="t" cx="' + w / 2 + '" cy="0" r="10"/>';
+        }
+      }
+      return '<g class="node-g" transform="translate(' + s.x + ',' + s.y + ')">'
+        + '<foreignObject width="' + w + '" height="' + h + '">'
+        + '<div xmlns="http://www.w3.org/1999/xhtml" class="dag-node' + typeCls + (sel === s.id ? ' sel' : '') + '" data-id="' + s.id + '">' + inner + '</div>'
+        + '</foreignObject>'
+        + ports
+        + '</g>';
+    }).join('');
+  }
+
+  function render() { renderEdges(); renderNodes(); applyView(); }
+
+  /* ================= 交互 ================= */
+  svg.addEventListener('pointerdown', function (e) {
+    if (e.target === svg || e.target.getAttribute('fill') === 'url(#grid)') {
+      drag = { mode: 'pan', sx: e.clientX, sy: e.clientY, ox: view.x, oy: view.y };
+      svg.setPointerCapture(e.pointerId);
+      svg.classList.add('panning');
+    }
+  });
+  svg.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    var r = svg.getBoundingClientRect();
+    var mx = e.clientX - r.left, my = e.clientY - r.top;
+    var k2 = Math.min(2, Math.max(0.4, view.k * (e.deltaY < 0 ? 1.1 : 0.9)));
+    view.x = mx - (mx - view.x) * (k2 / view.k);
+    view.y = my - (my - view.y) * (k2 / view.k);
+    view.k = k2;
+    applyView();
+  }, { passive: false });
+
+  var bendDrag = null;
+  document.addEventListener('pointermove', function (e) {
+    if (drag && drag.mode === 'pan') {
+      view.x = drag.ox + (e.clientX - drag.sx);
+      view.y = drag.oy + (e.clientY - drag.sy);
+      applyView();
+    } else if (drag && drag.mode === 'node') {
+      var p = toWorld(e.clientX, e.clientY);
+      drag.step.x = Math.round((p.x - drag.dx) / 10) * 10;
+      drag.step.y = Math.round((p.y - drag.dy) / 10) * 10;
+      render();
+    } else if (bendDrag) {
+      var ed = bendDrag.edge;
+      var a = stepById(ed.from), b = stepById(ed.to);
+      var ap = anchorPoints(a, b);
+      var cur = toWorld(e.clientX, e.clientY);
+      var dx = ap.p2[0] - ap.p1[0], dy = ap.p2[1] - ap.p1[1];
+      var len = Math.hypot(dx, dy) || 1;
+      var nx = -dy / len, ny = dx / len;
+      ed.bend = Math.max(-160, Math.min(160, Math.round((cur.x - ap.p1[0]) * nx + (cur.y - ap.p1[1]) * ny)));
+      renderEdges();
+    } else if (link) {
+      var p2 = toWorld(e.clientX, e.clientY);
+      var s = stepById(link.from);
+      var sS = nsize(s);
+      var sx = link.fromDir === 'r' ? s.x + sS[0] : link.fromDir === 'l' ? s.x : s.x + sS[0] / 2;
+      var sy = link.fromDir === 'r' || link.fromDir === 'l' ? s.y + sS[1] / 2 : (link.fromDir === 'b' ? s.y + sS[1] : s.y);
+      document.getElementById('linkTmp').setAttribute('d', 'M' + sx + ' ' + sy + ' L' + p2.x + ' ' + p2.y);
+      document.getElementById('linkTmp').classList.remove('hide');
+      document.querySelectorAll('.dag-node').forEach(function (n) {
+        var ok = link.reversed
+          ? canConnect(n.dataset.id, link.from)
+          : canConnect(link.from, n.dataset.id);
+        n.classList.toggle('link-target', n.dataset.id !== link.from && ok);
+      });
+    }
+  });
+  document.addEventListener('pointerup', function (e) {
+    if (drag) { svg.classList.remove('panning'); drag = null; }
+    if (bendDrag) { bendDrag = null; setDirty(true); }
+    if (link) {
+      document.getElementById('linkTmp').classList.add('hide');
+      var tid = findDropTarget(e.clientX, e.clientY, link.from);
+      if (tid) addEdge(link.reversed ? tid : link.from, link.reversed ? link.from : tid);
+      link = null;
+      document.querySelectorAll('.dag-node.link-target').forEach(function (n) { n.classList.remove('link-target'); });
+      render();
+    }
+  });
+
+  svg.addEventListener('pointerdown', function (e) {
+    var bh = e.target.classList && e.target.classList.contains('bend-handle') ? e.target : null;
+    if (bh) {
+      e.stopPropagation();
+      var ed = model.edges.filter(function (x) { return x.from === bh.dataset.from && x.to === bh.dataset.to; })[0];
+      if (ed) bendDrag = { edge: ed };
+      return;
+    }
+    var port = e.target.classList && (e.target.classList.contains('port') || e.target.classList.contains('port-hit')) ? e.target : null;
+    if (port && port.dataset.dir && port.dataset.id) {
+      e.stopPropagation();
+      var dir = port.dataset.dir;
+      /* 出端口（右/下）= 正向：我连到目标；入端口（左/上）= 反向：拖到谁，谁连给我 */
+      link = { from: port.dataset.id, fromDir: dir, reversed: dir === 'l' || dir === 't' };
+      return;
+    }
+    var nd = e.target.closest ? e.target.closest('.dag-node') : null;
+    if (nd) {
+      var s = stepById(nd.dataset.id);
+      sel = s.id; selEdge = null;
+      setDirty(true);
+      var p = toWorld(e.clientX, e.clientY);
+      drag = { mode: 'node', step: s, dx: p.x - s.x, dy: p.y - s.y };
+      render(); showCfg(s);
+    }
+  });
+  svg.addEventListener('click', function (e) {
+    var hit = e.target.classList && e.target.classList.contains('edge-hit') ? e.target : null;
+    if (hit) { selEdge = { from: hit.dataset.from, to: hit.dataset.to }; sel = null; renderEdges(); hideCfg(); }
+    else if (e.target === svg || e.target.getAttribute('fill') === 'url(#grid)') {
+      if (sel || selEdge) { sel = null; selEdge = null; render(); hideCfg(); }
+    }
+  });
+  svg.addEventListener('dblclick', function (e) {
+    var hit = e.target.classList && e.target.classList.contains('edge-hit') ? e.target : null;
+    if (hit) {
+      var f = hit.dataset.from, t = hit.dataset.to;
+      model.edges = model.edges.filter(function (x) { return !(x.from === f && x.to === t); });
+      selEdge = null; render(); FO.toast('连线已删除（双击）', 'info');
+    }
+  });
+  document.addEventListener('keydown', function (e) {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      document.getElementById('btnSave').click();
+      return;
+    }
+    if (e.target.matches && e.target.matches('input,textarea,select')) return;
+    if (e.key === 'Escape' && link) {
+      link = null;
+      document.getElementById('linkTmp').classList.add('hide');
+      document.querySelectorAll('.dag-node.link-target').forEach(function (n) { n.classList.remove('link-target'); });
+      FO.toast('已取消连线（Esc）', 'info');
+      return;
+    }
+    if ((e.key === 'Delete' || e.key === 'Backspace')) {
+      if (selEdge) { delEdge(selEdge); }
+      else if (sel) { delStep(sel); }
+    }
+  });
+  function delEdge(se) {
+    model.edges = model.edges.filter(function (x) { return !(x.from === se.from && x.to === se.to); });
+    selEdge = null; render(); FO.toast('连线已删除', 'info');
+  }
+
+  /* 松手落点解析：三层命中，任何一层命中都算连上
+     ① elementFromPoint 直接压在目标节点 div 上
+     ② 压在目标节点的端口/命中圈上（SVG 圆圈不在 div 内，closest 找不到 —— 必须单独处理）
+     ③ 世界坐标包围盒 + 屏幕常数容差（缩放后节点很小也能连） */
+  function findDropTarget(clientX, clientY, fromId) {
+    var el = document.elementFromPoint(clientX, clientY);
+    var nd = el && el.closest ? el.closest('.dag-node') : null;
+    if (nd && nd.dataset.id && nd.dataset.id !== fromId) return nd.dataset.id;
+    if (el && el.dataset && el.dataset.id && el.dataset.id !== fromId) {
+      var st = stepById(el.dataset.id);
+      if (st && st.type !== 'NOTE') return el.dataset.id;
+    }
+    var p = toWorld(clientX, clientY);
+    var pad = 16 / view.k; /* 屏幕上约 16px 的宽容差 */
+    var hits = model.steps.filter(function (s) {
+      if (s.id === fromId || s.type === 'NOTE') return false;
+      var S = nsize(s);
+      return p.x >= s.x - pad && p.x <= s.x + S[0] + pad && p.y >= s.y - pad && p.y <= s.y + S[1] + pad;
+    });
+    return hits.length ? hits[hits.length - 1].id : null;
+  }
+  function canConnect(from, to) {
+    if (from === to) return false;
+    var f = stepById(from), t = stepById(to);
+    if (!f || !t) return false;
+    if (t.type === 'CONFIG') return false;
+    if (f.type === 'CONFIG' && t.type !== 'TASK') return false;
+    if (model.edges.some(function (e) { return e.from === from && e.to === to; })) return false;
+    return !hasPath(to, from);
+  }
+  function addEdge(from, to) {
+    if (!canConnect(from, to)) {
+      FO.toast(model.edges.some(function (e) { return e.from === from && e.to === to; }) ? '重复连线（唯一约束）' : '禁止自环与循环依赖（规则 5）', 'fail');
+      return;
+    }
+    model.edges.push({ from: from, to: to, bend: 0 });
+    setDirty(true);
+    render();
+  }
+  function delStep(id) {
+    model.steps = model.steps.filter(function (s) { return s.id !== id; });
+    model.edges = model.edges.filter(function (e) { return e.from !== id && e.to !== id; });
+    sel = null; hideCfg(); render();
+  }
+
+  /* ================= 工具箱 ================= */
+  function zoomAt(f) {
+    var r = svg.getBoundingClientRect();
+    var mx = r.width / 2, my = r.height / 2;
+    var k2 = Math.min(2, Math.max(0.4, view.k * f));
+    view.x = mx - (mx - view.x) * (k2 / view.k);
+    view.y = my - (my - view.y) * (k2 / view.k);
+    view.k = k2;
+    applyView();
+  }
+  function doLayout() {
+    var pos = FO.dagLayout(model.steps, model.edges);
+    model.steps.forEach(function (s) { if (pos[s.id]) { s.x = pos[s.id].x; s.y = pos[s.id].y; } });
+    render(); fitView(); setDirty(true);
+  }
+  function addNote() {
+    var p = toWorld(svg.getBoundingClientRect().left + 170, svg.getBoundingClientRect().top + 130);
+    model.steps.push({ id: 'n' + Date.now().toString(36), name: '双击编辑备注', type: 'NOTE', x: Math.round(p.x / 10) * 10, y: Math.round(p.y / 10) * 10 });
+    setDirty(true); render();
+  }
+  function addCfg() {
+    var p = toWorld(svg.getBoundingClientRect().left + 170, svg.getBoundingClientRect().top + 210);
+    var sid = 'c' + Date.now().toString(36);
+    model.steps.push({ id: sid, name: '中间件配置', type: 'CONFIG', mw: 'PostgreSQL', cfg: mwDefaults('PostgreSQL'), x: Math.round(p.x / 10) * 10, y: Math.round(p.y / 10) * 10 });
+    sel = sid; setDirty(true); render(); showCfg(stepById(sid));
+  }
+  function duplicateSel() {
+    if (!sel) { FO.toast('先选中要复制的步骤', 'warn'); return; }
+    var s = stepById(sel);
+    if (!s || s.type !== 'TASK') { FO.toast('仅执行步骤可复制', 'warn'); return; }
+    var c = clone(s);
+    c.id = 's' + Date.now().toString(36);
+    c.name = s.name + '-副本';
+    c.x += 30; c.y += 30;
+    model.steps.push(c);
+    sel = c.id; setDirty(true); render(); showCfg(c);
+  }
+  function delSelected() {
+    if (selEdge) { delEdge(selEdge); return; }
+    if (sel) { delStep(sel); return; }
+    FO.toast('先选中要删除的步骤或连线', 'warn');
+  }
+  var TB = [
+    { icon: 'plus', title: '添加备注节点', act: addNote },
+    { icon: 'db', title: '添加中间件配置', act: addCfg },
+    { icon: 'copy', title: '复制选中步骤', act: duplicateSel },
+    { icon: 'trash', title: '删除选中（步骤/连线，Del / 双击连线）', act: delSelected },
+    null,
+    { icon: 'zoomIn', title: '放大', act: function () { zoomAt(1.15); } },
+    { icon: 'minus', title: '缩小', act: function () { zoomAt(0.87); } },
+    { icon: 'maximize', title: '适配视图', act: function () { fitView(); render(); } },
+    { icon: 'workflow', title: '整理布局', act: doLayout }
+  ];
+  function renderToolbox() {
+    document.getElementById('toolbox').innerHTML = TB.map(function (t, i) {
+      if (!t) return '<div class="sep"></div>';
+      return '<button class="btn icon-only ghost" title="' + t.title + '" data-tb="' + i + '">' + FO_ICONS.get(t.icon) + '</button>';
+    }).join('');
+    document.querySelectorAll('#toolbox [data-tb]').forEach(function (b) {
+      b.addEventListener('click', function () { TB[+b.dataset.tb].act(); });
+    });
+  }
+
+  /* ================= 算子库（分类折叠 + 搜索） ================= */
+  var palOpen = {};
+  function renderPalette(query) {
+    var q = (query || '').trim().toLowerCase();
+    var html = '';
+    html += palGroup('通用', [
+      { op: 'CFG', name: '中间件配置', sub: 'PG/Redis/MQ/MinIO… 连线即注入', icon: 'db', istyle: 'color:var(--mut);background:var(--mut-dim)', dis: false },
+      { op: 'NOTE', name: '备注节点', sub: '不参与执行与校验', icon: 'edit', istyle: 'color:var(--warn);background:var(--warn-dim)', dis: false }
+    ], q, true);
+    var cats = [];
+    MOCK.operators.forEach(function (o) {
+      var c = o.cat || '其他';
+      if (cats.indexOf(c) < 0) cats.push(c);
+    });
+    cats.forEach(function (cat) {
+      var items = MOCK.operators.filter(function (o) { return (o.cat || '其他') === cat; })
+        .map(function (o) {
+          return { op: o.id, name: o.name, sub: FO.L.OPTYPE[o.type] + ' · ' + o.latest + (o.status === 'DISABLED' ? ' · 已停用' : ''),
+            icon: OP_ICON[o.type] || 'operator', istyle: 'color:' + OP_COLOR[o.type] + ';background:' + OP_TINT[o.type], dis: o.status === 'DISABLED' };
+        });
+      html += palGroup(cat, items, q, false);
+    });
+    document.getElementById('palList').innerHTML = html;
+    document.querySelectorAll('#palList .pal-group-h').forEach(function (h) {
+      h.addEventListener('click', function () {
+        var willOpen = h.parentNode.classList.contains('closed');
+        palOpen[h.dataset.cat] = willOpen;
+        h.parentNode.classList.toggle('closed', !willOpen);
+      });
+    });
+    document.querySelectorAll('#palList .pal-item').forEach(function (it) {
+      it.addEventListener('dragstart', function (e) { e.dataTransfer.setData('text/plain', it.dataset.op); });
+    });
+  }
+  function palGroup(cat, items, q, forceOpen) {
+    var filtered = q ? items.filter(function (it) { return it.name.toLowerCase().indexOf(q) >= 0 || it.sub.toLowerCase().indexOf(q) >= 0; }) : items;
+    var open = q ? true : (forceOpen || palOpen[cat] !== false);
+    var shown = open || !!q ? filtered : [];
+    return '<div class="pal-group' + (open ? '' : ' closed') + '">'
+      + '<div class="pal-group-h" data-cat="' + cat + '"><span class="chev">▼</span>' + cat
+      + '<span class="cnt">' + filtered.length + '</span></div>'
+      + '<div class="pal-items">'
+      + (shown.map(function (it) {
+          return '<div class="pal-item' + (it.dis ? ' dis' : '') + '" draggable="true" data-op="' + it.op + '">'
+            + '<span class="pt"' + (it.istyle ? ' style="' + it.istyle + '"' : '') + '>' + FO_ICONS.get(it.icon) + '</span>'
+            + '<div><b>' + FO.esc(it.name) + '</b><div class="tiny faint">' + it.sub + '</div></div></div>';
+        }).join('') || '<div class="tiny ghost-c" style="padding:2px 4px 6px">无匹配</div>')
+      + '</div></div>';
+  }
+  document.getElementById('palSearch').addEventListener('input', function () {
+    renderPalette(this.value);
+  });
+
+  svg.addEventListener('dragover', function (e) { e.preventDefault(); });
+  svg.addEventListener('drop', function (e) {
+    e.preventDefault();
+    var op = e.dataTransfer.getData('text/plain');
+    var p = toWorld(e.clientX, e.clientY);
+    var sid = 's' + (model.steps.length + 1) + Math.random().toString(36).slice(2, 4);
+    if (op === 'CFG') {
+      model.steps.push({ id: sid, name: '中间件配置', type: 'CONFIG', mw: 'PostgreSQL', cfg: mwDefaults('PostgreSQL'), x: Math.round(p.x / 10) * 10, y: Math.round(p.y / 10) * 10 });
+    } else if (op === 'NOTE') {
+      model.steps.push({ id: sid, name: '双击编辑备注', type: 'NOTE', x: Math.round(p.x / 10) * 10, y: Math.round(p.y / 10) * 10 });
+    } else {
+      var o = MOCK.operators.filter(function (x) { return x.id === op; })[0];
+      var ver = (MOCK.opVersions[op] || [])[0];
+      model.steps.push({
+        id: sid, name: o ? o.name : '新步骤', type: 'TASK', op: op, opVer: ver ? ver.no : 'v1',
+        x: Math.round(p.x / 10) * 10, y: Math.round(p.y / 10) * 10,
+        params: {}, res: { cpu: 2, gpu: 0, mem: 4096, disk: 4096 },
+        timeout: null, retry: null, interval: null, strategy: 'RETRY', mutex: '', tags: []
+      });
+    }
+    sel = sid; setDirty(true); render(); showCfg(stepById(sid));
+  });
+
+  /* ================= 小地图 ================= */
+  function drawMinimap() {
+    var mm = document.getElementById('minimap');
+    if (!model.steps.length) return;
+    var xs = model.steps.map(function (s) { return s.x; }), ys = model.steps.map(function (s) { return s.y; });
+    var minX = Math.min.apply(null, xs) - 40, minY = Math.min.apply(null, ys) - 40;
+    var maxX = Math.max.apply(null, model.steps.map(function (s) { return s.x + nsize(s)[0]; })) + 40;
+    var maxY = Math.max.apply(null, model.steps.map(function (s) { return s.y + nsize(s)[1]; })) + 60;
+    var sx = 170 / (maxX - minX), sy = 110 / (maxY - minY), sc = Math.min(sx, sy);
+    var r = svg.getBoundingClientRect();
+    var vw = (r.width / view.k) * sc, vh = (r.height / view.k) * sc;
+    var vx = (-view.x / view.k - minX) * sc, vy = (-view.y / view.k - minY) * sc;
+    var dots = model.steps.map(function (s) {
+      return '<rect x="' + ((s.x - minX) * sc) + '" y="' + ((s.y - minY) * sc) + '" width="' + (Math.max(4, nsize(s)[0] * sc)) + '" height="' + Math.max(3, nsize(s)[1] * sc) + '" rx="1.5" fill="' + (s.type === 'CONFIG' ? 'var(--mut)' : s.type === 'NOTE' ? 'var(--warn)' : sel === s.id ? 'var(--pri)' : 'var(--t3)') + '" opacity=".85"/>';
+    }).join('');
+    mm.innerHTML = '<g transform="translate(' + Math.max(0, (170 - (maxX - minX) * sc) / 2) + ',' + Math.max(0, (110 - (maxY - minY) * sc) / 2) + ')">' + dots
+      + '</g><rect x="' + vx + '" y="' + vy + '" width="' + vw + '" height="' + vh + '" fill="none" stroke="var(--pri)" stroke-width="1.2" rx="2"/>';
+    mm.style.cursor = 'pointer';
+  }
+  document.getElementById('minimap').addEventListener('click', function (e) {
+    view.x = 30 - (e.offsetX * 3);
+    view.y = 20 - (e.offsetY * 3);
+    applyView();
+  });
+
+  /* ================= 配置面板 ================= */
+  function hideCfg() {
+    document.getElementById('cfgBody').innerHTML = '<div class="cfg-empty">点击画布中的步骤节点<br>或从左侧拖入新步骤</div>';
+  }
+  function ancestors(id) {
+    var out = [], q = [id], seen = {};
+    while (q.length) {
+      var c = q.shift();
+      model.edges.forEach(function (e) {
+        if (e.to === c && !seen[e.from]) { seen[e.from] = true; out.push(e.from); q.push(e.from); }
+      });
+    }
+    return out;
+  }
+
+  function showCfg(s) {
+    var body = document.getElementById('cfgBody');
+    if (!s) { hideCfg(); return; }
+    if (s.type === 'NOTE') {
+      body.innerHTML = '<div class="field"><label>备注内容</label><textarea class="textarea" id="cfgNote">' + FO.esc(s.name) + '</textarea></div>'
+        + '<button class="btn sm danger" onclick="delSel()">删除备注</button>';
+      body.querySelector('#cfgNote').addEventListener('input', function () { s.name = this.value; render(); });
+      return;
+    }
+    if (s.type === 'CONFIG') {
+      if (!s.cfg) s.cfg = mwDefaults(s.mw);
+      body.innerHTML = ''
+        + '<div class="banner pri" style="margin-bottom:12px"><span data-ic="info"></span><div><b>配置节点不参与执行</b>：仅作为配置源，用连线连到需要这些配置的步骤（连线后可在步骤侧做变量映射），派发时注入步骤环境</div></div>'
+        + '<div class="field"><label>配置名称 <span class="req">*</span></label><input class="input" id="cfgName" value="' + FO.esc(s.name) + '"></div>'
+        + '<div class="field"><label>中间件类型</label><select class="select" id="cfgMw">'
+        + Object.keys(MW).map(function (m) { return '<option' + (m === s.mw ? ' selected' : '') + '>' + m + '</option>'; }).join('')
+        + '</select><div class="help">切换类型将重置连接字段</div></div>'
+        + '<div id="cfgFields"></div>'
+        + '<div class="field"><label>输出变量（供下游步骤连线引用）</label><div class="cfg-vars">'
+        + mwVarList(s.mw).map(function (v) {
+            return '<span class="tag ' + (v.sensitive ? 'fail' : 'mut') + '">' + (v.sensitive ? '🔑 ' : '') + v.k + '</span>';
+          }).join('')
+        + '</div><div class="help">变量名统一为平台标准名；下游算子变量名不同（如 ak/accessKey）时，在步骤侧的「配置引用」中做映射</div></div>'
+        + '<button class="btn sm danger" onclick="delSel()">' + FO_ICONS.get('trash') + '删除配置节点</button>';
+      body.querySelector('#cfgName').addEventListener('input', function () { s.name = this.value; render(); });
+      body.querySelector('#cfgMw').addEventListener('change', function () {
+        s.mw = this.value; s.cfg = mwDefaults(s.mw); render(); showCfg(s);
+      });
+      function renderFields() {
+        body.querySelector('#cfgFields').innerHTML = mwVarList(s.mw).map(function (v) {
+          var inp = '<input class="input js-cffield" data-k="' + v.k + '" type="' + (v.sensitive ? 'password' : 'text') + '" value="' + FO.esc(cfgFieldValue(s, v.k)) + '">';
+          return '<div class="field"><label>' + (v.sensitive ? '🔑 ' : '') + v.k + (v.sensitive ? ' <span class="tag fail" style="font-size:9px">敏感</span>' : '') + '</label>'
+            + (v.sensitive ? secretWrap(inp) : inp) + '</div>';
+        }).join('');
+        body.querySelectorAll('#cfgFields .js-cffield').forEach(function (inp) {
+          inp.addEventListener('input', function () { s.cfg[inp.dataset.k] = inp.value; setDirty(true); });
+        });
+        bindEye(body);
+      }
+      renderFields();
+      return;
+    }
+    var ver = opVerOf(s);
+    var vers = MOCK.opVersions[s.op] || [];
+    body.innerHTML = ''
+      + '<div class="field"><label>步骤名称 <span class="req">*</span></label><input class="input" id="cfgName" value="' + FO.esc(s.name) + '"><div class="help">工作流内必须唯一（规则 10）——它是变量引用 ${step.名称.output.X} 的绑定键</div></div>'
+      + '<div class="field"><label>算子（绑定后固定）</label><div class="row" style="gap:8px">'
+      + '<span class="dn-ic" style="width:22px;height:22px;color:' + typeColorOf(s) + ';background:' + typeTintOf(s) + '">'
+      + FO_ICONS.get(typeIconOf(s)) + '</span>'
+      + '<b class="small">' + (function () { var o = MOCK.operators.filter(function (x) { return x.id === s.op; })[0]; return o ? o.name : '未绑定'; })() + '</b>'
+      + '<span class="tag info">' + (function () { var o = MOCK.operators.filter(function (x) { return x.id === s.op; })[0]; return o ? FO.L.OPTYPE[o.type] : '—'; })() + '</span>'
+      + '</div><div class="help">算子与类型绑定后不可更换；如需换算子，请删除本步骤后从算子库重新拖入</div></div>'
+      + '<div class="field"><label>算子版本</label><select class="select" id="cfgVer">'
+      + vers.map(function (v) { return '<option' + (v.no === s.opVer ? ' selected' : '') + '>' + v.no + '</option>'; }).join('')
+      + '</select></div>'
+      + '<div class="field"><label class="row">参数 <span class="spacer"></span><span class="tiny faint">引用上游输出</span></label>'
+      + (ver ? ver.params.map(function (p) {
+          var val = s.params[p.key] != null ? s.params[p.key] : '';
+          var inp = '<input class="input js-param" data-key="' + p.key + '" type="' + (p.sensitive ? 'password' : 'text') + '" value="' + FO.esc(val) + '" placeholder="' + (p.default ? '默认 ' + p.default : '') + '">';
+          return '<div style="margin-bottom:8px"><div class="row" style="gap:6px;margin-bottom:3px"><span class="tiny" style="color:var(--t2)">' + p.name
+            + (p.required ? ' <span style="color:var(--fail)">*</span>' : '')
+            + (p.sensitive ? ' <span class="tag fail" style="font-size:9px">敏感</span>' : '') + '</span>'
+            + '<span class="spacer"></span><button class="var-btn" data-key="' + p.key + '">引用…</button></div>'
+            + (p.sensitive ? secretWrap(inp) : inp) + '</div>';
+        }).join('') : '<div class="tiny faint">该算子无参数模板</div>')
+      + '</div>'
+      + '<div class="form-grid">'
+      + '<div class="field"><label>CPU（核）</label><input class="input js-res" data-k="cpu" value="' + (s.res.cpu || '') + '" placeholder="继承 2"></div>'
+      + '<div class="field"><label>GPU（卡）</label><input class="input js-res" data-k="gpu" value="' + (s.res.gpu || '') + '" placeholder="继承 0"></div>'
+      + '<div class="field"><label>内存（MB）</label><input class="input js-res" data-k="mem" value="' + (s.res.mem || '') + '" placeholder="继承 4096"></div>'
+      + '<div class="field"><label>磁盘（MB）</label><input class="input js-res" data-k="disk" value="' + (s.res.disk || '') + '" placeholder="继承 4096"></div>'
+      + '</div>'
+      + '<div class="form-grid">'
+      + '<div class="field"><label>超时（秒）</label><input class="input js-cfg" data-k="timeout" value="' + (s.timeout != null ? s.timeout : '') + '" placeholder="留空继承">'
+      + '<div class="inh-hint">继承链：平台 → 项目 → 工作流 → 算子版本 → <b>此处</b>；留空取工作流默认 <b>3600s</b></div></div>'
+      + '<div class="field"><label>重试次数</label><input class="input js-cfg" data-k="retry" value="' + (s.retry != null ? s.retry : '') + '" placeholder="留空继承">'
+      + '<div class="inh-hint">硬上限 <b>MAX_RETRY = 10</b>（规则 9，超出截断并警告）</div></div>'
+      + '<div class="field"><label>重试间隔（秒）</label><input class="input js-cfg" data-k="interval" value="' + (s.interval != null ? s.interval : '') + '"></div>'
+      + '<div class="field"><label>失败策略</label><select class="select js-cfg" data-k="strategy">'
+      + '<option value="RETRY"' + (s.strategy === 'RETRY' ? ' selected' : '') + '>失败重试当前步骤</option>'
+      + '<option value="TERMINATE"' + (s.strategy === 'TERMINATE' ? ' selected' : '') + '>失败终止整个工作流</option></select></div>'
+      + '</div>'
+      + '<div class="field"><label>互斥锁名称（mutex_group）</label><input class="input" id="cfgMutex" value="' + FO.esc(s.mutex) + '" placeholder="空 = 不启用">'
+      + '<div class="help">同名锁全平台串行；竞争发生在步骤出队且节点匹配成功之后（不在提交路径）</div></div>'
+      + '<div class="field"><label>执行节点标签约束</label><input class="input" id="cfgTags" value="' + FO.esc((s.tags || []).join(',')) + '" placeholder="如：gpu,ssd"></div>'
+      + '<div class="field"><label class="row">配置引用 <span class="spacer"></span><span class="tiny faint">连线自动关联 · 支持变量映射</span></label>'
+      + (function () {
+          var srcs = cfgSources(s.id);
+          if (!srcs.length) return '<div class="tiny ghost-c" style="padding:4px 0">尚未引用配置——从左侧拖入「中间件配置」节点，连线到本步骤即可注入</div>';
+          return srcs.map(function (c) {
+            var ref = (s.cfgRefs || {})[c.id] || { map: {} };
+            var map = ref.map || {};
+            return '<div class="panel-b" style="border:1px solid var(--line-faint);border-radius:var(--r-sm);margin-bottom:8px;padding:10px 12px">'
+              + '<div class="row small mb-2"><b style="color:var(--mut)">' + FO.esc(c.name) + '</b><span class="tag mut" style="font-size:9px">' + (c.mw || '') + '</span>'
+              + '<span class="spacer"></span><button class="var-btn js-mapreset" data-cfg="' + c.id + '">全部还原原名</button></div>'
+              + mwVarList(c.mw).map(function (v) {
+                  var tgt = map[v.k] || '';
+                  return '<div class="map-row">'
+                    + '<span class="map-src" title="配置输出变量">' + (v.sensitive ? '🔑 ' : '') + FO.esc(v.k) + '</span>'
+                    + '<span class="map-arrow">→</span>'
+                    + '<input class="input js-map" data-cfg="' + c.id + '" data-k="' + v.k + '" value="' + FO.esc(tgt) + '" placeholder="' + FO.esc(v.k) + '（原名注入）" style="height:26px;font-size:11px">'
+                    + '</div>';
+                }).join('')
+              + '<div class="tiny faint">左 = 配置标准变量名 · 右 = 留空按原名注入，填写则映射为算子所需变量名（如 access_key → ak）</div>'
+              + '</div>';
+          }).join('');
+        })()
+      + '</div>'
+      + '<div class="field"><label>目标队列</label><select class="select" id="cfgQueue">'
+      + ['default', 'high-priority', 'gpu-queue', 'batch-heavy'].map(function (qq) {
+          return '<option' + (s.queue === qq ? ' selected' : '') + '>' + qq + '</option>';
+        }).join('')
+      + '</select><div class="help">并发额度在出队时检查；队列隔离优先于优先级</div></div>'
+      + '<button class="btn sm danger" onclick="delSel()">' + FO_ICONS.get('trash') + '删除步骤</button>';
+
+    body.querySelector('#cfgName').addEventListener('input', function () { s.name = this.value; render(); });
+    body.querySelector('#cfgVer').addEventListener('change', function () { s.opVer = this.value; s.params = {}; showCfg(s); });
+    body.querySelectorAll('.js-param').forEach(function (inp) {
+      inp.addEventListener('input', function () { s.params[inp.dataset.key] = inp.value; });
+    });
+    body.querySelectorAll('.var-btn:not(.js-mapreset)').forEach(function (b) {
+      b.addEventListener('click', function () { openVarPicker(s, b.dataset.key); });
+    });
+    body.querySelectorAll('.js-res').forEach(function (inp) {
+      inp.addEventListener('input', function () { s.res[inp.dataset.k] = parseFloat(inp.value) || 0; });
+    });
+    body.querySelectorAll('.js-cfg').forEach(function (inp) {
+      inp.addEventListener('change', function () {
+        var v = inp.value.trim();
+        s[inp.dataset.k] = v === '' ? null : (inp.dataset.k === 'strategy' ? v : parseInt(v, 10));
+      });
+    });
+    body.querySelector('#cfgMutex').addEventListener('input', function () { s.mutex = this.value.trim(); render(); });
+    body.querySelector('#cfgTags').addEventListener('input', function () { s.tags = this.value.split(/[,，]/).map(function (x) { return x.trim(); }).filter(Boolean); render(); });
+    body.querySelector('#cfgQueue').addEventListener('change', function () { s.queue = this.value; setDirty(true); });
+    if (!s.cfgRefs) s.cfgRefs = {};
+    body.querySelectorAll('.js-map').forEach(function (inp) {
+      inp.addEventListener('input', function () {
+        var cid = inp.dataset.cfg, k = inp.dataset.k;
+        if (!s.cfgRefs[cid]) s.cfgRefs[cid] = { map: {} };
+        var v = inp.value.trim();
+        if (v) s.cfgRefs[cid].map[k] = v; else delete s.cfgRefs[cid].map[k];
+        setDirty(true);
+      });
+    });
+    body.querySelectorAll('.js-mapreset').forEach(function (b) {
+      b.addEventListener('click', function () {
+        if (s.cfgRefs[b.dataset.cfg]) s.cfgRefs[b.dataset.cfg].map = {};
+        showCfg(s); setDirty(true);
+        FO.toast('已还原为按原名注入（演示）', 'info');
+      });
+    });
+    bindEye(body);
+  }
+
+  /* 敏感字段：眼睛按钮切换明文/掩码 */
+  function secretWrap(inp) {
+    return '<div class="row" style="gap:6px;flex-wrap:nowrap">' + inp
+      + '<button class="btn xs icon-only js-eye" type="button" title="显示 / 隐藏" style="flex:none">' + FO_ICONS.get('eye') + '</button></div>';
+  }
+  function bindEye(scope) {
+    scope.querySelectorAll('.js-eye').forEach(function (b) {
+      if (b.dataset.bound) return;
+      b.dataset.bound = '1';
+      b.addEventListener('click', function () {
+        var inp = b.parentNode.querySelector('input');
+        var show = inp.type === 'password';
+        inp.type = show ? 'text' : 'password';
+        b.innerHTML = FO_ICONS.get(show ? 'eyeOff' : 'eye');
+      });
+    });
+  }
+
+  window.delSel = function () { if (sel) delStep(sel); };
+
+  /* ---------- 变量引用选择器 ---------- */
+  function openVarPicker(s, paramKey) {
+    var anc = ancestors(s.id).map(stepById).filter(function (x) { return x && x.type === 'TASK'; });
+    var items = [];
+    anc.forEach(function (a) {
+      var v = opVerOf(a);
+      (v ? v.outputs : []).forEach(function (o) {
+        items.push({ step: a, out: o });
+      });
+    });
+    if (!items.length) { FO.toast('该步骤暂无可达上游（或上游算子未声明输出）——只有「真上游」可被引用', 'warn'); return; }
+    FO.modal({
+      title: '引用上游输出 · ' + s.name, width: 560,
+      body: '<p class="tiny faint mb-3">仅列出<b>可达的上游步骤</b>（编辑期收窄，防止运行期取不到值）；语法 <span class="mono">${step.{步骤名}.output.{变量名}}</span>（D-20）</p>'
+        + items.map(function (it) {
+            return '<div class="vl-item pass clickable js-var" data-ref="${step.' + it.step.name + '.output.' + it.out.key + '}">'
+              + FO_ICONS.get('link') + '<div><b class="mono small">' + it.step.name + '</b> <span class="tag info" style="font-size:9px">' + it.out.key + '</span>'
+              + '<div class="tiny faint">' + it.out.name + ' · ' + it.out.type + (it.out.required ? ' · 必填产出' : '') + '</div></div></div>';
+          }).join(''),
+      footer: '<button class="btn" data-act="cancel">取消</button>',
+      onOk: null
+    });
+    document.querySelectorAll('.js-var').forEach(function (el) {
+      el.addEventListener('click', function () {
+        var inp = document.querySelector('.js-param[data-key="' + paramKey + '"]');
+        if (inp) { inp.value = el.dataset.ref; s.params[paramKey] = el.dataset.ref; }
+        document.querySelector('.overlay .x').click();
+        FO.toast('已插入引用：' + el.dataset.ref, 'ok');
+      });
+    });
+  }
+
+  /* ================= 校验 ================= */
+  function validate() {
+    var errs = [], warns = [];
+    var tasks = model.steps.filter(function (s) { return s.type === 'TASK'; });
+    var ids = tasks.map(function (s) { return s.id; });
+
+    var reachable = {}, q = tasks.filter(function (s) { return !model.edges.some(function (e) { return e.to === s.id && ids.indexOf(e.from) >= 0; }); }).map(function (s) { return s.id; });
+    q.forEach(function (id) { reachable[id] = true; });
+    while (q.length) {
+      var c = q.shift();
+      model.edges.forEach(function (e) { if (e.from === c && ids.indexOf(e.to) >= 0 && !reachable[e.to]) { reachable[e.to] = true; q.push(e.to); } });
+    }
+    tasks.forEach(function (s) { if (!reachable[s.id]) errs.push([1, s, '步骤「' + s.name + '」不可达（规则 1：所有执行步骤须可从入度 0 步骤到达）']); });
+
+    tasks.forEach(function (s) { if (!s.op || !s.opVer) errs.push([2, s, '步骤「' + s.name + '」未选择算子或算子版本']); });
+
+    (function () {
+      var indeg = {}, adj = {};
+      ids.forEach(function (i) { indeg[i] = 0; adj[i] = []; });
+      model.edges.forEach(function (e) { if (indeg[e.to] != null && adj[e.from]) { indeg[e.to]++; adj[e.from].push(e.to); } });
+      var qq = ids.filter(function (i) { return indeg[i] === 0; }), seen = 0;
+      while (qq.length) { var c = qq.pop(); seen++; adj[c].forEach(function (t) { if (--indeg[t] === 0) qq.push(t); }); }
+      if (seen < ids.length) errs.push([5, null, '检测到循环依赖（规则 5）：存在 ' + (ids.length - seen) + ' 个步骤成环']);
+    })();
+
+    (function () {
+      var seen = {};
+      tasks.forEach(function (s) { seen[s.name] = (seen[s.name] || 0) + 1; });
+      Object.keys(seen).forEach(function (n) { if (seen[n] > 1) errs.push([10, null, '步骤名「' + n + '」重复（规则 10：步骤名是变量引用的绑定键）']); });
+    })();
+
+    tasks.forEach(function (s) {
+      var v = opVerOf(s);
+      var op = MOCK.operators.filter(function (o) { return o.id === s.op; })[0];
+      if (op && op.status === 'DISABLED') errs.push([7, s, '步骤「' + s.name + '」引用了已停用算子「' + op.name + '」（规则 7）']);
+      if (v) {
+        v.params.forEach(function (p) {
+          if (p.required && (s.params[p.key] == null || String(s.params[p.key]).trim() === ''))
+            errs.push([3, s, '步骤「' + s.name + '」缺少必填参数「' + p.name + '」（' + p.key + '）']);
+        });
+        Object.keys(s.params).forEach(function (k) {
+          var val = String(s.params[k] || '');
+          var m = val.match(/\$\{step\.(.+?)\.output\.(.+?)\}/);
+          if (m) {
+            var up = tasks.filter(function (x) { return x.name === m[1]; })[0];
+            if (!up || ancestors(s.id).indexOf(up.id) < 0) errs.push([4, s, '步骤「' + s.name + '」引用了不可达上游：${step.' + m[1] + '.output.' + m[2] + '}（规则 4 / 42214）']);
+            else {
+              var uv = opVerOf(up);
+              var hasOut = uv && uv.outputs.some(function (o) { return o.key === m[2]; });
+              if (!hasOut) errs.push([4, s, '步骤「' + s.name + '」引用的输出变量不存在：' + m[2] + ' ∈ ' + m[1] + '（规则 4）']);
+            }
+          }
+        });
+      }
+      if (s.retry != null && s.retry > 10) warns.push([9, s, '步骤「' + s.name + '」重试次数 ' + s.retry + ' 超过硬上限，发布时将截断为 10 并告警（规则 9，不阻塞）']);
+    });
+
+    var cl = MOCK.clusters[0];
+    tasks.forEach(function (s) {
+      if (s.res && s.res.cpu && s.res.cpu > cl.cpu.total) errs.push([6, s, '步骤「' + s.name + '」CPU ' + s.res.cpu + ' 核超过集群 ' + cl.name + ' 上限 ' + cl.cpu.total + ' 核（规则 6）']);
+      if (s.res && s.res.gpu && s.res.gpu > cl.gpu.total) errs.push([6, s, '步骤「' + s.name + '」GPU ' + s.res.gpu + ' 卡超过集群上限 ' + cl.gpu.total + ' 卡（规则 6）']);
+    });
+
+    if (!wf.concurrency) errs.push([8, null, '工作流未声明并发控制配置（规则 8）']);
+
+    model.steps.filter(function (st) { return st.type === 'CONFIG'; }).forEach(function (c) {
+      var missing = (MW[c.mw] || []).map(function (f) { return f.replace(/\*$/, ''); })
+        .filter(function (k) { return !String((c.cfg || {})[k] || '').trim(); });
+      if (!c.mw) errs.push([11, c, '配置节点「' + c.name + '」未选择中间件类型（规则 11 · 实现补充）']);
+      else if (missing.length) errs.push([11, c, '配置节点「' + c.name + '」连接信息不完整，缺少：' + missing.join(', ') + '（规则 11 · 实现补充）']);
+    });
+
+    tasks.forEach(function (st) {
+      var seen = {};
+      cfgSources(st.id).forEach(function (c) {
+        var map = ((st.cfgRefs || {})[c.id] || {}).map || {};
+        mwVarList(c.mw).forEach(function (v) {
+          var tgt = map[v.k] || v.k;
+          if (seen[tgt]) warns.push([12, st, '步骤「' + st.name + '」存在重复注入变量「' + tgt + '」（来自 ' + seen[tgt] + ' 与 ' + c.name + '，规则 12 · 实现补充）']);
+          else seen[tgt] = c.name;
+        });
+        var v2 = opVerOf(st);
+        if (v2) v2.params.forEach(function (pp) {
+          if (seen[pp.key]) warns.push([12, st, '步骤「' + st.name + '」的映射变量「' + pp.key + '」与参数模板同名，将以配置注入覆盖（规则 12 · 实现补充）']);
+        });
+      });
+    });
+
+    return { errs: errs, warns: warns };
+  }
+
+  function showValidateResult() {
+    var r = validate();
+    var rows = r.errs.map(function (e) {
+      return '<div class="vl-item err js-goto" data-id="' + (e[1] ? e[1].id : '') + '">' + FO_ICONS.get('cross') + '<div><span class="tag fail" style="font-size:9px">规则 ' + e[0] + '</span> ' + e[2] + '</div></div>';
+    }).join('') + r.warns.map(function (e) {
+      return '<div class="vl-item warn js-goto" data-id="' + (e[1] ? e[1].id : '') + '">' + FO_ICONS.get('alert') + '<div><span class="tag warn" style="font-size:9px">规则 ' + e[0] + '</span> ' + e[2] + '</div></div>';
+    }).join('');
+    var pass = !r.errs.length && !r.warns.length;
+    FO.modal({
+      title: '发布前校验（12 条规则）', width: 620,
+      body: (pass
+        ? '<div class="vl-item pass">' + FO_ICONS.get('check') + '<div><b>全部 12 条规则通过</b>，可以发布。</div></div>'
+          + '<p class="tiny faint mt-2">校验时机：保存草稿只做结构校验（规则 1/2/5/10），发布才做全量——否则编辑中途无法保存，体验不可接受（§10.8 实现要求）。</p>'
+        : rows)
+        + '<div class="tiny faint mt-3">规则清单：①入度/可达 ②算子版本 ③必填参数 ④变量引用有效 ⑤无环 ⑥资源不超上限 ⑦停用算子 ⑧并发配置 ⑨重试≤10 ⑩步骤名唯一 ⑪配置节点完整 ⑫映射冲突（⑪⑫为配置节点功能的实现补充）</div>',
+      footer: '<button class="btn" data-act="cancel">关闭</button>'
+    });
+    document.querySelectorAll('.js-goto').forEach(function (el) {
+      el.addEventListener('click', function () {
+        if (el.dataset.id) { sel = el.dataset.id; selEdge = null; render(); showCfg(stepById(sel)); document.querySelector('.overlay .x').click(); }
+      });
+    });
+    return r;
+  }
+
+  document.getElementById('btnValidate').addEventListener('click', showValidateResult);
+
+  document.getElementById('btnSave').addEventListener('click', function () {
+    var r = validate();
+    var structural = r.errs.filter(function (e) { return [1, 2, 5, 10].indexOf(e[0]) >= 0; });
+    if (structural.length) {
+      FO.toast('保存失败：' + structural[0][2], 'fail', '结构校验未通过');
+      return;
+    }
+    FO.toast('草稿已保存（PUT /workflow-versions/{id} 整包提交）· has_draft_changes = true', 'ok');
+    setDirty(false);
+  });
+
+  document.getElementById('btnPublish').addEventListener('click', function () {
+    var r = showValidateResult();
+    if (!r.errs.length) {
+      setTimeout(function () {
+        FO.modal({
+          title: '发布工作流版本', okText: '确认发布',
+          body: '<p class="small">将基于当前草稿生成<b>不可变版本 v4</b>：参数定义、输出声明、DAG 结构全部冻结快照；已有任务不受影响，新任务可绑定 v4。触发器若为「锁定版本」不会自动切换。</p>'
+            + '<label class="ck"><input type="checkbox" checked> 同时写入审计（PUBLISH_WORKFLOW，含字段级 diff）</label>',
+          onOk: function () {
+            FO.toast('已发布 v4（冻结）· 任务强绑定版本快照，可追溯「当时执行的是什么」', 'ok', '发布成功');
+          }
+        });
+      }, 350);
+    }
+  });
+
+  document.getElementById('btnRunWf').addEventListener('click', function () {
+    var r = validate();
+    if (r.errs.length) { FO.toast('存在 ' + r.errs.length + ' 个校验错误，请先修复再运行（点击「校验」查看）', 'fail'); return; }
+    FO.modal({
+      title: '运行 · ' + wf.name,
+      body: (wf.wfParams || []).map(function (p) {
+          return '<div class="field"><label>' + p.name + ' <span class="mono tiny">(' + p.key + ')</span>' + (p.required ? ' <span class="req">*</span>' : '') + '</label>'
+            + '<input class="input" value="' + FO.esc(p.default || '') + '"></div>';
+        }).join('')
+        + '<div class="field"><label>目标队列</label><select class="select"><option>high-priority</option><option>default</option><option>gpu-queue</option></select></div>'
+        + '<label class="ck mb-3"><input type="checkbox" id="simConflict"> 模拟「并发已达上限」（演示 40901 分支）</label>',
+      okText: '创建任务',
+      onOk: function (ov) {
+        if (ov.querySelector('#simConflict').checked)
+          FO.toast('40901：并发策略 FORBID，当前已有运行实例，本次触发被跳过并告警（AR-0005）', 'fail', '触发被跳过');
+        else
+          FO.toast('已创建任务 TASK-20260925-0110（PENDING）· 前往任务详情查看调度过程', 'ok');
+      }
+    });
+  });
+
+  document.getElementById('btnCfg').addEventListener('click', function () {
+    FO.modal({
+      title: '工作流设置（发布必填 · 规则 8）',
+      body: '<div class="form-grid">'
+        + '<div class="field"><label>最大并发实例数</label><input class="input" value="' + wf.maxParallel + '"><div class="help">默认 1（PRD §10.7）</div></div>'
+        + '<div class="field"><label>并发超限策略</label><select class="select"><option' + (wf.concurrency === 'FORBID' ? ' selected' : '') + '>跳过本次触发并告警</option><option>排队等待</option><option>并行执行</option></select></div></div>'
+        + '<div class="field"><label>集群亲和</label><label class="ck"><input type="checkbox"' + (wf.affinity ? ' checked' : '') + '> 同一任务的步骤优先调度到同一集群</label></div>'
+        + '<div class="field" style="margin-bottom:0"><label>工作流级默认值（继承链第 3 层）</label><div class="form-grid">'
+        + '<input class="input" value="3600" placeholder="默认超时 s"><input class="input" value="0" placeholder="默认重试">'
+        + '</div></div>',
+      onOk: function () { FO.toast('工作流设置已保存到草稿（演示）', 'ok'); }
+    });
+  });
+
+  renderToolbox();
+  renderPalette('');
+  render();
+  setTimeout(function () { fitView(); render(); if (model.steps[0]) { sel = model.steps[0].id; render(); showCfg(stepById(sel)); } }, 60);
+  document.querySelectorAll('[data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+})();
+</script>
+</body>
+</html>

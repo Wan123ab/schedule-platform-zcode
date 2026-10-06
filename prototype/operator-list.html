@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>算子列表 · FlowOps</title>
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+</head>
+<body>
+<script src="assets/js/icons.js"></script>
+<script src="assets/js/mock.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+(function () {
+  var content = ''
+    + '<div class="page-header"><div><h1>算子管理</h1><div class="sub">可执行程序/脚本资产：文件、版本、启动命令、参数模板、输出声明 · PRD §10.6 —— 算子资产化是本平台与开源调度方案的核心差异点之一</div></div>'
+    + '<div class="actions"><button class="btn primary" data-perm="schedule:operator:write" onclick="upload()">' + FO_ICONS.get('upload') + '上传算子</button></div></div>'
+
+    + '<div class="filter-bar">'
+    + '<input class="input" placeholder="搜索算子名称">'
+    + '<select class="select"><option>全部类型</option><option>Jar</option><option>Python</option><option>Shell</option><option>Bat</option><option>Exe</option><option>自定义</option></select>'
+    + '<select class="select"><option>全部状态</option><option>启用</option><option>停用</option></select>'
+    + '<span class="spacer"></span><span class="tiny faint">MVP 支持前 5 种参数类型：文本 / 数字 / 布尔 / 单选 / 日期时间</span>'
+    + '</div>'
+
+    + '<div class="panel"><div class="table-wrap"><table class="tbl"><thead><tr>'
+    + '<th>算子</th><th>类型</th><th>所属项目</th><th>最新版本</th><th>版本数</th><th>状态</th><th>创建人</th><th>更新时间</th><th style="text-align:right">操作</th>'
+    + '</tr></thead><tbody id="tb"></tbody></table></div>'
+    + '<div class="pager"><span>共 5 个算子</span><div class="pgs"><button disabled>‹</button><button class="on">1</button><button disabled>›</button></div></div></div>'
+
+    + '<div class="banner info mt-4"><span data-ic="info"></span><div>'
+    + '<b>删除规则：</b>被已发布工作流引用的算子不可直接删除（引用计数校验）；可停用，停用后不可被新工作流选择；删除与停用均写审计。<br>'
+    + '<span class="b-sub">MVP 单版本管理为主（表结构按 1:N 设计，V1.0 开放多版本生命周期）</span></div></div>';
+
+  FO.mountShell({ active: 'operatorList', title: '算子列表', crumb: [{ label: '算子管理' }], content: content });
+
+  document.getElementById('tb').innerHTML = MOCK.operators.map(function (o) {
+    return '<tr>'
+      + '<td><a href="operator-detail.html?id=' + o.id + '"><b>' + o.name + '</b></a><div class="tiny faint ellipsis" style="max-width:280px">' + o.desc + '</div></td>'
+      + '<td><span class="tag info">' + FO.L.OPTYPE[o.type] + '</span></td>'
+      + '<td class="tiny">' + o.project + '</td>'
+      + '<td><span class="mono">' + o.latest + '</span></td>'
+      + '<td class="num">' + o.versions + '</td>'
+      + '<td>' + FO.tag('OP_STATUS', o.status) + '</td>'
+      + '<td class="tiny">' + o.creator + '</td>'
+      + '<td class="mono tiny">' + o.updated + '</td>'
+      + '<td><div class="actions">'
+      + FO.iconAct('eye', '查看详情', 'location.href=\'operator-detail.html?id=' + o.id + '\'')
+      + FO.iconAct('edit', '版本管理', 'location.href=\'operator-version.html?op=' + o.id + '\'', '', 'schedule:operator:write')
+      + FO.iconAct('trash', '删除算子', 'delOp(\'' + o.id + '\')', 'danger', 'schedule:operator:delete')
+      + '</div></td></tr>';
+  }).join('');
+
+  window.delOp = function (id) {
+    var o = MOCK.operators.filter(function (x) { return x.id === id; })[0];
+    FO.modal({
+      title: '删除算子 · ' + o.name, okText: '我知道了',
+      body: o.status === 'DISABLED'
+        ? '<p class="small">该算子已停用且无引用，可安全删除（逻辑删除 + 审计）。</p>'
+        : '<div class="banner danger" style="margin-bottom:0"><span data-ic="alert"></span><div><b>被已发布工作流引用（WF-0001 v3 步骤「数据清洗」等），不可直接删除</b><br><span class="b-sub">请先在工作流中解除引用，或改为「停用」——停用后不可被新工作流选择，存量引用不受影响</span></div></div>',
+      footer: '<button class="btn" data-act="cancel">关闭</button>'
+    });
+    FO.applyPerms(document);
+  };
+
+  window.upload = function () {
+    FO.modal({
+      title: '上传算子',
+      body: '<div class="field"><label>算子文件 <span class="req">*</span></label>'
+        + '<div class="code" style="border-style:dashed;text-align:center;padding:24px;cursor:pointer" onclick="FO.toast(\'演示原型：请选择 .jar / .py / .sh / .bat / .exe / .zip 文件\',\'info\')">点击选择文件或拖拽到此处<br><span class="tiny faint">类型白名单 · 大小上限 500MB · SHA-256 服务端计算（同 checksum 去重提示）</span></div></div>'
+        + '<div class="form-grid">'
+        + '<div class="field"><label>算子名称 <span class="req">*</span></label><input class="input" placeholder="如：库存快照导出"></div>'
+        + '<div class="field"><label>类型</label><select class="select"><option>Python</option><option>Jar</option><option>Shell</option><option>Bat</option><option>Exe</option></select></div></div>'
+        + '<div class="field"><label>描述</label><textarea class="textarea" placeholder="算子用途、产出说明"></textarea></div>',
+      okText: '下一步：配置参数模板',
+      onOk: function () { FO.toast('文件已上传（演示）· 42210 校验规则：类型/大小/checksum/启动命令非空', 'ok'); }
+    });
+  };
+
+  document.querySelectorAll('[data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>平台健康度 · FlowOps</title>
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+<style>
+  .big-num { font-family: var(--font-mono); font-size: 30px; font-weight: 650; letter-spacing: 1px; }
+  .hl-ok { color: var(--ok); } .hl-warn { color: var(--warn); } .hl-fail { color: var(--fail); }
+  .lease-bar { height: 6px; border-radius: 3px; background: var(--bg-inset); border: 1px solid var(--line-faint); overflow: hidden; }
+  .lease-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--ok), var(--warn)); transition: width 1s linear; }
+  .q-row { padding: 9px 0; border-bottom: 1px dashed var(--line-faint); }
+  .q-row:last-child { border-bottom: 0; }
+</style>
+</head>
+<body>
+<script src="assets/js/icons.js"></script>
+<script src="assets/js/mock.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+(function () {
+  var H = JSON.parse(JSON.stringify(MOCK.platformHealth));
+  var lease = H.scheduler.leaseRemain, ticks = H.scheduler.tickCount, dispatched = H.today.dispatched;
+
+  var content = ''
+    + '<div class="page-header"><div><h1>平台健康度</h1>'
+    + '<div class="sub">平台自身健康对运维可见（PRD §15.5-5 · v3 回写 R-1/R-6 从 V1.0 上移 MVP）· 接口 <span class="mono">GET /platform/health</span> · 10s 轮询（演示为 1s 加速）</div></div>'
+    + '<div class="actions"><span class="tag ok">整体状态：正常</span></div></div>'
+
+    + '<div class="grid g4 mb-4">'
+    + '<div class="panel metric"><div class="m-label">' + FO_ICONS.get('server') + ' 调度器</div>'
+    + '<div class="big-num hl-ok">主备正常</div>'
+    + '<div class="tiny mono mt-2">leader: ' + H.scheduler.leader + ' · standby: ' + H.scheduler.standby + '</div>'
+    + '<div class="tiny faint mt-2">选主租约剩余 <b class="mono" id="leaseTxt">' + lease + 's</b> / 30s</div>'
+    + '<div class="lease-bar mt-2"><i id="leaseBar" style="width:' + (lease / 30 * 100) + '%"></i></div>'
+    + '<div class="tiny faint mt-2">tick <b class="mono" id="tickTxt">' + FO.fmt.num(ticks) + '</b> 次 · 均值 ' + H.scheduler.avgTickMs + 'ms · P99 ' + H.scheduler.p99TickMs + 'ms</div></div>'
+
+    + '<div class="panel metric"><div class="m-label">' + FO_ICONS.get('db') + ' PostgreSQL</div>'
+    + '<div class="big-num hl-ok">正常</div>'
+    + '<div class="tiny mono mt-2">连接池 ' + H.db.poolActive + ' 活跃 / ' + H.db.poolIdle + ' 空闲 / ' + H.db.poolMax + ' 上限</div>'
+    + '<div class="tiny faint mt-2">近 1 分钟慢查询 <b class="mono">' + H.db.slowQueries1m + '</b> · 主备流复制 · RPO ≤ 5min</div></div>'
+
+    + '<div class="panel metric"><div class="m-label">' + FO_ICONS.get('bolt') + ' Redis</div>'
+    + '<div class="big-num hl-ok">已连接</div>'
+    + '<div class="tiny mono mt-2">内存 ' + H.redis.used + ' / ' + H.redis.max + '</div>'
+    + '<div class="tiny faint mt-2">淘汰策略 <b class="mono">' + H.redis.policy + '</b>（禁止 LRU——队列/锁被淘汰会调度错乱）</div>'
+    + '<div class="tiny faint mt-2">就绪队列深度 <b class="mono">' + H.redis.queueDepth + '</b></div></div>'
+
+    + '<div class="panel metric"><div class="m-label">' + FO_ICONS.get('node') + ' 执行节点在线率</div>'
+    + '<div class="big-num ' + (H.nodes.rate >= 95 ? 'hl-ok' : 'hl-warn') + '">' + H.nodes.rate + '<small style="font-size:13px">%</small></div>'
+    + '<div class="tiny mono mt-2">' + H.nodes.online + ' / ' + H.nodes.total + ' 在线</div>'
+    + '<div class="tiny faint mt-2">心跳 15s/次 · 3 次缺失判离线 · 阈值 &lt; 80% 告警</div></div>'
+    + '</div>'
+
+    + '<div class="grid g2 mb-4">'
+    + '<div class="panel"><div class="panel-h"><b>今日派发</b><span class="hint">实时累计</span></div><div class="panel-b">'
+    + '<div class="grid g3" style="text-align:center">'
+    + '<div><div class="big-num hl-ok" id="dpTxt">' + FO.fmt.num(dispatched) + '</div><div class="tiny faint">累计派发</div></div>'
+    + '<div><div class="big-num hl-warn">' + H.today.failed + '</div><div class="tiny faint">失败任务</div></div>'
+    + '<div><div class="big-num">' + H.today.logIngestGb + '<small style="font-size:12px"> GB</small></div><div class="tiny faint">日志摄取</div></div>'
+    + '</div>'
+    + '<div class="tiny faint mt-3">派发停滞检测：5min 无增长且队列非空 → P0 告警 · 日志日增 &gt; 100GB → P2 容量预警</div>'
+    + '</div></div>'
+
+    + '<div class="panel"><div class="panel-h"><b>队列水位</b><span class="hint">含队头阻塞检测</span></div><div class="panel-b">'
+    + H.queues.map(function (q) {
+        var wl = Math.min(100, (q.waiting / 50) * 100);
+        return '<div class="q-row"><div class="row small"><b>' + q.name + '</b>'
+          + (q.blocked ? '<span class="tag fail">队头阻塞</span>' : '<span class="tag ok">正常</span>')
+          + '<span class="spacer"></span><span class="mono tiny">等待 ' + q.waiting + ' · 并发 ' + q.running + '/' + q.max + '</span></div>'
+          + '<div class="rbar mt-2"><div class="rb-track"><div class="rb-fill ' + (q.blocked ? 'hot' : wl > 60 ? 'warm' : 'oklv') + '" style="width:' + Math.max(6, wl) + '%"></div></div></div>'
+          + (q.blocked ? '<div class="tiny" style="color:var(--fail);margin-top:4px">' + q.blockSince + '——保留队列 + 向后扫描，不会删除用户任务</div>' : '')
+          + '</div>';
+      }).join('')
+    + '</div></div>'
+    + '</div>'
+
+    + '<div class="grid g2">'
+    + '<div class="panel"><div class="panel-h"><b>最近调度决策</b><span class="hint">schedule_decision_log · 保留 7 天</span></div>'
+    + '<div class="table-wrap"><table class="tbl"><thead><tr><th>时间</th><th>步骤</th><th>决策</th><th>原因</th></tr></thead><tbody>'
+    + H.decisions.map(function (d) {
+        return '<tr><td class="mono tiny">' + d.time + '</td><td class="tiny mono ell" style="max-width:170px">' + d.step + '</td>'
+          + '<td>' + FO.tag('DECISION', d.decision) + '</td>'
+          + '<td class="tiny muted ell" style="max-width:200px">' + d.reason + '</td></tr>';
+      }).join('')
+    + '</tbody></table></div></div>'
+
+    + '<div class="panel"><div class="panel-h"><b>最近平台自身告警</b><span class="hint">独立于业务告警通道 · 不受业务抑制窗口影响</span></div><div class="panel-b">'
+    + H.recentAlerts.map(function (a) {
+        return '<div class="row small" style="padding:7px 0;border-bottom:1px dashed var(--line-faint)">'
+          + '<span class="tag ' + (a.level === 'P0' ? 'fail' : a.level === 'P1' ? 'warn' : 'info') + '">' + a.level + '</span>'
+          + '<span class="mono tiny faint">' + a.time + '</span>'
+          + '<span class="ellipsis small">' + a.text + '</span></div>';
+      }).join('')
+    + '</div></div>'
+    + '</div>'
+
+    + '<div class="panel mt-4"><div class="panel-h"><b>健康端点与告警阈值（运维排障入口）</b></div><div class="panel-b grid g2" style="gap:14px">'
+    + '<div><div class="code">'
+    + 'GET /actuator/health            → 总体（db/redis/disk/scheduler）\n'
+    + 'GET /actuator/health/scheduler  → 选主状态 + 锁剩余 TTL + 上次 tick\n'
+    + 'GET /actuator/prometheus        → 公司监控平台抓取（不自建 Grafana，O-07）\n\n'
+    + '# 调度器失主 Runbook（R-01）：\n'
+    + 'redis-cli TTL flowops:scheduler:leader   # 看谁持有、剩余多久\n'
+    + '# 常备 2 副本竞争同一把锁，实际只有 1 个活跃（D-21）</div></div>'
+    + '<div class="tiny muted" style="line-height:2.1">指标告警阈值：<br>'
+    + '· 调度器无主 60s → <span class="tag fail">P0</span> · 审计写失败 → <span class="tag fail">P0</span><br>'
+    + '· tick P99 &gt; 2s → <span class="tag warn">P1</span> · ready_queue &gt; 1000 持续 5min → <span class="tag warn">P1</span><br>'
+    + '· 日志日增 &gt; 100GB → <span class="tag info">P2</span> · 互斥锁持有 &gt; 30min → <span class="tag info">P2</span></div>'
+    + '</div></div>';
+
+  FO.mountShell({ active: 'platformHealth', title: '平台健康度', crumb: [{ label: '系统管理' }], content: content });
+
+  /* 实时模拟：租约倒计时 + tick 计数 + 派发累计 */
+  setInterval(function () {
+    lease--;
+    if (lease <= 0) lease = 30;
+    ticks++;
+    if (Math.random() < 0.4) dispatched += Math.round(Math.random() * 3);
+    var lt = document.getElementById('leaseTxt');
+    if (lt) lt.textContent = lease + 's';
+    var lb = document.getElementById('leaseBar');
+    if (lb) lb.style.width = (lease / 30 * 100) + '%';
+    var tt = document.getElementById('tickTxt');
+    if (tt) tt.textContent = FO.fmt.num(ticks);
+    var dp = document.getElementById('dpTxt');
+    if (dp) dp.textContent = FO.fmt.num(dispatched);
+  }, 1000);
+
+  document.querySelectorAll('[data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,77 @@
+# flowops-server 配置
+# 规范依据：docs/02 §1.5（Sa-Token 锁定配置）、docs/07 §3.1（序列化/MyBatis）、docs/01 §8（ADR-003 登录态隔离）
+server:
+  port: 8080
+
+spring:
+  application:
+    name: flowops-server
+  threads:
+    virtual:
+      enabled: true          # docs/03 §6.1：REST 请求走虚拟线程
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:flowops}
+    username: ${DB_USER:flowops}
+    password: ${DB_PASSWORD:flowops}
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+    # 生产禁止 clean（docs/02 §1.6），配置项根本不开启
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DB:0}    # ADR-003：即便共用实例也必须独立 db index / key 前缀
+
+# ── Sa-Token（D-06，docs/02 §1.5 锁定配置）─────────────────────
+sa-token:
+  token-name: Authorization
+  token-prefix: Bearer
+  token-style: uuid
+  timeout: 604800          # 7 天（对应 rememberMe）
+  is-concurrent: false     # 单端登录，顶号 → 40102
+  is-share: false          # 每次登录签发新 token
+  # login-type=flowops 的隔离语义：一期 FlowOps 独立 Redis 实例/db，
+  # 依赖 satoken: 前缀 + 独立 db index 隔离（ADR-003，docs/01 §8）
+
+# ── MyBatis-Plus（docs/07 §3.1）───────────────────────────────
+mybatis-plus:
+  # 自定义 SQL 全部在 XML（docs/10）：classpath* 同时覆盖本模块与 flowops-domain 的 mapper
+  mapper-locations: classpath*:mapper/**/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    banner: false
+    db-config:
+      table-underline: true
+      logic-delete-field: deleted
+      logic-delete-value: true
+      logic-not-delete-value: false
+
+# ── 可观测（docs/02 §1.8：actuator 健康检查 + Prometheus 指标）──
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,info
+  endpoint:
+    health:
+      show-details: when-authorized
+  health:
+    db:
+      enabled: true
+    redis:
+      enabled: true
+
+logging:
+  config: classpath:logback-spring.xml
+
+flowops:
+  crypto:
+    master-key: ${FLOWOPS_CRED_MASTER_KEY:}   # M-06：缺失则拒绝启动
+    strict: ${FLOWOPS_CRYPTO_STRICT:true}

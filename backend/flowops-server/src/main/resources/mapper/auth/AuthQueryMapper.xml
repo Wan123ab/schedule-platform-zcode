@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 认证域自定义 SQL。表结构见 docs/05 §3.1；权限点模型见 docs/07 §5.2（49 点）。 -->
+<mapper namespace="com.flowops.modules.auth.mapper.AuthQueryMapper">
+
+    <!-- 权限点全集：user_role → role_permission → permission 三表连接。
+         role_permission 为复合主键关联表，无 deleted 列，无需软删过滤。 -->
+    <select id="selectPermissionCodes" resultType="string">
+        SELECT DISTINCT p.perm_code
+          FROM role_permission rp
+          JOIN user_role ur ON ur.role_id = rp.role_id
+          JOIN permission p ON p.id = rp.permission_id
+         WHERE ur.user_id = #{userId}
+    </select>
+
+    <!-- 角色编码（r.deleted = false：角色可逻辑删除） -->
+    <select id="selectRoleCodes" resultType="string">
+        SELECT DISTINCT r.role_code
+          FROM user_role ur
+          JOIN role r ON r.id = ur.role_id
+         WHERE ur.user_id = #{userId}
+           AND r.deleted = false
+    </select>
+
+    <!-- 数据范围类型（D-19：权限点判"能不能做"，DataScope 判"对谁做"） -->
+    <select id="selectScopeTypes" resultType="string">
+        SELECT DISTINCT r.scope_type
+          FROM user_role ur
+          JOIN role r ON r.id = ur.role_id
+         WHERE ur.user_id = #{userId}
+           AND r.deleted = false
+    </select>
+
+</mapper>

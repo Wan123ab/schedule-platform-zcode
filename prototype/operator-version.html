@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>算子版本详情 · FlowOps</title>
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+<style>
+  .dry-log { height: 260px; }
+  .dry-run-bar { display: flex; gap: 8px; align-items: center; padding: 10px 12px; background: var(--bg-inset); border-radius: var(--r-sm); border: 1px solid var(--line-faint); }
+</style>
+</head>
+<body>
+<script src="assets/js/icons.js"></script>
+<script src="assets/js/mock.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+(function () {
+  var oid = FO.qs('op') || 'OP-0002';
+  var vno = FO.qs('v') || 'v2';
+  var o = MOCK.operators.filter(function (x) { return x.id === oid; })[0] || MOCK.operators[1];
+  var vers = MOCK.opVersions[o.id] || [];
+  var v = vers.filter(function (x) { return x.no === vno; })[0] || vers[0];
+
+  var content = ''
+    + '<div class="page-header"><div><h1 class="row" style="gap:10px">' + o.name + '<span class="mono" style="color:var(--pri)">' + v.no + '</span>' + FO.tag('OPV_STATUS', v.status) + (v.isDefault ? '<span class="tag pri">默认版本</span>' : '') + '</h1>'
+    + '<div class="sub">版本随发布冻结 · 发布人 ' + v.publisher + ' · ' + v.publishedAt + '</div></div>'
+    + '<div class="actions">'
+    + '<a class="btn" href="operator-detail.html?id=' + o.id + '">返回算子</a>'
+    + '<button class="btn" data-perm="schedule:operator:write" onclick="FO.toast(\'仅 DRAFT 版本可编辑，已发布版本不可修改（42212）\',\'warn\')">' + FO_ICONS.get('edit') + '编辑</button>'
+    + '</div></div>'
+
+    + '<div class="grid" style="grid-template-columns:1.2fr 1fr">'
+    + '<div>'
+      + '<div class="panel mb-4"><div class="panel-h"><b>文件与运行环境</b></div><div class="panel-b"><div class="kv">'
+      + '<span class="k">文件</span><span class="v mono">' + v.file + '（' + v.size + '）</span>'
+      + '<span class="k">Checksum</span><span class="v mono">' + v.checksum + '</span>'
+      + '<span class="k">运行系统</span><span class="v">' + FO.L.OS[v.os] + '</span>'
+      + '<span class="k">工作目录</span><span class="v mono">' + v.workDir + '</span>'
+      + '<span class="k">成功退出码</span><span class="v mono">[' + v.successCodes.join(', ') + ']</span>'
+      + '<span class="k">环境变量</span><span class="v">' + (v.env.length ? v.env.map(function (e) { return '<span class="node-tag">' + e.key + '=' + (e.secret ? '***' : e.value) + '</span>'; }).join(' ') : '无') + '</span>'
+      + '</div>'
+      + '<div class="field mt-4" style="margin-bottom:0"><label>启动命令模板</label><div class="code" id="cmdTpl">' + FO.esc(v.startCmd) + '</div>'
+      + '<div class="help mt-2">平台将用户参数、步骤参数、工作流参数与平台变量注入该模板（解析顺序见 PRD §10.0.1），解析后的完整命令记入 <span class="mono">task_step.resolved_command</span> 供排障</div></div>'
+      + '</div></div>'
+
+      + '<div class="panel mb-4"><div class="panel-h"><b>参数模板</b><span class="hint">随版本快照，发布后禁改</span></div><div class="table-wrap">'
+      + '<table class="tbl"><thead><tr><th>名称</th><th>标识</th><th>类型</th><th>必填</th><th>默认值</th><th>敏感</th></tr></thead><tbody>'
+      + v.params.map(function (p) {
+          return '<tr><td>' + p.name + '</td><td class="mono">' + p.key + '</td><td><span class="tag info">' + p.type + '</span></td>'
+            + '<td>' + (p.required ? '✓' : '—') + '</td><td class="mono tiny">' + (p.default || '—') + '</td>'
+            + '<td>' + (p.sensitive ? '<span class="tag fail">是</span>' : '—') + '</td></tr>';
+        }).join('')
+      + '</tbody></table></div></div>'
+
+      + '<div class="panel"><div class="panel-h"><b>输出声明</b><span class="hint">供下游步骤引用</span></div><div class="table-wrap">'
+      + '<table class="tbl"><thead><tr><th>输出</th><th>标识</th><th>取值方式</th><th>规则</th><th>必填</th></tr></thead><tbody>'
+      + v.outputs.map(function (x) {
+          return '<tr><td>' + x.name + '</td><td class="mono">' + x.key + '</td><td>' + (x.mode === 'REGEX' ? 'stdout 正则' : '文件') + '</td>'
+            + '<td><code class="mono tiny">' + x.expr + '</code></td>'
+            + '<td>' + (x.required ? '<span class="tag fail">是</span>' : '—') + '</td></tr>';
+        }).join('')
+      + '</tbody></table></div></div>'
+    + '</div>'
+
+    /* ---------- 试运行面板 ---------- */
+    + '<div><div class="panel"><div class="panel-h"><b>' + FO_ICONS.get('play') + ' 试运行</b><span class="hint">不生成正式任务与步骤实例 · 上限 10 分钟</span></div><div class="panel-b">'
+    + '<div class="field"><label>目标执行节点</label><select class="select" id="dryNode">'
+    + MOCK.nodes.filter(function (n) { return n.status === 'ONLINE'; }).map(function (n) { return '<option value="' + n.id + '">' + n.name + '（' + n.ip + ' · 空闲 CPU ' + (n.cpu.total - n.cpu.used).toFixed(1) + ' 核）</option>'; }).join('')
+    + '</select><div class="help">试运行直接在所选节点执行，产生一次临时执行</div></div>'
+
+    + v.params.map(function (p) {
+        return '<div class="field"><label>' + p.name + ' <span class="mono tiny">(' + p.key + ')</span>' + (p.required ? ' <span class="req">*</span>' : '') + '</label>'
+          + '<input class="input js-dry-param" data-key="' + p.key + '" value="' + (p.sensitive ? '' : (p.default || '')) + '" ' + (p.sensitive ? 'type="password" placeholder="敏感参数（日志与快照中脱敏）"' : '') + '></div>';
+      }).join('')
+
+    + '<div class="dry-run-bar mb-3">'
+    + '<button class="btn primary sm" id="dryRunBtn">' + FO_ICONS.get('play') + '运行</button>'
+    + '<button class="btn sm hide" id="dryStopBtn">' + FO_ICONS.get('stop') + '终止</button>'
+    + '<span class="spacer"></span><span class="tiny mono" id="dryStat">READY</span></div>'
+
+    + '<div class="log-panel dry-log" id="dryLog"><span class="lg-sys">// 试运行输出（实时）</span>\n</div>'
+
+    + '<div class="row mt-3"><span id="dryResult"></span><span class="spacer"></span>'
+    + '<button class="btn sm hide" id="drySave" data-perm="schedule:operator:param">' + FO_ICONS.get('check') + '将本次参数另存为默认值</button></div>'
+
+    + '<div class="banner info mt-3" style="margin-bottom:0"><span data-ic="info"></span><div>试运行 = 不入库的临时执行：实时日志 + 退出码 + 耗时 + 解析后的完整命令；可将参数另存为该版本的默认参数值。全程写审计（DRYRUN_OPERATOR）</div></div>'
+    + '</div></div></div>'
+    + '</div>';
+
+  FO.mountShell({ active: 'operatorList', title: '算子版本详情', crumb: [{ label: '算子管理', href: 'operator-list.html' }, { label: o.name, href: 'operator-detail.html?id=' + o.id }], content: content });
+
+  /* ---------------- 试运行模拟 ---------------- */
+  var LOG = [
+    ['sys', 'FO_DISPATCH  step=dryrun op=OP-0002 v2 node={node} token=8f2c41ab…'],
+    ['sys', '解析启动命令（参数已注入，敏感参数已脱敏）：'],
+    ['', '$SPARK_HOME/bin/spark-submit --class com.ecom.clean.CleanJob --master yarn-client \\'],
+    ['', '    clean-job.jar --input /data/ecom/20260924/raw/orders \\'],
+    ['', '    --output /data/ecom/20260924/cleaned --partitions 200'],
+    ['', '26/09/24 15:31:02 INFO SparkContext: Running Spark version 3.5.1'],
+    ['', '26/09/24 15:31:05 INFO DAGScheduler: Submitting 200 missing tasks'],
+    ['', '26/09/24 15:33:44 INFO SQLExecution: Reading parquet … rows=1,847,221'],
+    ['warn', '26/09/24 15:36:12 WARN CleanJob: 132 rows dropped by dedup rule'],
+    ['', 'ROWS=1847089'],
+    ['ok', 'OUTPUT_PATH=/data/ecom/20260924/cleaned/orders.parquet'],
+    ['ok', 'password=*** token=***  （日志脱敏示例：服务端正则替换）'],
+    ['', '26/09/24 15:36:15 INFO SparkContext: Successfully stopped job']
+  ];
+
+  var timer = null, idx = 0;
+  var btn = document.getElementById('dryRunBtn'), stopBtn = document.getElementById('dryStopBtn');
+  var logEl = document.getElementById('dryLog'), stat = document.getElementById('dryStat');
+
+  btn.addEventListener('click', function () {
+    /* 必填校验演示 */
+    var missing = v.params.filter(function (p) {
+      return p.required && !document.querySelector('.js-dry-param[data-key="' + p.key + '"]').value.trim();
+    });
+    if (missing.length) {
+      FO.toast('42210：缺少必填参数 ' + missing.map(function (p) { return p.key; }).join(', '), 'fail', '试运行校验失败');
+      return;
+    }
+    var nodeSel = document.getElementById('dryNode');
+    var nodeName = nodeSel.options[nodeSel.selectedIndex].text.split('（')[0];
+    logEl.innerHTML = '';
+    idx = 0;
+    btn.disabled = true; stopBtn.classList.remove('hide');
+    stat.textContent = 'RUNNING · 0s'; stat.style.color = 'var(--info)';
+    var sec = 0;
+    var tick = setInterval(function () { sec++; stat.textContent = 'RUNNING · ' + sec + 's'; }, 1000);
+    timer = setInterval(function () {
+      if (idx >= LOG.length) {
+        clearInterval(timer); clearInterval(tick);
+        stat.textContent = 'EXIT 0 · ' + sec + 's'; stat.style.color = 'var(--ok)';
+        logEl.innerHTML += '<span class="lg-eof">═══ 进程退出，exit code = 0（∈ success_codes [0]）→ 成功 ═══</span>\n';
+        document.getElementById('dryResult').innerHTML = FO.statusTag('SUCCESS');
+        document.getElementById('drySave').classList.remove('hide');
+        FO.applyPerms(document);
+        stopBtn.classList.add('hide'); btn.disabled = false;
+        return;
+      }
+      var line = LOG[idx++];
+      var cls = { sys: 'lg-sys', warn: 'lg-warn', ok: 'lg-ok' }[line[0]] || '';
+      logEl.innerHTML += (cls ? '<span class="' + cls + '">' : '') + line[1].replace('{node}', nodeName) + (cls ? '</span>' : '') + '\n';
+      logEl.scrollTop = logEl.scrollHeight;
+    }, 320);
+  });
+
+  stopBtn.addEventListener('click', function () {
+    clearInterval(timer);
+    stat.textContent = 'STOPPED · 已终止（kill -TERM）'; stat.style.color = 'var(--warn)';
+    logEl.innerHTML += '<span class="lg-warn">收到终止指令：kill -TERM → 等待 10s → kill -KILL（若仍存活），已记录 kill 动作</span>\n';
+    document.getElementById('dryResult').innerHTML = FO.statusTag('STOPPED');
+    stopBtn.classList.add('hide'); btn.disabled = false;
+  });
+
+  document.getElementById('drySave').addEventListener('click', function () {
+    FO.toast('本次试运行参数已另存为 v2 默认参数值（演示）· 参数模板仍随版本冻结，默认值可更新', 'ok');
+  });
+
+  if (FO.qs('dryrun')) setTimeout(function () { FO.toast('已从算子详情跳转，可直接点击「运行」体验试运行', 'info'); }, 400);
+
+  document.querySelectorAll('[data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+})();
+</script>
+</body>
+</html>

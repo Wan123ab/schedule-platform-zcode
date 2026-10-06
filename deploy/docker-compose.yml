@@ -1,0 +1,116 @@
+# =====================================================================
+# FlowOps · 最小验证部署（docs/01 §6.1-B / Q-05：一期 Docker Compose）
+# 5 容器 + scheduler 常备 2 副本（docs/02 §4.2 v3 补充：单活组件副本数 = 2）
+# 启动：cp deploy/.env.example deploy/.env && docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
+# =====================================================================
+name: flowops
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME:-flowops}
+      POSTGRES_USER: ${DB_USER:-flowops}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-flowops}
+      TZ: Asia/Shanghai
+      PGTZ: Asia/Shanghai
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER:-flowops} -d ${DB_NAME:-flowops}']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    ports:
+      - '${DB_PORT:-5432}:5432'
+
+  redis:
+    image: redis:7-alpine
+    # 平台健康页约定 eviction_policy = noeviction（docs/07 §6.7）
+    command: ['redis-server', '--maxmemory-policy', 'noeviction', '--appendonly', 'yes']
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+
+  server:
+    build:
+      context: ../backend
+      dockerfile: ../deploy/Dockerfile.backend
+      args:
+        MODULE: flowops-server
+    image: flowops/server:0.1.0-SNAPSHOT
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-flowops}
+      DB_USER: ${DB_USER:-flowops}
+      DB_PASSWORD: ${DB_PASSWORD:-flowops}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      FLOWOPS_CRED_MASTER_KEY: ${FLOWOPS_CRED_MASTER_KEY:?M-06 主密钥必填，见 .env.example}
+      TZ: Asia/Shanghai
+      JAVA_OPTS: -XX:MaxRAMPercentage=70
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fs http://localhost:8080/actuator/health | grep -q UP']
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    ports:
+      - '${SERVER_PORT:-8080}:8080'
+
+  # D-08/D-21：调度器单活选主（Redisson），常备 2 副本，1 活 1 备
+  scheduler:
+    build:
+      context: ../backend
+      dockerfile: ../deploy/Dockerfile.backend
+      args:
+        MODULE: flowops-scheduler
+    image: flowops/scheduler:0.1.0-SNAPSHOT
+    command: ['java', '${JAVA_OPTS:--XX:MaxRAMPercentage=70}', '-jar', 'app.jar', '--spring.application.name=flowops-scheduler']
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-flowops}
+      DB_USER: ${DB_USER:-flowops}
+      DB_PASSWORD: ${DB_PASSWORD:-flowops}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      FLOWOPS_CRED_MASTER_KEY: ${FLOWOPS_CRED_MASTER_KEY:?凭据解密必需（下发链路）}
+      TZ: Asia/Shanghai
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      server:
+        condition: service_healthy   # 迁移由 server 执行，调度器等它就绪
+    deploy:
+      replicas: 2
+    # actuator 仅容器网络内探活，不发布宿主端口（2 副本短语法端口会冲突）
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+    image: flowops/web:0.1.0-SNAPSHOT
+    depends_on:
+      server:
+        condition: service_healthy
+    ports:
+      - '${WEB_PORT:-80}:80'
+
+volumes:
+  pgdata:
+  redisdata:

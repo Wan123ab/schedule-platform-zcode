@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 并发控制读模型 SQL（docs/06 §6.1 四级并发总表 / §6.2 ConcurrencyGuard）。
+     在途口径统一为 status IN (SCHEDULING, RUNNING, STOPPING)：
+       - PENDING 尚未入额（并发检查通过才入队推进）
+       - STOPPING 仍占用额度——进程还在跑，提前放行会超卖（docs/06 §15.1） -->
+<mapper namespace="com.flowops.domain.mapper.concurrency.ConcurrencyQueryMapper">
+
+    <select id="findWorkflowConcurrency"
+            resultType="com.flowops.domain.dto.query.WorkflowConcurrencyConfig">
+        SELECT id            AS workflowId,
+               concurrency_policy,
+               max_parallel_runs
+          FROM workflow
+         WHERE id = #{workflowId}
+           AND deleted = false
+    </select>
+
+    <select id="findProjectConcurrency"
+            resultType="com.flowops.domain.dto.query.ProjectConcurrencyConfig">
+        SELECT id AS projectId,
+               max_concurrent_tasks
+          FROM project
+         WHERE id = #{projectId}
+           AND deleted = false
+    </select>
+
+    <!-- 命中 idx_task_active 部分索引（status ∈ 活跃四态 + deleted=false），
+         但工作流/项目维度过滤无法用该索引前导列，数据量后考虑补充部分索引 -->
+    <select id="countRunningTasksByWorkflow" resultType="long">
+        SELECT count(*)
+          FROM task
+         WHERE workflow_id = #{workflowId}
+           AND status IN ('SCHEDULING', 'RUNNING', 'STOPPING')
+           AND deleted = false
+    </select>
+
+    <select id="countRunningTasksByProject" resultType="long">
+        SELECT count(*)
+          FROM task
+         WHERE project_id = #{projectId}
+           AND status IN ('SCHEDULING', 'RUNNING', 'STOPPING')
+           AND deleted = false
+    </select>
+
+    <select id="findAnyRunningTaskId" resultType="string">
+        SELECT task_id
+          FROM task
+         WHERE workflow_id = #{workflowId}
+           AND status IN ('SCHEDULING', 'RUNNING', 'STOPPING')
+           AND deleted = false
+         LIMIT 1
+    </select>
+
+    <select id="findQueueConcurrency"
+            resultType="com.flowops.domain.dto.query.QueueConcurrencyConfig">
+        SELECT id AS queueId,
+               max_concurrent_tasks
+          FROM queue
+         WHERE id = #{queueId}
+           AND deleted = false
+    </select>
+
+    <!-- 队列运行步骤数：步骤无队列列，经 task 关联；SCHEDULING 也计入（占位即占并发） -->
+    <select id="countRunningStepsByQueue" resultType="long">
+        SELECT count(*)
+          FROM task_step ts
+          JOIN task t ON t.id = ts.task_id
+         WHERE t.queue_id = #{queueId}
+           AND ts.status IN ('SCHEDULING', 'RUNNING')
+           AND t.deleted = false
+    </select>
+
+</mapper>

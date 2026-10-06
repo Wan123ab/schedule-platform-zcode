@@ -1,0 +1,60 @@
+/**
+ * 权限点单一常量源（docs/04 §5.2：路由 meta.perm、v-perm、按钮判定一律从它取值，禁止字面量）。
+ * 逐条对应 docs/07 §5.2 的 49 点清单；新增权限点流程：
+ * PRD §11.2 → docs/07 §5.2 → 后端 PermissionRegistry → 本文件（四步缺一不可）。
+ */
+export const PERM = {
+  TENANT_WRITE: 'schedule:tenant:write',
+  TENANT_READ: 'schedule:tenant:read',
+  PROJECT_WRITE: 'schedule:project:write',
+  PROJECT_READ: 'schedule:project:read',
+  PROJECT_MEMBER: 'schedule:project:member',
+  PROJECT_QUOTA: 'schedule:project:quota',
+  CLUSTER_WRITE: 'schedule:cluster:write',
+  CLUSTER_READ: 'schedule:cluster:read',
+  NODE_WRITE: 'schedule:node:write',
+  NODE_READ: 'schedule:node:read',
+  NODE_TEST: 'schedule:node:test',
+  QUEUE_WRITE: 'schedule:queue:write',
+  QUEUE_READ: 'schedule:queue:read',
+  CREDENTIAL_WRITE: 'schedule:credential:write',
+  CREDENTIAL_READ: 'schedule:credential:read',
+  CREDENTIAL_ROTATE: 'schedule:credential:rotate',
+  OPERATOR_READ: 'schedule:operator:read',
+  OPERATOR_WRITE: 'schedule:operator:write',
+  OPERATOR_DELETE: 'schedule:operator:delete',
+  OPERATOR_PUBLISH: 'schedule:operator:publish',
+  OPERATOR_DRYRUN: 'schedule:operator:dryrun',
+  OPERATOR_PARAM: 'schedule:operator:param',
+  WORKFLOW_READ: 'schedule:workflow:read',
+  WORKFLOW_WRITE: 'schedule:workflow:write',
+  WORKFLOW_PUBLISH: 'schedule:workflow:publish',
+  WORKFLOW_DELETE: 'schedule:workflow:delete',
+  WORKFLOW_EXECUTE: 'schedule:workflow:execute',
+  TRIGGER_WRITE: 'schedule:trigger:write',
+  TRIGGER_READ: 'schedule:trigger:read',
+  TASK_READ: 'schedule:task:read',
+  TASK_LOG_RAW: 'schedule:task:log:raw',
+  TASK_LOG_GRANT: 'schedule:task:log:grant',
+  TASK_STOP: 'schedule:task:stop',
+  TASK_RETRY: 'schedule:task:retry',
+  TASK_ENQUEUE_FRONT: 'schedule:task:enqueue_front',
+  TASK_SUBMIT: 'schedule:task:submit',
+  BACKFILL_READ: 'schedule:backfill:read',
+  BACKFILL_WRITE: 'schedule:backfill:write',
+  ALERT_READ: 'schedule:alert:read',
+  ALERT_WRITE: 'schedule:alert:write',
+  AUDIT_READ: 'schedule:audit:read',
+  AUDIT_SELF: 'schedule:audit:self',
+  AUDIT_PROJECT: 'schedule:audit:project',
+  PLATFORM_CONFIG: 'schedule:platform:config',
+  PLATFORM_HEALTH: 'schedule:platform:health',
+  PLATFORM_MIGRATE: 'schedule:platform:migrate',
+  PLATFORM_VIEW_OPS: 'schedule:platform:view:ops',
+  OPENAPI_READ: 'schedule:openapi:read',
+  OPENAPI_WRITE: 'schedule:openapi:write',
+} as const
+
+export type Perm = (typeof PERM)[keyof typeof PERM]
+
+export const PERM_COUNT = Object.keys(PERM).length

@@ -1,0 +1,23 @@
+/* Element Plus 变量对齐令牌（docs/04 §2.3 片段）。
+   顺序是关键：tokens.css 先于本文件，变量才能灌进 --el-*。 */
+:root {
+  --el-bg-color: var(--bg-panel);
+  --el-bg-color-overlay: var(--bg-raise);
+  --el-bg-color-page: var(--bg-base);
+  --el-text-color-primary: var(--t1);
+  --el-text-color-regular: var(--t2);
+  --el-text-color-secondary: var(--t3);
+  --el-border-color: var(--line);
+  --el-border-color-light: var(--line-faint);
+  --el-border-color-lighter: var(--line-faint);
+  --el-color-primary: var(--pri);
+  --el-color-success: var(--ok);
+  --el-color-warning: var(--warn);
+  --el-color-danger: var(--fail);
+  --el-color-error: var(--fail);
+  --el-border-radius-base: var(--r-sm);
+  --el-font-size-base: 12.5px;
+  --el-fill-color-blank: var(--bg-inset);
+  --el-fill-color-light: var(--bg-hover);
+  --el-mask-color: rgba(3, 6, 11, 0.72);
+}

@@ -1,0 +1,61 @@
+# FlowOps CI（docs/09 M0 交付物：构建 + 单测 + 静态检查）
+# 触发：PR 与 main 推送。后端矩阵编译 5 模块 + Flyway 语法随集成测试覆盖（M1 引 Testcontainers）。
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend · build & test
+    runs-on: ubuntu-latest
+    services:
+      # 互斥锁集成测试（MutexLockManagerTest）用真实 Redis；
+      # 本地无 Redis 时该测试经 Assumptions 自动跳过
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Build & test (5 modules)
+        working-directory: backend
+        run: mvn -B -ntp verify
+
+  frontend:
+    name: Frontend · lint & typecheck & test & build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Install
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile || pnpm install
+      - name: Lint
+        working-directory: frontend
+        run: pnpm lint
+      - name: Unit tests（权限点防漂移）
+        working-directory: frontend
+        run: pnpm test
+      - name: Type check + build
+        working-directory: frontend
+        run: pnpm build

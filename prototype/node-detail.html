@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>执行节点详情 · FlowOps</title>
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+<style>
+  .gauge { text-align: center; padding: 14px 6px; }
+  .gauge .g-num { font-family: var(--font-mono); font-size: 19px; font-weight: 650; }
+  .gauge .g-lb { font-size: 11px; color: var(--t3); margin-top: 2px; }
+  .hb-strip { display: flex; gap: 3px; align-items: flex-end; height: 34px; }
+  .hb-strip i { width: 7px; border-radius: 2px 2px 0 0; background: var(--ok); opacity: .8; }
+  .hb-strip i.miss { background: var(--warn); }
+</style>
+</head>
+<body>
+<script src="assets/js/icons.js"></script>
+<script src="assets/js/mock.js"></script>
+<script src="assets/js/ui.js"></script>
+<script src="assets/js/term.js"></script>
+<script>
+(function () {
+  var nid = FO.qs('id') || 'N-0105';
+  var n = MOCK.nodes.filter(function (x) { return x.id === nid; })[0] || MOCK.nodes[4];
+  var cl = MOCK.clusters.filter(function (c) { return c.id === n.cluster; })[0];
+  var online = n.status === 'ONLINE';
+
+  var content = ''
+    + '<div class="page-header"><div><h1 class="row" style="gap:10px">' + n.name
+    + '<i class="live-dot ' + (online ? (n.hbMiss > 0 ? 'warnbg' : 'on') : 'off') + '"></i>' + FO.tag('NODE_ONLINE', n.status)
+    + (n.hbMiss > 0 && online ? '<span class="tag warn">心跳异常（单次缺失）</span>' : '')
+    + '</h1><div class="sub row"><span class="mono">' + n.ip + '</span> · ' + FO.L.OS[n.os] + ' · ' + n.conn
+    + ' · <a href="cluster-detail.html?id=' + cl.id + '">' + cl.name + '</a> · 最近心跳 <span class="mono">' + n.lastHb + '</span></div></div>'
+    + '<div class="actions">'
+    + '<button class="btn" data-perm="schedule:node:test" id="btnTest">' + FO_ICONS.get('bolt') + '连通性测试</button>'
+    + '<button class="btn primary" data-perm="opsView" id="btnTerm">' + FO_ICONS.get('external') + 'Web 终端（V1.1 预研演示）</button>'
+    + '<button class="btn" data-perm="schedule:node:write" onclick="FO.toast(\'已禁用节点，新任务不再派发到此（运行中任务不受影响，演示）\',\'warn\')">' + FO_ICONS.get('stop') + '禁用节点</button>'
+    + '</div></div>'
+
+    + '<div class="grid g4 mb-4">'
+    + gauge('CPU', n.cpu.used, n.cpu.total, ' 核')
+    + gauge('内存', (n.mem.used / 1024).toFixed(1), (n.mem.total / 1024).toFixed(0), ' GB')
+    + gauge('GPU', n.gpu.used, n.gpu.total || null, ' 卡')
+    + gauge('磁盘', (n.disk.used / 1048576).toFixed(1), (n.disk.total / 1048576).toFixed(1), ' TB')
+    + '</div>'
+
+    + '<div class="grid g2">'
+    + '<div class="panel"><div class="panel-h"><b>基础信息</b></div><div class="panel-b"><div class="kv">'
+    + '<span class="k">节点 ID</span><span class="v mono">' + n.id + '</span>'
+    + '<span class="k">主机名</span><span class="v">' + n.name + '</span>'
+    + '<span class="k">IP 地址</span><span class="v mono">' + n.ip + '</span>'
+    + '<span class="k">操作系统</span><span class="v">' + FO.L.OS[n.os] + '</span>'
+    + '<span class="k">连接方式</span><span class="v">' + n.conn + '（MVP 仅 SSH，WinRM/Agent 预留）</span>'
+    + '<span class="k">绑定凭据</span><span class="v"><a href="credential-list.html">CR-0001 生产节点SSH密钥</a> <span class="mono tiny">' + n.credFp + '</span></span>'
+    + '<span class="k">标签</span><span class="v">' + (n.tags.length ? n.tags.map(function (t) { return '<span class="node-tag">' + t + '</span>'; }).join(' ') : '<span class="faint">无</span>') + '</span>'
+    + '<span class="k">最大并发步骤</span><span class="v mono">' + (n.maxSteps || '不限') + '</span>'
+    + '<span class="k">最近分配任务</span><span class="v mono">' + n.lastAlloc + '</span>'
+    + '</div></div></div>'
+
+    + '<div class="panel"><div class="panel-h"><b>心跳记录（近 40 个周期 · 15s/次）</b></div><div class="panel-b">'
+    + '<div class="hb-strip" id="hb"></div>'
+    + '<div class="row tiny faint mt-3"><span>正常</span><span class="spacer"></span>'
+    + (n.hbMiss > 0
+        ? '<span style="color:var(--warn)">最近 1 次缺失 → 仅标注「心跳异常」，状态不变、不触发告警</span>'
+        : '<span>连续缺失 3 次（45s）才判离线并告警</span>') + '</div>'
+    + '<div class="banner info mt-3" style="margin-bottom:0"><span data-ic="info"></span><div>'
+    + (n.status === 'OFFLINE'
+        ? '该节点已判离线：其上运行中步骤未直接判失败，进入「等待执行节点恢复」的 <b>5 分钟恢复窗口</b>；窗口到期仍无心跳 → 步骤判失败（原因：执行节点失联）并<b>释放其持有的互斥锁</b>'
+        : '离线判定：连续 3 次心跳缺失（45s）；离线后立即触发「执行节点离线」告警（AR-0004）')
+    + '</div></div></div></div>'
+    + '</div>'
+
+    + '<div class="panel mt-4"><div class="panel-h"><b>该节点运行/运行过的任务</b><span class="hint">最近 10 条</span></div>'
+    + '<div class="table-wrap"><table class="tbl"><thead><tr><th>任务</th><th>工作流</th><th>步骤</th><th>状态</th><th>耗时</th><th>退出码</th></tr></thead><tbody>'
+    + '<tr><td><a class="link-id" href="task-detail.html?id=TASK-20260924-0042">TASK-20260924-0042</a></td><td>每日订单数据同步</td><td>数据清洗</td><td>' + FO.statusTag('SUCCESS') + '</td><td class="num">38m 25s</td><td class="num">0</td></tr>'
+    + '<tr><td><a class="link-id" href="task-detail.html?id=TASK-20260924-0042">TASK-20260924-0042</a></td><td>每日订单数据同步</td><td>数据接入</td><td>' + FO.statusTag('SUCCESS') + '</td><td class="num">3m 12s</td><td class="num">0</td></tr>'
+    + '<tr><td><a class="link-id" href="task-detail.html?id=TASK-20260923-0028">TASK-20260923-0028</a></td><td>每日订单数据同步</td><td>数据接入 / 数据清洗 / 报告推送</td><td>' + FO.statusTag('SUCCESS') + '</td><td class="num">—</td><td class="num">0</td></tr>'
+    + '</tbody></table></div></div>';
+
+  FO.mountShell({ active: 'clusterList', title: '执行节点详情', crumb: [{ label: '集群管理', href: 'cluster-list.html' }, { label: cl.name, href: 'cluster-detail.html?id=' + cl.id }], content: content });
+
+  function gauge(label, used, total, unit) {
+    var pct = total ? (used / total) * 100 : 0;
+    var cls = pct >= 90 ? 'hot' : pct >= 70 ? 'warm' : 'oklv';
+    return '<div class="panel gauge"><div class="g-num" style="color:var(--' + (cls === 'hot' ? 'fail' : cls === 'warm' ? 'warn' : 't1') + ')">'
+      + (total ? used + '<small style="font-size:11px;color:var(--t3)"> / ' + total + unit + '</small>' : '—')
+      + '</div><div class="g-lb">' + label + '</div>'
+      + (total ? '<div class="rbar mt-2" style="margin:8px 10px 0"><div class="rb-track"><div class="rb-fill ' + cls + '" style="width:' + pct + '%"></div></div></div>' : '<div class="tiny faint mt-2">未配置</div>')
+      + '</div>';
+  }
+
+  /* 心跳条：最后一个周期若 hbMiss>0 显示 warn */
+  var bars = '';
+  for (var i = 0; i < 40; i++) {
+    var miss = n.hbMiss > 0 && i >= 39;
+    bars += '<i class="' + (miss ? 'miss' : '') + '" style="height:' + (10 + Math.round(Math.abs(Math.sin(i * 1.7)) * 22)) + 'px"></i>';
+  }
+  document.getElementById('hb').innerHTML = bars;
+
+  document.getElementById('btnTest').addEventListener('click', function () {
+    var btn = this;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spin-ic">' + FO_ICONS.get('refresh') + '</span>测试中…';
+    setTimeout(function () {
+      btn.disabled = false;
+      btn.innerHTML = FO_ICONS.get('bolt') + '连通性测试';
+      if (!online) FO.toast('连接失败：Connection timed out（' + n.ip + ':22）· 该节点已判离线，请检查网络 / 节点 SSH 服务 / 凭据', 'fail', '连通性测试失败');
+      else FO.toast('SSH 握手成功 · 耗时 ' + (280 + Math.round(Math.random() * 120)) + 'ms · 凭据指纹 ' + n.credFp + ' 校验通过', 'ok', '连通性测试通过');
+    }, 1100);
+  });
+
+  document.getElementById('btnTerm').addEventListener('click', function () {
+    FlowTerm.open({
+      nodeName: n.name, ip: n.ip, credFp: n.credFp,
+      ctxTitle: '来源：执行节点详情',
+      ctxSub: '集群 ' + (MOCK.clusters.filter(function(c){return c.id===n.cluster;})[0] || {}).name
+    });
+  });
+
+
+  document.querySelectorAll('[data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+})();
+</script>
+</body>
+</html>

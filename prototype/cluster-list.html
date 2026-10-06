@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>集群列表 · FlowOps</title>
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+</head>
+<body>
+<script src="assets/js/icons.js"></script>
+<script src="assets/js/mock.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+(function () {
+  var content = ''
+    + '<div class="page-header"><div><h1>集群管理</h1><div class="sub">执行节点集合 · 任务等待与调度的资源池边界 · PRD §10.3</div></div>'
+    + '<div class="actions"><button class="btn primary" data-perm="schedule:cluster:write" id="btnNew">' + FO_ICONS.get('plus') + '新增集群</button></div></div>'
+
+    + '<div class="grid g3 mb-4" id="cards"></div>'
+
+    + '<div class="panel"><div class="table-wrap"><table class="tbl"><thead><tr>'
+    + '<th>集群</th><th>环境标签</th><th>状态</th><th>执行节点（在线/离线/空闲）</th><th>CPU（用/总）</th><th>GPU（用/总）</th><th>磁盘（用/总）</th><th>运行/等待任务</th><th>最近心跳</th>'
+    + '</tr></thead><tbody id="tb"></tbody></table></div></div>'
+
+    + '<div class="banner warn mt-4"><span data-ic="alert"></span><div>'
+    + '<b>删除规则：</b>存在运行中任务的集群不可直接删除；集群下仍有执行节点时必须先删除或迁移节点；删除操作进审计。<br>'
+    + '<span class="b-sub">环境标签（开发/测试/生产）为 V1.0「跨环境发布」预留，MVP 仅展示（§10.3 / §18.3）</span></div></div>';
+
+  FO.mountShell({ active: 'clusterList', title: '集群列表', crumb: [{ label: '集群管理' }], content: content });
+
+  function miniRes(c, key, unit) {
+    var r = c[key];
+    var pct = (r.used / r.total) * 100;
+    var cls = pct >= 90 ? 'hot' : pct >= 70 ? 'warm' : 'oklv';
+    return '<div class="rbar" style="min-width:110px"><div class="rb-top"><span class="num">' + r.used + ' / ' + r.total + unit + '</span></div>'
+      + '<div class="rb-track"><div class="rb-fill ' + cls + '" style="width:' + pct + '%"></div></div></div>';
+  }
+
+  document.getElementById('cards').innerHTML = MOCK.clusters.map(function (c) {
+    return '<div class="panel metric clickable" onclick="location.href=\'cluster-detail.html?id=' + c.id + '\'">'
+      + '<div class="m-label"><i class="live-dot ' + (c.status === 'NORMAL' ? 'on' : 'warnbg') + '"></i>' + c.name
+      + '<span class="spacer"></span>' + FO.tag('CLUSTER_STATUS', c.status) + '</div>'
+      + '<div class="m-value">' + c.nodes + '<small>节点</small></div>'
+      + '<div class="m-foot">在线 ' + c.online + ' · 离线 ' + c.offline + ' · 运行中 ' + c.running + ' 任务</div></div>';
+  }).join('');
+
+  document.getElementById('tb').innerHTML = MOCK.clusters.map(function (c) {
+    return '<tr class="clickable" onclick="location.href=\'cluster-detail.html?id=' + c.id + '\'">'
+      + '<td><b>' + c.name + '</b><div class="tiny faint mono">' + c.id + '</div></td>'
+      + '<td>' + (c.env === '生产' ? '<span class="tag fail">生产</span>' : c.env === '测试' ? '<span class="tag warn">测试</span>' : '<span class="tag info">开发</span>') + '</td>'
+      + '<td>' + FO.tag('CLUSTER_STATUS', c.status) + '</td>'
+      + '<td class="num">' + c.nodes + ' <span class="tiny faint">（' + c.online + ' / ' + c.offline + ' / ' + c.idle + '）</span></td>'
+      + '<td>' + miniRes(c, 'cpu', ' 核') + '</td>'
+      + '<td>' + miniRes(c, 'gpu', ' 卡') + '</td>'
+      + '<td>' + miniRes(c, 'disk', ' GB') + '</td>'
+      + '<td class="num">' + c.running + ' / ' + c.pending + '</td>'
+      + '<td class="mono tiny">' + c.lastHb + '</td>'
+      + '</tr>';
+  }).join('');
+
+  document.getElementById('btnNew').addEventListener('click', function () {
+    FO.modal({
+      title: '新增集群',
+      body: '<div class="field"><label>集群名称 <span class="req">*</span></label><input class="input" placeholder="如：prod-compute-03"></div>'
+        + '<div class="field"><label>环境标签</label><select class="select"><option>开发</option><option>测试</option><option selected>生产</option></select></div>'
+        + '<div class="banner info" style="margin-bottom:0"><span data-ic="info"></span><div>集群资源总量由执行节点汇总生成，此处仅登记名称与环境；节点需逐一添加并绑定凭据</div></div>',
+      onOk: function () { FO.toast('集群已创建（演示），下一步：添加执行节点并绑定凭据', 'ok'); }
+    });
+  });
+
+  document.querySelectorAll('[data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+})();
+</script>
+</body>
+</html>

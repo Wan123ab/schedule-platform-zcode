@@ -1,0 +1,25 @@
+/* 氛围层：光晕 + 微网格（从原型 base.css 的 body::before/::after 拆出，取值走令牌）。 */
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(1000px 500px at 18% -10%, var(--pri-dim, rgba(46, 144, 250, 0.12)), transparent 60%),
+    radial-gradient(800px 420px at 110% 0%, rgba(34, 211, 238, 0.07), transparent 55%);
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(var(--line-faint) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line-faint) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(1200px 700px at 50% 0%, rgba(0, 0, 0, 0.35), transparent 75%);
+}

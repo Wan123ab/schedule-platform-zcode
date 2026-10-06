@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 生命周期扫描读模型（docs/06 §3.2 阶段⑧：SCHEDULING 卡住 / 步骤超时）。 -->
+<mapper namespace="com.flowops.domain.mapper.task.LifecycleQueryMapper">
+
+    <!-- 卡住判定锚点 = updated_at（CAS 占位时同步刷新，见 TaskStepMapper.xml）。
+         M1 口径（§4.6）：SSH 直跑模型无法查询执行侧登记表，全部按"可重新下发"处理
+         （回退 → 重新 claim 生成新 token）；非幂等算子的 UNKNOWN 转人工随 M3 算子声明落地 -->
+    <select id="findStuckScheduling"
+            resultType="com.flowops.domain.dto.query.StuckDispatchRow">
+        SELECT ts.id,
+               ts.step_instance_id AS stepInstanceId,
+               ts.dispatch_token   AS dispatchToken,
+               ts.enqueue_seq      AS enqueueSeq,
+               t.queue_id          AS queueId,
+               t.priority          AS priority
+          FROM task_step ts
+          JOIN task t ON t.id = ts.task_id
+         WHERE ts.status = 'SCHEDULING'
+           AND ts.dispatch_token IS NOT NULL
+           AND ts.updated_at &lt; now() - (#{minutes} * interval '1 minute')
+           AND t.deleted = false
+         ORDER BY ts.updated_at
+         LIMIT #{limit}
+    </select>
+
+    <!-- 步骤超时：start_time + ws.timeout_seconds 已过；
+         经 (cluster_id, ip) 反查节点（账本扣回需要 nodeId，uk_node_cluster_ip 保证唯一） -->
+    <select id="findTimedOutSteps"
+            resultType="com.flowops.domain.dto.query.TimeoutStepRow">
+        SELECT ts.id,
+               ts.step_instance_id AS stepInstanceId,
+               ts.dispatch_token   AS dispatchToken,
+               ts.mutex_group      AS mutexGroup,
+               n.id                AS nodeId,
+               t.queue_id          AS queueId,
+               t.priority          AS priority,
+               ts.enqueue_seq      AS enqueueSeq
+          FROM task_step ts
+          JOIN task t ON t.id = ts.task_id
+          JOIN workflow_step ws ON ws.id = ts.step_id
+          LEFT JOIN executor_node n
+                 ON n.ip = ts.machine_ip AND n.cluster_id = ts.cluster_id
+         WHERE ts.status = 'RUNNING'
+           AND ws.timeout_seconds IS NOT NULL
+           AND ts.start_time + make_interval(secs =&gt; ws.timeout_seconds) &lt; now()
+           AND t.deleted = false
+         ORDER BY ts.start_time
+         LIMIT #{limit}
+    </select>
+
+</mapper>

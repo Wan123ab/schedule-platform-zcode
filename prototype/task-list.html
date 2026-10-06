@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>任务列表 · FlowOps</title>
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+</head>
+<body>
+<script src="assets/js/icons.js"></script>
+<script src="assets/js/mock.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+(function () {
+  var qs = new URLSearchParams(location.search);
+  var state = {
+    status: qs.get('status') || 'all',
+    trigger: qs.get('trigger') || 'all',
+    project: qs.get('project') || 'all',
+    keyword: qs.get('keyword') || ''
+  };
+
+  var content = ''
+    + '<div class="page-header"><div><h1>任务列表</h1>'
+    + '<div class="sub">工作流的一次运行实例，强绑定执行时的工作流版本快照 · 数据可见性随演示角色的 DataScope 变化（D-19）</div></div>'
+    + '<div class="actions"><label class="row tiny muted" style="gap:6px">自动刷新 5s <span class="switch"><input type="checkbox" id="autoRefresh" checked><i></i></span></label></div></div>'
+    + '<div id="metricsSlot"></div>'
+
+    + '<div class="filter-bar">'
+    + '<div class="seg" id="segStatus"><button data-v="all">全部</button><button data-v="RUNNING">运行中</button><button data-v="WAITING">等待/调度</button><button data-v="FAILED">失败/超时</button><button data-v="DONE">已结束</button></div>'
+    + '<select class="select" id="fTrigger"><option value="all">全部触发方式</option><option value="MANUAL">手动</option><option value="CRON">定时</option><option value="BACKFILL">回填</option></select>'
+    + '<select class="select" id="fProject"><option value="all">全部可见项目</option><option value="PRJ-0001">PRJ-0001 电商数据平台</option><option value="PRJ-0002">PRJ-0002 风控实时计算</option></select>'
+    + '<input class="input" id="fKeyword" placeholder="任务编号 / 工作流名" style="width:200px">'
+    + FO.stateDemoControl()
+    + '<span class="spacer"></span><span class="tiny faint" id="scopeHint"></span>'
+    + '</div>'
+
+    + '<div class="panel"><div class="table-wrap" id="tblWrap"><table class="tbl"><thead><tr>'
+    + '<th>任务编号</th><th>工作流</th><th>版本</th><th>触发</th><th>项目</th><th>业务日期</th><th>集群 / 队列</th><th>状态 / 步骤进度</th><th>运行时长</th><th>提交人</th><th style="text-align:right">操作</th>'
+    + '</tr></thead><tbody id="tb"></tbody></table></div>'
+    + '<div class="pager"><span id="pgInfo"></span><div class="pgs"><button disabled>‹</button><button class="on">1</button><button disabled>›</button></div></div></div>'
+
+    + '<div class="banner info mt-4"><span data-ic="info"></span><div>'
+    + '<b>演示要点：</b>① 切换右上角演示角色（如「业务人员」），本表<b>数据行</b>与<b>操作按钮</b>会同时按权限收敛；'
+    + '② 任意筛选组合会同步到地址栏，刷新/分享链接不丢状态（工程约定 §3.5）；'
+    + '③ 每行「详情」跳转到任务详情的<b>对应场景</b>（运行中/失败/超时/成功/等待调度）。<br>'
+    + '<span class="b-sub">运维视图下切换后：非授权项目任务参数值显示 ***、日志默认脱敏（到任务详情体验完整授权流程）</span></div></div>';
+
+  FO.mountShell({ active: 'taskList', title: '任务列表', crumb: [{ label: '任务管理' }], content: content });
+
+  /* ---------- 行级数据权限（DataScope 演示） ---------- */
+  function scopeFilter(t) {
+    var vp = FO.visibleProjects();
+    if (vp && vp.indexOf(t.project) < 0) return false;
+    return true;
+  }
+  function statusFilter(t) {
+    if (state.status === 'all') return true;
+    if (state.status === 'RUNNING') return t.status === 'RUNNING';
+    if (state.status === 'WAITING') return ['PENDING', 'SCHEDULING', 'STOPPING'].indexOf(t.status) >= 0;
+    if (state.status === 'FAILED') return ['FAILED', 'TIMEOUT'].indexOf(t.status) >= 0;
+    if (state.status === 'DONE') return ['SUCCESS', 'STOPPED', 'PARTIAL'].indexOf(t.status) >= 0;
+    return true;
+  }
+
+  function render() {
+    var visible = MOCK.tasks.filter(scopeFilter);
+    var rows = visible
+      .filter(statusFilter)
+      .filter(function (t) { return state.trigger === 'all' || t.trigger === state.trigger; })
+      .filter(function (t) { return state.project === 'all' || t.project === state.project; })
+      .filter(function (t) { return !state.keyword || t.id.indexOf(state.keyword) >= 0 || t.wfName.indexOf(state.keyword) >= 0; });
+
+    var vp = FO.visibleProjects();
+    document.getElementById('scopeHint').textContent = vp
+      ? '当前角色可见项目：' + vp.join(' / ') + '（其余项目数据已隐藏）'
+      : '当前角色可见全平台数据（ALL）';
+
+    /* 指标条（随 DataScope 变化） */
+    document.getElementById('metricsSlot').innerHTML = FO.metricsStrip([
+      { label: '可见任务', value: visible.length, icon: 'tasks' },
+      { label: '运行中', value: visible.filter(function (t) { return t.status === 'RUNNING'; }).length, tone: 'info', icon: 'play' },
+      { label: '等待 / 调度', value: visible.filter(function (t) { return ['PENDING', 'SCHEDULING', 'STOPPING'].indexOf(t.status) >= 0; }).length, tone: 'warn', icon: 'clock' },
+      { label: '失败 / 超时', value: visible.filter(function (t) { return ['FAILED', 'TIMEOUT'].indexOf(t.status) >= 0; }).length, tone: 'fail', icon: 'alert' },
+      { label: '今日成功率', value: '96.8%', tone: 'ok', icon: 'check' }
+    ]);
+
+    var normalHtml = '<table class="tbl"><thead><tr>'
+      + '<th>任务编号</th><th>工作流</th><th>版本</th><th>触发</th><th>项目</th><th>业务日期</th><th>集群 / 队列</th><th>状态 / 步骤进度</th><th>运行时长</th><th>提交人</th><th style="text-align:right">操作</th>'
+      + '</tr></thead><tbody id="tb"></tbody></table>';
+    FO.fourState('#tblWrap', normalHtml);
+    var tb = document.getElementById('tb');
+    if (!tb) { document.getElementById('pgInfo').textContent = ''; return; }
+
+    tb.innerHTML = rows.map(function (t) {
+      var rowCls = t.status === 'RUNNING' ? ' class="row-run"' : (['FAILED', 'TIMEOUT'].indexOf(t.status) >= 0 ? ' class="row-fail"' : '');
+      var scene = t.scene || 'running';
+      /* 操作项全部图标化（悬停有 tooltip） */
+      var acts = FO.iconAct('eye', '查看详情', 'location.href=\'task-detail.html?scene=' + scene + '\'');
+      if (['RUNNING', 'SCHEDULING', 'PENDING'].indexOf(t.status) >= 0)
+        acts += FO.iconAct('stop', '停止任务', 'stopT(\'' + t.id + '\')', 'danger');
+      if (['FAILED', 'TIMEOUT', 'STOPPED', 'PARTIAL'].indexOf(t.status) >= 0)
+        acts += FO.iconAct('retry', '重跑', 'rerunT(\'' + t.id + '\')');
+      if (['PENDING', 'SCHEDULING'].indexOf(t.status) >= 0)
+        acts += FO.iconAct('bolt', '插队', 'jumpT(\'' + t.id + '\')');
+      var prj = MOCK.projects.filter(function (p) { return p.id === t.project; })[0];
+      /* 步骤进度（运行中任务显示条） */
+      var progHtml = '';
+      if (t.status === 'RUNNING') {
+        var done = 2 + (t.id.charCodeAt(11) % 3), total = 7;
+        var pct = Math.round(done / total * 100);
+        progHtml = '<div class="row" style="gap:7px;margin-top:3px"><div class="prog" style="width:90px"><i style="width:' + pct + '%"></i></div>'
+          + '<span class="cell-sub">' + done + ' / ' + total + ' 步骤</span></div>';
+      }
+      return '<tr' + rowCls + '>'
+        + '<td><div class="row" style="gap:5px"><a class="link-id" href="task-detail.html?scene=' + scene + '">' + t.id + '</a>'
+        +   FO.iconAct('copy', '复制任务编号', 'FO.copyText(\'' + t.id + '\')') + '</div></td>'
+        + '<td class="ellipsis" style="max-width:150px">' + t.wfName + '</td>'
+        + '<td class="mono">' + t.version + '</td>'
+        + '<td>' + FO.tag('TRIGGER_TYPE', t.trigger) + '</td>'
+        + '<td class="tiny" title="' + (prj ? prj.name : '') + '">' + t.project + '</td>'
+        + '<td class="mono tiny">' + (t.bizDate || '—') + '</td>'
+        + '<td class="tiny nowrap"><span class="node-tag">' + t.cluster + '</span> <span class="node-tag">' + t.queue + '</span></td>'
+        + '<td>' + FO.statusTag(t.status, t.failReason || '') + progHtml + (t.failReason ? '<div class="cell-sub ell" style="max-width:170px" title="' + FO.esc(t.failReason) + '">' + FO.esc(t.failReason) + '</div>' : '') + '</td>'
+        + '<td class="mono tiny js-dur"' + (t.startAt ? ' data-start="' + t.startAt.replace(/-/g, '/') + '" data-end="' + (t.endAt ? t.endAt.replace(/-/g, '/') : '') + '"' : '') + '>' + (t.startAt ? FO.fmtDur(elapsedOf(t)) : '—') + '</td>'
+        + '<td class="tiny">' + t.submitter + '</td>'
+        + '<td><div class="actions">' + acts + '</div></td></tr>';
+    }).join('');
+    document.getElementById('pgInfo').textContent = '共 ' + rows.length + ' 个任务（可见范围 ' + (vp ? vp.length + ' 个项目' : '全平台') + '）· 第 1 / 1 页';
+    FO.applyPerms(document);
+    document.querySelectorAll('[data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+  }
+  function elapsedOf(t) {
+    if (!t.startAt) return 0;
+    if (t.endAt) return Math.round((new Date(t.endAt.replace(/-/g, '/')) - new Date(t.startAt.replace(/-/g, '/'))) / 1000);
+    var demoAnchor = new Date('2026/09/25 15:32:00').getTime();
+    return Math.max(0, Math.round((demoAnchor - new Date(t.startAt.replace(/-/g, '/'))) / 1000));
+  }
+  /* 运行中任务的时长实时跳动（终态任务静态） */
+  FO.liveTicker(function () {
+    var anchor = new Date('2026/09/25 15:32:00').getTime();
+    var tick = Math.floor(Date.now() / 1000);
+    document.querySelectorAll('.js-dur[data-start]').forEach(function (el) {
+      if (el.dataset.end) return; /* 终态不跳动 */
+      var start = new Date(el.dataset.start).getTime();
+      var sec = Math.max(0, Math.round((anchor - start) / 1000) + (tick % 3600));
+      el.textContent = FO.fmtDur(sec);
+    });
+  }, 1000);
+  /* 自动刷新模拟 */
+  document.addEventListener('change', function (e) {
+    if (e.target.id === 'autoRefresh') {
+      FO.toast(e.target.checked ? '已开启 5s 自动刷新（页面隐藏时自动暂停）' : '已暂停自动刷新', 'info');
+    }
+  });
+
+  /* ---------- 筛选 → 状态 → URL ---------- */
+  function syncUrl() {
+    var p = new URLSearchParams();
+    if (state.status !== 'all') p.set('status', state.status);
+    if (state.trigger !== 'all') p.set('trigger', state.trigger);
+    if (state.project !== 'all') p.set('project', state.project);
+    if (state.keyword) p.set('keyword', state.keyword);
+    var qsStr = p.toString();
+    history.replaceState(null, '', location.pathname + (qsStr ? '?' + qsStr : ''));
+  }
+
+  function markSeg() {
+    document.querySelectorAll('#segStatus button').forEach(function (b) {
+      b.classList.toggle('on', b.dataset.v === state.status);
+    });
+  }
+
+  document.getElementById('segStatus').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    state.status = b.dataset.v; markSeg(); syncUrl(); render();
+  });
+  /* 四态演示：切换后整体重渲染（fourState 读取 localStorage 中的视图） */
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('#stateDemo button');
+    if (!b) return;
+    localStorage.setItem('flowops.statedemo', b.dataset.v);
+    document.querySelectorAll('#stateDemo button').forEach(function (x) { x.classList.toggle('on', x === b); });
+    render();
+  });
+  document.getElementById('fTrigger').addEventListener('change', function () { state.trigger = this.value; syncUrl(); render(); });
+  document.getElementById('fProject').addEventListener('change', function () { state.project = this.value; syncUrl(); render(); });
+  var kwTimer = null;
+  document.getElementById('fKeyword').addEventListener('input', function () {
+    clearTimeout(kwTimer);
+    kwTimer = setTimeout(function () { state.keyword = document.getElementById('fKeyword').value.trim(); syncUrl(); render(); }, 250);
+  });
+  document.addEventListener('rolechange', function () { render(); });
+
+  markSeg(); render();
+
+  window.stopT = function (id) {
+    FO.confirm({
+      title: '停止任务', requireReason: true,
+      message: '任务 <b class="mono">' + id + '</b> 将进入 <b>STOPPING</b>，由调度器终止进程后收敛为 STOPPED。到任务详情可观察完整状态流转。',
+      okText: '停止任务',
+      onOk: function () { FO.toast('已提交停止指令（演示）→ 前往任务详情观察 STOPPING → STOPPED', 'warn'); }
+    });
+  };
+  window.rerunT = function (id) {
+    FO.modal({
+      title: '重跑 · ' + id,
+      body: '<label class="ck mb-3"><input type="checkbox" checked> <b>重跑失败步骤</b>（推荐）：仅重新执行失败及其下游步骤，<b>复用上游已成功的结果</b>，不产生新任务编号</label>'
+        + '<label class="ck"><input type="checkbox"> 重跑整个任务：生成<b>新任务实例</b>（新任务编号），原任务保持终态</label>'
+        + '<div class="banner info mt-3" style="margin-bottom:0"><span data-ic="info"></span><div>复用的原理：<span class="mono">task_step.output_vars</span> 持久化，重跑不清理非目标步骤的输出 → 变量解析链第 5 层自然取到旧值</div></div>',
+      okText: '确认重跑',
+      onOk: function () { location.href = 'task-detail.html?scene=failed'; }
+    });
+  };
+  window.jumpT = function (id) {
+    FO.confirm({ title: '任务插队', message: '将 <b class="mono">' + id + '</b> 移到队首，下次出队生效。互斥锁任务禁止插队（R-5）。', okText: '确认插队',
+      onOk: function () { FO.toast('score 已更新（演示）', 'ok'); } });
+  };
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+# =====================================================================
+# FlowOps 后端镜像（多阶段构建，docs/09 M0 交付物）
+# 构建参数 MODULE 决定打包哪个可执行 jar（flowops-server / flowops-scheduler）
+# =====================================================================
+
+# ---- 阶段 1：构建 ----
+FROM maven:3.9-eclipse-temurin-21 AS build
+WORKDIR /src
+
+# 先拷 POM 下依赖（Docker 层缓存加速）
+COPY pom.xml .
+COPY flowops-common/pom.xml flowops-common/
+COPY flowops-domain/pom.xml flowops-domain/
+COPY flowops-executor-client/pom.xml flowops-executor-client/
+COPY flowops-server/pom.xml flowops-server/
+COPY flowops-scheduler/pom.xml flowops-scheduler/
+RUN mvn -B -q dependency:go-offline || true
+
+COPY flowops-common flowops-common
+COPY flowops-domain flowops-domain
+COPY flowops-executor-client flowops-executor-client
+COPY flowops-server flowops-server
+COPY flowops-scheduler flowops-scheduler
+
+ARG MODULE=flowops-server
+RUN mvn -B -DskipTests package && \
+    cp ${MODULE}/target/${MODULE}-*.jar /app.jar
+
+# ---- 阶段 2：运行 ----
+FROM eclipse-temurin:21-jre
+WORKDIR /app
+COPY --from=build /app.jar app.jar
+
+# 容器内健康检查用 curl
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV TZ=Asia/Shanghai
+EXPOSE 8080 8081
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=70", "-jar", "app.jar"]

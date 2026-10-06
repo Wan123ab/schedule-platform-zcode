@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>API 接入 · FlowOps</title>
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+<style>
+  .ak-mask { font-family: var(--font); letter-spacing: .5px; background: var(--bg-inset); border: 1px dashed var(--line); padding: 1px 8px; border-radius: var(--r-xs); }
+  .key-plain { font-family: var(--mono); font-size: 13px; background: var(--ok-dim); border: 1px solid var(--ok-line); border-radius: var(--r-sm); padding: 10px 12px; word-break: break-all; color: var(--ok); }
+  .scope-chip { font-family: var(--font); font-size: 10px; }
+  .rate-badge { font-family: var(--font); }
+  .doc-h { font-size: 12.5px; font-weight: 650; margin: 18px 0 8px; display: flex; align-items: center; gap: 7px; }
+  .doc-h:first-child { margin-top: 0; }
+  .doc-h .mth { font-family: var(--mono); font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 3px; }
+  .doc-h .mth.post { color: #fff; background: var(--ok); }
+  .doc-h .mth.get { color: #fff; background: var(--info); }
+  .doc-h .path { font-family: var(--mono); color: var(--t1); }
+  .ev-chip { font-family: var(--mono); font-size: 10px; }
+  .attempt-b { font-family: var(--mono); font-size: 10px; font-weight: 700; padding: 0 6px; border-radius: 3px; line-height: 16px; display: inline-block; }
+  .attempt-b.ok { color: var(--ok); background: var(--ok-dim); }
+  .attempt-b.retry { color: var(--warn); background: var(--warn-dim); }
+</style>
+</head>
+<body>
+<script src="assets/js/icons.js"></script>
+<script src="assets/js/mock.js"></script>
+<script src="assets/js/ui.js"></script>
+<script>
+(function () {
+  var content = ''
+    + '<div class="page-header"><div><h1>API 接入</h1>'
+    + '<div class="sub">第三方系统经开放接口触发与查询任务 · X-API-Key 鉴权 · 作用域隔离 · 限流 · Webhook 状态通知 · PRD §10.9/§17（API 触发由 V1.1 提前纳入一期）</div></div>'
+    + '<div class="actions"><button class="btn primary" data-perm="schedule:openapi:write" id="btnNewKey">' + FO_ICONS.get('plus') + '新建 API Key</button></div></div>'
+
+    + '<div id="metricsSlot"></div>'
+
+    + '<div class="tabs">'
+    + '<button class="tab-btn on" data-tab="keys">API Keys <span class="cnt">' + MOCK.apiKeys.length + '</span></button>'
+    + '<button class="tab-btn" data-tab="docs">接入文档</button>'
+    + '<button class="tab-btn" data-tab="calls">调用记录</button>'
+    + '<button class="tab-btn" data-tab="hooks">Webhook 通知 <span class="cnt">' + MOCK.webhookSubs.length + '</span></button>'
+    + '</div>'
+    + '<div class="panel"><div id="tabBody"></div></div>';
+
+  FO.mountShell({ active: 'apiTrigger', title: 'API 接入', crumb: [{ label: '系统管理' }], content: content });
+
+  /* ---------- 指标条 ---------- */
+  function renderMetrics() {
+    var active = MOCK.apiKeys.filter(function (k) { return k.status === 'ENABLED'; }).length;
+    var calls = MOCK.apiKeys.reduce(function (s, k) { return s + k.calls24h; }, 0);
+    var ok = MOCK.apiCalls.filter(function (c) { return c.code < 400; }).length;
+    var rate = MOCK.apiCalls.length ? Math.round(ok / MOCK.apiCalls.length * 1000) / 10 : 100;
+    document.getElementById('metricsSlot').innerHTML = FO.metricsStrip([
+      { label: '活跃 API Key', value: active, icon: 'key' },
+      { label: '24h 调用量', value: FO.fmt.num(calls), icon: 'bolt' },
+      { label: '调用成功率', value: rate + '%', tone: rate >= 95 ? 'ok' : 'warn', icon: 'check' },
+      { label: 'Webhook 订阅', value: MOCK.webhookSubs.filter(function (w) { return w.status === 'ENABLED'; }).length, icon: 'link' }
+    ]);
+  }
+
+  /* ---------- Tab 1：API Keys ---------- */
+  function tabKeys() {
+    return '<div class="table-wrap"><table class="tbl"><thead><tr>'
+      + '<th>名称</th><th>Key（掩码）</th><th>作用域</th><th>限流</th><th>24h 调用</th><th>最近使用</th><th>状态</th><th style="text-align:right">操作</th>'
+      + '</tr></thead><tbody>'
+      + MOCK.apiKeys.map(function (k) {
+          var scope = '<span class="tag info scope-chip">' + k.project + '</span> '
+            + (k.scopeWfs.indexOf('*') >= 0
+              ? '<span class="tag warn scope-chip">全部工作流</span>'
+              : k.scopeWfs.map(function (w) { return '<span class="tag plain scope-chip">' + w + '</span>'; }).join(' '));
+          var rateBadge = '<span class="tag ' + (k.rateLimit >= 100 ? 'pri' : 'plain') + ' rate-badge">' + k.rateLimit + ' 次/分</span>';
+          return '<tr>'
+            + '<td><b class="small">' + FO.esc(k.name) + '</b><div class="cell-sub">' + k.id + ' · 创建人 ' + k.creator + '</div></td>'
+            + '<td><span class="ak-mask">' + k.mask + '</span></td>'
+            + '<td>' + scope + '</td>'
+            + '<td>' + rateBadge + '</td>'
+            + '<td class="num">' + FO.fmt.num(k.calls24h) + '</td>'
+            + '<td class="mono tiny">' + k.lastUsed + '</td>'
+            + '<td>' + (k.status === 'ENABLED' ? '<span class="tag ok">启用</span>' : '<span class="tag idle">停用</span>')
+              + (k.expireAt ? '<div class="cell-sub">' + k.expireAt + ' 到期</div>' : '') + '</td>'
+            + '<td><div class="actions">'
+            + '<button class="btn xs icon-only" title="查看接入文档" onclick="switchTab(\'docs\')">' + FO_ICONS.get('file') + '</button>'
+            + (k.status === 'ENABLED'
+              ? '<button class="btn xs icon-only" title="禁用（立即生效，调用返回 40110）" data-perm="schedule:openapi:write" onclick="toggleKey(\'' + k.id + '\')">' + FO_ICONS.get('stop') + '</button>'
+              : '<button class="btn xs icon-only" title="启用" data-perm="schedule:openapi:write" onclick="toggleKey(\'' + k.id + '\')">' + FO_ICONS.get('play') + '</button>')
+            + '<button class="btn xs icon-only" title="轮换（旧 Key 保留 24h 双活）" data-perm="schedule:openapi:write" onclick="rotateKey(\'' + k.id + '\')">' + FO_ICONS.get('retry') + '</button>'
+            + '<button class="btn xs icon-only" title="删除（逻辑删除 + 审计）" data-perm="schedule:openapi:write" onclick="delKey(\'' + k.id + '\')">' + FO_ICONS.get('trash') + '</button>'
+            + '</div></td></tr>';
+        }).join('')
+      + '</tbody></table></div>'
+      + '<div class="panel-b banner info" style="margin:0"><span data-ic="lock"></span><div>'
+      + '<b>Key 安全模型：</b>明文仅创建时展示一次（fk_live_ 前缀 + 32 字节随机），服务端只存 SHA-256 哈希，丢失只能轮换不可找回；'
+      + '作用域绑定 项目 + 工作流白名单，越权返回 40111；限流令牌桶按 Key 独立计数，超限返回 42901。<br>'
+      + '<span class="b-sub">所有 Key 操作（创建/禁用/轮换/删除）与每次调用均写审计（OPENAPI_KEY_* / OPENAPI_CALL，含 trace_id 与请求摘要）</span></div></div>';
+  }
+
+  /* ---------- Tab 2：接入文档 ---------- */
+  function tabDocs() {
+    return '<div class="panel-b" style="max-height:calc(100vh - 320px);overflow-y:auto">'
+      + '<div class="doc-h"><span class="mth post">POST</span><span class="path">/openapi/v1/tasks</span> — 创建任务（触发）</div>'
+      + '<div class="code">curl -X POST https://flowops.corp/openapi/v1/tasks \\\n'
+      + '  -H "X-API-Key: fk_live_9f31c0a2d4b8e77f60a1c5d3e2b89047" \\\n'
+      + '  -H "Idempotency-Key: 8f2c41ab-7d0e-4c55-81a2-b3c4d5e6f708" \\\n'
+      + '  -H "Content-Type: application/json" \\\n'
+      + '  -d \'{\n    "workflow_id": "WF-0003",\n    "version": "latest",          # 或锁定 "v2"\n    "params": { "bizDate": "2026-09-25" },\n    "queue": "gpu-queue",\n    "priority": 10,\n    "biz_date": "2026-09-25",\n    "callback_url": "https://risk-gw.corp/api/flowops/callback"   # 可选，覆盖订阅级 Webhook\n  }\'</div>'
+      + '<div class="code" style="margin-top:8px">201 {\n  "code": 0,\n  "data": {\n    "task_id": "TASK-20260925-0110",\n    "status": "PENDING",\n    "queue_position": 2,\n    "links": { "detail": "/openapi/v1/tasks/TASK-20260925-0110" }\n  },\n  "trace_id": "3a7f22bb19cc40ee99aa55dd8812ee44"\n}</div>'
+      + '<div class="tiny faint mt-2">并发策略 FORBID 触达时返回 <span class="mono">40901 + running_task_id</span>（非错误，语义=触发被跳过）；等待队列满返回 40902；幂等键 24h 内重复请求返回首次响应（201 复放）。</div>'
+
+      + '<div class="doc-h"><span class="mth get">GET</span><span class="path">/openapi/v1/tasks/{task_id}</span> — 查询任务详情</div>'
+      + '<div class="code">curl -H "X-API-Key: fk_live_…" https://flowops.corp/openapi/v1/tasks/TASK-20260925-0110</div>'
+      + '<div class="code" style="margin-top:8px">200 {\n  "data": {\n    "task_id": "TASK-20260925-0110", "status": "RUNNING",\n    "steps": [\n      { "name": "指标计算", "state": "SUCCESS", "dur_ms": 412000 },\n      { "name": "报告生成", "state": "RUNNING" }\n    ],\n    "progress": { "finished": 1, "total": 2 },\n    "links": { "stop": "/openapi/v1/tasks/…/stop", "retry": "/openapi/v1/tasks/…/retry" }\n  }\n}</div>'
+      + '<div class="tiny faint mt-2">运行参数与日志内容不对第三方开放（作用域之外的数据零暴露）；仅返回状态/步骤/进度/失败原因摘要。</div>'
+
+      + '<div class="doc-h"><span class="mth post">POST</span><span class="path">/openapi/v1/tasks/{task_id}/stop</span> — 终止任务</div>'
+      + '<div class="code">curl -X POST -H "X-API-Key: fk_live_…" \\\n  -H "Content-Type: application/json" \\\n  -d \'{"reason": "上游数据延迟，业务方主动取消"}\' \\\n  https://flowops.corp/openapi/v1/tasks/TASK-20260925-0038/stop</div>'
+      + '<div class="tiny faint mt-2">202 + status=STOPPING（异步收敛，语义与页面停止一致：调度器终止进程后转 STOPPED）；非终态校验 42233；必须携带 reason（≥5 字符，写审计）。</div>'
+
+      + '<div class="doc-h"><span class="mth post">POST</span><span class="path">/openapi/v1/tasks/{task_id}/retry</span> — 重试任务</div>'
+      + '<div class="code">curl -X POST -H "X-API-Key: fk_live_…" \\\n  -H "Content-Type: application/json" \\\n  -d \'{"mode": "failed_steps"}\'   # failed_steps（默认，复用上游产出）| all（新任务实例）\n  https://flowops.corp/openapi/v1/tasks/TASK-20260924-0058/retry</div>'
+      + '<div class="tiny faint mt-2">仅终态任务可重试（42235）；failed_steps 不产生新任务编号，all 生成新任务并返回新 task_id。</div>'
+
+      + '<div class="doc-h">鉴权与限流</div>'
+      + '<table class="tbl"><thead><tr><th>项</th><th>约定</th></tr></thead><tbody>'
+      + '<tr><td>凭证</td><td class="small">请求头 <span class="mono">X-API-Key: fk_live_…</span>；服务端 SHA-256 比对，不落明文</td></tr>'
+      + '<tr><td>作用域</td><td class="small">Key 绑定 项目 + 工作流白名单；越权访问返回 <span class="mono">40111</span>（不泄露存在性）</td></tr>'
+      + '<tr><td>限流</td><td class="small">令牌桶按 Key 独立（默认 60 次/分，可配）；超限 <span class="mono">42901 + retry_after</span>，响应头 X-RateLimit-Remaining / Reset</td></tr>'
+      + '<tr><td>幂等</td><td class="small">创建/重试必须携带 <span class="mono">Idempotency-Key</span>（24h 去重，强制校验——开放接口重试风暴风险高于页面）</td></tr>'
+      + '<tr><td>审计</td><td class="small">每次调用写 OPENAPI_CALL（Key、端点、task_id、HTTP 码、延迟、trace_id）；Key 生命周期写 OPENAPI_KEY_*</td></tr>'
+      + '<tr><td>IP 白名单</td><td class="small">Key 可选绑定出口 IP 段，未命中 40112</td></tr>'
+      + '</tbody></table>'
+
+      + '<div class="doc-h">错误码（开放接口增量）</div>'
+      + '<table class="tbl"><thead><tr><th>code</th><th>HTTP</th><th>含义</th></tr></thead><tbody>'
+      + '<tr><td class="mono">40110</td><td>401</td><td class="small">API Key 无效 / 已停用 / 已过期</td></tr>'
+      + '<tr><td class="mono">40111</td><td>403</td><td class="small">超出 Key 作用域（项目/工作流白名单）</td></tr>'
+      + '<tr><td class="mono">40112</td><td>403</td><td class="small">来源 IP 不在白名单</td></tr>'
+      + '<tr><td class="mono">42901</td><td>429</td><td class="small">限流触发（附 retry_after）</td></tr>'
+      + '</tbody></table>'
+      + '<div class="tiny faint mt-3">兼容性：业务错误码沿用平台既有体系（40901/40902/42231/42233/42235…），第三方按同一套语义处理。</div>'
+      + '</div>';
+  }
+
+  /* ---------- Tab 3：调用记录 ---------- */
+  function tabCalls() {
+    return '<div class="panel-b" style="padding-bottom:6px"><div class="row tiny faint">'
+      + '<span>保留 90 天 · 与审计 OPENAPI_CALL 同源 · 点击行可复制 trace_id</span></div></div>'
+      + '<div class="table-wrap"><table class="tbl"><thead><tr>'
+      + '<th>时间</th><th>Key</th><th>端点</th><th>任务</th><th>结果</th><th>延迟</th><th>trace_id</th><th>说明</th>'
+      + '</tr></thead><tbody>'
+      + MOCK.apiCalls.map(function (c) {
+          var codeCls = c.code < 300 ? 'ok' : c.code < 500 ? 'warn' : 'fail';
+          return '<tr class="clickable" onclick="FO.copyText(\'' + c.trace + '\', \'已复制 trace_id\')">'
+            + '<td class="mono tiny">' + c.time + '</td>'
+            + '<td><span class="node-tag">' + c.key + '</span></td>'
+            + '<td class="mono tiny">' + c.ep + '</td>'
+            + '<td class="mono tiny">' + (c.task !== '—' ? '<a href="task-detail.html?scene=running">' + c.task + '</a>' : '—') + '</td>'
+            + '<td><span class="tag ' + codeCls + ' mono">' + c.code + '</span></td>'
+            + '<td class="num tiny">' + c.latency + 'ms</td>'
+            + '<td><span class="trace-chip">' + c.trace.slice(0, 16) + '…</span></td>'
+            + '<td class="tiny faint ell" style="max-width:200px" title="' + FO.esc(c.note) + '">' + FO.esc(c.note) + '</td></tr>';
+        }).join('')
+      + '</tbody></table></div>';
+  }
+
+  /* ---------- Tab 4：Webhook 通知 ---------- */
+  function tabHooks() {
+    return '<div class="panel-b banner info" style="margin:0 0 14px"><span data-ic="link"></span><div>'
+      + '<b>推送模型：</b>任务状态变更（成功/失败/超时/停止/重试耗尽）与步骤进度（可选）实时 POST 到订阅 URL；'
+      + '请求头携带 <span class="mono">X-FlowOps-Event / X-FlowOps-Delivery / X-FlowOps-Signature</span>（HMAC-SHA256，密钥为订阅的 whsec_，供第三方验签防伪造）。'
+      + '失败重试 3 次（5s / 30s / 300s 退避），之后标记 FAILED 并告警 Key 负责人。<br>'
+      + '<span class="b-sub">与平台内告警（§10.12）通道独立：告警面向平台用户，Webhook 面向第三方系统，互不抑制</span></div></div>'
+      + '<div class="grid g2 mb-4">'
+      + MOCK.webhookSubs.map(function (w) {
+          return '<div class="panel metric"><div class="m-label row" style="width:100%">'
+            + FO_ICONS.get('link') + '<b class="small" style="color:var(--t1)">' + w.name + '</b><span class="spacer"></span>'
+            + (w.status === 'ENABLED' ? '<span class="tag ok">启用</span>' : '<span class="tag idle">停用</span>') + '</div>'
+            + '<div class="tiny mono mt-3 ell" style="word-break:break-all">' + w.urlMask + '</div>'
+            + '<div class="row wrap mt-3" style="gap:4px">'
+            + w.events.map(function (e) { return '<span class="tag pri ev-chip">' + e + '</span>'; }).join('')
+            + '<span class="tag warn ev-chip">🔑 ' + w.secret + '</span></div>'
+            + '<div class="row mt-3 tiny faint"><span>最近送达 ' + w.lastDelivery + '</span><span class="spacer"></span>'
+            + '<span style="color:var(--' + (parseFloat(w.okRate) >= 95 ? 'ok' : 'warn') + ')">送达率 ' + w.okRate + '</span></div>'
+            + '<div class="row mt-3"><button class="btn xs" data-perm="schedule:openapi:write" onclick="FO.toast(\'测试事件已推送（task.succeeded 演示 payload），送达 142ms\',\'ok\',\'Webhook 测试\')">发送测试事件</button>'
+            + '<button class="btn xs ghost" data-perm="schedule:openapi:write" onclick="FO.toast(\'编辑订阅（演示）：事件类型/URL/密钥轮换（whsec 双活 24h）\',\'info\')">编辑</button></div>'
+            + '</div>';
+        }).join('')
+      + '</div>'
+      + '<div class="panel-h" style="border-top:1px solid var(--line-faint)"><b>送达记录</b><span class="hint">含重试链路 · 保留 30 天</span></div>'
+      + '<div class="table-wrap"><table class="tbl"><thead><tr><th>时间</th><th>事件</th><th>订阅</th><th>目标</th><th>HTTP</th><th>尝试</th><th>结果</th><th>延迟</th></tr></thead><tbody>'
+      + MOCK.webhookDeliveries.map(function (d) {
+          var codeCls = d.code < 300 ? 'ok' : 'fail';
+          return '<tr><td class="mono tiny">' + d.time + '</td>'
+            + '<td><span class="tag pri ev-chip">' + d.event + '</span></td>'
+            + '<td class="tiny mono">' + d.sub + '</td>'
+            + '<td class="tiny mono">' + d.url + '</td>'
+            + '<td><span class="tag ' + codeCls + ' mono">' + d.code + '</span></td>'
+            + '<td><span class="attempt-b ' + (d.attempt === 1 ? 'ok' : 'retry') + '">第 ' + d.attempt + ' 次</span></td>'
+            + '<td>' + FO.tag('ALERT_RESULT', d.result === 'SENT' ? 'SENT' : 'FAILED') + '</td>'
+            + '<td class="num tiny">' + d.latency + 'ms</td></tr>';
+        }).join('')
+      + '</tbody></table></div>'
+      + '<div class="panel-b tiny faint" style="border-top:0">payload 示例（task.failed）：{ "event": "task.failed", "task_id": "TASK-20260925-0035", "workflow_id": "WF-0001", "status": "FAILED", "fail_reason": "…", "finished_at": "…", "links": { "detail": "/openapi/v1/tasks/…" } } —— 状态变更与进度事件均携带 task_id 与回查链接，第三方可选择实时接收或轮询兜底。</div>';
+  }
+
+  /* ---------- Tab 切换与动作 ---------- */
+  var TABS = { keys: tabKeys, docs: tabDocs, calls: tabCalls, hooks: tabHooks };
+  function showTab(key) {
+    document.querySelectorAll('.tab-btn').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === key); });
+    document.getElementById('tabBody').innerHTML = TABS[key]();
+    FO.applyPerms(document);
+    document.querySelectorAll('[data-ic]').forEach(function (el) { el.innerHTML = FO_ICONS.get(el.getAttribute('data-ic')); });
+  }
+  window.switchTab = function (k) { showTab(k); };
+  document.querySelectorAll('.tab-btn').forEach(function (b) {
+    b.addEventListener('click', function () { showTab(b.dataset.tab); });
+  });
+
+  window.toggleKey = function (id) {
+    var k = MOCK.apiKeys.filter(function (x) { return x.id === id; })[0];
+    FO.confirm({
+      title: (k.status === 'ENABLED' ? '禁用' : '启用') + ' API Key · ' + k.name,
+      message: k.status === 'ENABLED'
+        ? '禁用后该 Key 的所有调用立即返回 <b class="mono">40110</b>。进行中的任务不受影响。操作写审计（OPENAPI_KEY_DISABLE）。'
+        : '重新启用后恢复调用能力（作用域与限流不变）。',
+      okText: '确认',
+      onOk: function () { k.status = k.status === 'ENABLED' ? 'DISABLED' : 'ENABLED'; showTab('keys'); renderMetrics(); FO.toast('已' + (k.status === 'ENABLED' ? '启用' : '禁用') + '（写审计，演示）', 'ok'); }
+    });
+  };
+  window.rotateKey = function (id) {
+    var k = MOCK.apiKeys.filter(function (x) { return x.id === id; })[0];
+    FO.modal({
+      title: '轮换 API Key · ' + k.name,
+      body: '<p class="small">生成新 Key 并<b>保留旧 Key 双活 24h</b>，第三方平滑切换后旧 Key 自动失效；期间两者调用均正常计审计。</p>'
+        + '<div class="field"><label>旧 Key 保留期</label><select class="select"><option>24 小时（推荐）</option><option>立即失效</option></select></div>',
+      okText: '确认轮换',
+      onOk: function () { FO.toast('新 Key 已生成（明文仅展示一次，演示）· 旧 Key 双活至明晚同时刻', 'ok', '轮换成功'); }
+    });
+  };
+  window.delKey = function (id) {
+    var k = MOCK.apiKeys.filter(function (x) { return x.id === id; })[0];
+    if (k.calls24h > 0) { FO.toast('该 Key 存在调用历史，建议禁用而非删除（保留审计关联）', 'warn'); return; }
+    FO.confirm({
+      title: '删除 API Key', requireReason: true,
+      message: '逻辑删除 + 审计留痕；已产生的调用记录与任务关联保留。',
+      okText: '确认删除',
+      onOk: function () { MOCK.apiKeys = MOCK.apiKeys.filter(function (x) { return x.id !== id; }); showTab('keys'); renderMetrics(); FO.toast('已删除（演示）', 'ok'); }
+    });
+  };
+
+  document.getElementById('btnNewKey').addEventListener('click', function () {
+    FO.modal({
+      title: '新建 API Key',
+      body: '<div class="field"><label>名称 <span class="req">*</span></label><input class="input" placeholder="如：风控中台-生产"></div>'
+        + '<div class="form-grid">'
+        + '<div class="field"><label>所属项目 <span class="req">*</span></label><select class="select"><option>PRJ-0002 风控实时计算</option><option>PRJ-0001 电商数据平台</option></select><div class="help">Key 只能触发该项目内的工作流</div></div>'
+        + '<div class="field"><label>限流（次/分）</label><input class="input" value="60"></div></div>'
+        + '<div class="field"><label>工作流白名单</label><div class="row wrap">'
+        + '<label class="ck"><input type="checkbox"> WF-0003 风控指标日批</label>'
+        + '<label class="ck"><input type="checkbox"> WF-0005 库存快照导出</label>'
+        + '<label class="ck"><input type="checkbox"> 全部工作流</label></div>'
+        + '<div class="help">不勾选任何项 = 仅能查询不能创建</div></div>'
+        + '<div class="field"><label>有效期</label><select class="select"><option>永久（可手动禁用）</option><option>90 天</option><option>30 天</option></select></div>',
+      okText: '生成 Key',
+      onOk: function () {
+        FO.modal({
+          title: 'Key 已生成（仅此一次展示）', width: 560, okText: '我已保存',
+          body: '<div class="banner danger mb-3"><span data-ic="alert"></span><div><b>请立即复制保存</b>——服务端只存 SHA-256 哈希，关闭后无法再次查看，只能轮换。</div></div>'
+            + '<div class="key-plain">fk_live_9f31c0a2d4b8e77f60a1c5d3e2b89047</div>'
+            + '<div class="row mt-3"><button class="btn sm" onclick="FO.copyText(\'fk_live_9f31c0a2d4b8e77f60a1c5d3e2b89047\', \'已复制\')">' + FO_ICONS.get('copy') + '复制</button>'
+            + '<span class="spacer"></span><span class="tiny faint">作用域：PRJ-0002 · 限流 60 次/分</span></div>'
+            + '<div class="tiny faint mt-3">创建动作已写审计（OPENAPI_KEY_CREATE）。</div>',
+          footer: '<button class="btn primary" data-act="ok">我已妥善保存</button>'
+        });
+        showTab('keys'); renderMetrics();
+      }
+    });
+  });
+
+  renderMetrics();
+  showTab('keys');
+})();
+</script>
+</body>
+</html>

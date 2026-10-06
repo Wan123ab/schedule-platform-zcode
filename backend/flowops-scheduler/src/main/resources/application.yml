@@ -1,0 +1,62 @@
+# flowops-scheduler 配置：无 REST API，仅 actuator；Flyway 关闭（迁移由 server 执行）
+server:
+  port: 8081
+
+spring:
+  application:
+    name: flowops-scheduler
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:flowops}
+    username: ${DB_USER:flowops}
+    password: ${DB_PASSWORD:flowops}
+    hikari:
+      maximum-pool-size: 10
+  flyway:
+    enabled: false      # ⚠️ 多副本只允许 server 执行迁移
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DB:0}
+
+mybatis-plus:
+  # 自定义 SQL 全部在 XML（docs/10）：classpath* 覆盖 flowops-domain 打包内的 mapper
+  mapper-locations: classpath*:mapper/**/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    banner: false
+    db-config:
+      table-underline: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,info
+  health:
+    db:
+      enabled: true
+    redis:
+      enabled: true
+
+logging:
+  config: classpath:logback-spring.xml
+
+flowops:
+  crypto:
+    master-key: ${FLOWOPS_CRED_MASTER_KEY:}   # M-06：凭据解密必需（下发时用到）
+  scheduler:
+    instance-id: ${FLOWOPS_SCHEDULER_INSTANCE_ID:}
+    tick-interval-ms: 1000
+    tick-dispatch-batch: 64       # 单 tick 单队列最多尝试出队数（docs/06 §4.3，防下发风暴）
+    scan-limit: 256               # 队头阻塞时向后扫描的最大条数
+    head-block-threshold: 10      # failTicks 达该值视为阻塞队头
+    dispatch-pool:
+      core: 8                     # 下发线程池（docs/06 §13.1：IO 密集，8~32 可配）
+      max: 32
+      queue: 1000

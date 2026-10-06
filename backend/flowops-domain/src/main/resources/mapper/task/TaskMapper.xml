@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- TaskMapper 的自定义 SQL（CRUD 由 MyBatis-Plus BaseMapper 承担，不在此出现）。
+     规范依据：docs/10（SQL 与 Java 分离）、docs/05 §3.5（task 表 DDL 唯一真源）。 -->
+<mapper namespace="com.flowops.domain.mapper.task.TaskMapper">
+
+    <!-- 活跃任务数：调度器恢复自检（docs/06 §10.2 ⑧）。
+         命中部分索引 idx_task_active —— 该索引只含活跃状态的行，
+         扫描成本随"同时活跃任务数"（通常 < 1000）恒定，与历史任务总量无关。 -->
+    <select id="countActiveTasks" resultType="long">
+        SELECT count(*)
+          FROM task
+         WHERE status IN ('PENDING', 'SCHEDULING', 'RUNNING', 'STOPPING')
+           AND deleted = false
+    </select>
+
+    <!-- 任务状态 CAS：乐观锁自增，0 行 = 他方已变（docs/03 §3.4） -->
+    <update id="casStatus">
+        UPDATE task
+           SET status = #{toStatus},
+               start_time = CASE WHEN #{toStatus} = 'RUNNING' AND start_time IS NULL THEN now() ELSE start_time END,
+               version = version + 1,
+               updated_at = now()
+         WHERE id = #{id}
+           AND status = #{fromStatus}
+    </update>
+
+</mapper>
