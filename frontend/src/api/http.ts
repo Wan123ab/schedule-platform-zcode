@@ -80,7 +80,7 @@ function buildError(payload: ApiResult<unknown>): BizError {
   }
   const err = new Error(payload.message) as BizError
   err.code = code
-  err.payload = (payload as Record<string, unknown>).data as Record<string, unknown> | undefined
+  err.payload = (payload as unknown as Record<string, unknown>).data as Record<string, unknown> | undefined
   err.traceId = payload.trace_id
   return err
 }

@@ -130,9 +130,11 @@ async function toggleStatus(item: ProjectItem) {
               <div class="mono proj-id">{{ item.projectId }}</div>
             </td>
             <td>
-              <span class="st" :style="item.status === 'ENABLED'
+              <span
+class="st" :style="item.status === 'ENABLED'
                 ? { color: 'var(--ok)', borderColor: 'var(--ok-line)', background: 'var(--ok-dim)' }
-                : { color: 'var(--t3)', borderColor: 'var(--line)', background: 'transparent' }">
+                : { color: 'var(--t3)', borderColor: 'var(--line)', background: 'transparent' }"
+>
                 {{ item.status === 'ENABLED' ? '● 启用' : '■ 停用' }}
               </span>
             </td>

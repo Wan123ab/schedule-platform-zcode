@@ -98,13 +98,13 @@ export function useTaskLogStream(taskId: Ref<string>, stepRowId: Ref<number | nu
   }
 
   /** 切换步骤：清空缓冲、重置游标、重开连接（切步即换通道）。 */
-  function switchTo(stepRowId: number) {
+  function switchTo(nextRowId: number) {
     close()
     closedByUser = false
     lines.value = []
     lastSeq = 0
     eof.value = false
-    stepRowId.value = stepRowId
+    stepRowId.value = nextRowId
     open()
   }
 
