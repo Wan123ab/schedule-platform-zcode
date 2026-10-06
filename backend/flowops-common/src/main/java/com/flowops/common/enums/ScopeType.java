@@ -20,6 +20,10 @@ public enum ScopeType {
         this.code = code;
     }
 
+    public String getCode() {
+        return code;
+    }
+
     @JsonCreator
     public static ScopeType of(String code) {
         for (ScopeType s : values()) {

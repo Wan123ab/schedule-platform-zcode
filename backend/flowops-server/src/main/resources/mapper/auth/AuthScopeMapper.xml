@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 数据范围解析查询（D-19 判定链输入）。 -->
+<mapper namespace="com.flowops.modules.auth.scope.MyBatisAuthScopeQueries$AuthScopeMapper">
+
+    <!-- 角色数据范围类型集合（docs/07 §5.3：多角色取并集，宽者优先由解析器收敛） -->
+    <select id="selectScopeTypes" resultType="string">
+        SELECT DISTINCT r.scope_type
+          FROM user_role ur
+          JOIN role r ON r.id = ur.role_id
+         WHERE ur.user_id = #{userId}
+           AND r.deleted = false
+    </select>
+
+    <!-- 用户的成员项目集（PROJECT 范围的可见性凭据，来自 project_member 而非前端） -->
+    <select id="selectMemberProjectIds" resultType="long">
+        SELECT project_id FROM project_member WHERE user_id = #{userId}
+    </select>
+
+</mapper>

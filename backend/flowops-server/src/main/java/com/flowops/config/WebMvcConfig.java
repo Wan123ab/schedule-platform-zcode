@@ -40,7 +40,7 @@ public class WebMvcConfig {
     }
 
     @Bean
-    public WebMvcConfigurer flowopsMvcConfigurer() {
+    public WebMvcConfigurer flowopsMvcConfigurer(com.flowops.modules.auth.scope.DataScopeResolver dataScopeResolver) {
         return new WebMvcConfigurer() {
 
             @Override
@@ -51,7 +51,7 @@ public class WebMvcConfig {
                                         .check(r -> StpUtil.checkLogin())))
                         .addPathPatterns("/**");
 
-                registry.addInterceptor(new UserContextInterceptor())
+                registry.addInterceptor(new UserContextInterceptor(dataScopeResolver))
                         .addPathPatterns("/**");
             }
 

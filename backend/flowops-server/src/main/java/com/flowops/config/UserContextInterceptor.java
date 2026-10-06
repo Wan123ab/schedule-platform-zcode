@@ -1,6 +1,7 @@
 package com.flowops.config;
 
 import cn.dev33.satoken.stp.StpUtil;
+import com.flowops.common.context.ScopeContext;
 import com.flowops.common.context.UserContext;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -21,6 +22,12 @@ import java.util.Set;
  */
 public class UserContextInterceptor implements HandlerInterceptor {
 
+    private final com.flowops.modules.auth.scope.DataScopeResolver dataScopeResolver;
+
+    public UserContextInterceptor(com.flowops.modules.auth.scope.DataScopeResolver dataScopeResolver) {
+        this.dataScopeResolver = dataScopeResolver;
+    }
+
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
         if (StpUtil.isLogin()) {
@@ -38,6 +45,8 @@ public class UserContextInterceptor implements HandlerInterceptor {
             ctx.setPermissions(permSet);
 
             UserContext.set(ctx);
+            // D-19：数据范围解析（角色 scope_type → 并集宽优先 → 可见项目集）
+            ScopeContext.set(dataScopeResolver.resolve(ctx));
         }
         return true;
     }
