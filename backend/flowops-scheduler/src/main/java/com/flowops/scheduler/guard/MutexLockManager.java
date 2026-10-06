@@ -55,13 +55,20 @@ public class MutexLockManager {
      */
     public boolean tryAcquire(String group, long taskStepId, long enqueueSeq, int priority, long queueId,
                               String holderDesc, Duration holderTtl) {
+        RBucket<String> holder = redisson.getBucket(LOCK_PREFIX + group + HOLDER_SUFFIX);
+        // ⚠️ holder 前置检查：RLock 按"线程"可重入，而调度主循环是单线程 ——
+        // 同组第二步在一步持锁期间会被重入放行，造成"同锁双持"（正是互斥要防的事故）。
+        // holder 记录是"谁在持有"的语义真源，必须先查它；tryLock 只是并发兜底。
+        if (holder.isExists()) {
+            registerWaiter(group, taskStepId, enqueueSeq, priority, queueId);
+            return false;
+        }
         RLock lock = redisson.getLock(LOCK_PREFIX + group);
         // tryLock() 无参：拿不到立即失败（调度语义不允许等待阻塞主循环）；持有期靠看门狗续期
         if (!lock.tryLock()) {
             registerWaiter(group, taskStepId, enqueueSeq, priority, queueId);
             return false;
         }
-        RBucket<String> holder = redisson.getBucket(LOCK_PREFIX + group + HOLDER_SUFFIX);
         holder.set(holderDesc, holderTtl);
         log.debug("互斥锁获取 group={} holder={}", group, holderDesc);
         return true;

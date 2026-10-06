@@ -31,13 +31,14 @@ class ReservedLedgerTest {
     }
 
     @Test
-    void 恰好满足也算匹配_大于半核都算超() {
+    void 恰好满足也算匹配_超一点都不行() {
+        // docs/06 §16 边界用例 1：availCpu == step.cpu 必须匹配成功，超出即出局
         var totals = new ReservedLedger.Resource(4, 0, 0, 0);
-        ledger.acquire(1L, 100L, new ReservedLedger.Resource(4, 0, 0, 0));   // 申请=总量
+        ledger.acquire(1L, 100L, new ReservedLedger.Resource(0.1, 0, 0, 0));   // 余量恰为 3.9
 
         var available = ledger.availableOf(1L, totals);
-        assertThat(available.fits(new ReservedLedger.Resource(4, 0, 0, 0))).isTrue();    // == 边界
-        assertThat(available.fits(new ReservedLedger.Resource(4.1, 0, 0, 0))).isFalse(); // 超 0.1 核即不匹配
+        assertThat(available.fits(new ReservedLedger.Resource(3.9, 0, 0, 0))).isTrue();   // == 边界
+        assertThat(available.fits(new ReservedLedger.Resource(3.91, 0, 0, 0))).isFalse(); // 超 0.01 核即不匹配
     }
 
     @Test

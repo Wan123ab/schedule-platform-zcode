@@ -52,7 +52,7 @@ public class ProjectService {
 
     // ── 查询 ────────────────────────────────────────────────
 
-    public Page<ProjectVO> page(long page, long size, String keyword) {
+    public com.baomidou.mybatisplus.core.metadata.IPage<ProjectVO> page(long page, long size, String keyword) {
         Page<Project> result = projectMapper.selectPage(new Page<>(page, Math.min(size, 200)),
                 Wrappers.<Project>lambdaQuery()
                         .eq(Project::getDeleted, false)

@@ -57,40 +57,40 @@ public class NodeMatcher {
         if (canBreakAffinity(demand)) {
             // 亲和不可满足 → 跨集群匹配（允许），但必须留下"为什么跨了"的记录（PRD §12.2）
             return tryMatch(demand, nodes, null).map(node ->
-                    new MatchResult(node.node(), true,
-                            "亲和集群 " + demand.targetClusterId() + " 无满足约束的节点，已回退跨集群"));
+                    new MatchResult(node.getNode(), true,
+                            "亲和集群 " + demand.getTargetClusterId() + " 无满足约束的节点，已回退跨集群"));
         }
         return Optional.empty();
     }
 
     private boolean canBreakAffinity(Demand demand) {
-        return demand.clusterAffinityEnabled() && demand.targetClusterId() != null;
+        return demand.isClusterAffinityEnabled() && demand.getTargetClusterId() != null;
     }
 
     /** 亲和锁定集合：亲和开启时 = [targetClusterId]；未开启 = null（不限）。 */
     private static Set<Long> pinnedClusters(Demand demand) {
-        if (!demand.clusterAffinityEnabled() || demand.targetClusterId() == null) {
+        if (!demand.isClusterAffinityEnabled() || demand.getTargetClusterId() == null) {
             return null;
         }
-        return Set.of(demand.targetClusterId());
+        return Set.of(demand.getTargetClusterId());
     }
 
     private Optional<MatchResult> tryMatch(Demand demand, List<NodeView> nodes, Set<Long> clusterPin) {
         return nodes.stream()
                 .filter(NodeView::isEnabled)
                 .filter(NodeView::online)                              // 在线（G3 硬约束）
-                .filter(NodeView::hasValidCredential)                  // 凭据有效
-                .filter(n -> clusterPin == null || clusterPin.contains(n.clusterId()))
-                .filter(n -> osMatch(n, demand.osConstraint()))
-                .filter(n -> tagsMatch(n, demand.tagConstraint()))
+                .filter(NodeView::credentialReady)                  // 凭据有效
+                .filter(n -> clusterPin == null || clusterPin.contains(n.getClusterId()))
+                .filter(n -> osMatch(n, demand.getOsConstraint()))
+                .filter(n -> tagsMatch(n, demand.getTagConstraint()))
                 .filter(n -> stepsQuotaLeft(n))                        // max_concurrent_steps 闸门
-                .filter(n -> resourcesFit(n, demand.request()))        // 预留账本余量（D-22）
+                .filter(n -> resourcesFit(n, demand.getRequest()))        // 预留账本余量（D-22）
                 // 三级排序（§5.2）：任务数升序 → 余 CPU 降序 → 分配时间最早优先（nullsFirst）
                 .min(Comparator
                         .comparingInt(NodeView::getRunningTaskCount)
                         .thenComparing(m -> remainingCpu(m, demand), Comparator.reverseOrder())
                         .thenComparing(NodeView::getLastAllocatedAt,
-                                Comparator.nullsFirst(Comparator.naturalOrder())))
+                                Comparator.nullsFirst(Comparator.<java.time.OffsetDateTime>naturalOrder())))
                 .map(node -> new MatchResult(node, false, null));
     }
 

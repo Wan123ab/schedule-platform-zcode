@@ -120,7 +120,7 @@ public class ReadyQueueManager {
             return Optional.empty();
         }
         // ② ZREM
-        if (readyOf(queueId).remove(member) == 0) {
+        if (!readyOf(queueId).remove(member)) {
             taskStepMapper.rollbackClaim(taskStepId, token);   // 被并发移除 → 退回占位
             log.warn("ZREM 失败已回滚占位 queue={} step={}", queueId, taskStepId);
             return Optional.empty();
@@ -132,7 +132,7 @@ public class ReadyQueueManager {
 
     /** 回退记账（节点匹配失败 / 互斥未获取时由调度阶段调用）；score 不动，保 FIFO。 */
     public void recordFailure(long queueId, long taskStepId) {
-        failTicksOf(queueId).incrementAndGet(String.valueOf(taskStepId));
+        failTicksOf(queueId).addAndGet(String.valueOf(taskStepId), 1L);
     }
 
     /** 真正下发成功时清除计数。 */
@@ -142,7 +142,8 @@ public class ReadyQueueManager {
 
     /** 队头是否处于阻塞状态（指标 queue.head_blocked{queueId} 与诊断用）。 */
     public boolean headBlocked(long queueId, long taskStepId) {
-        return failTicksOf(queueId).get(String.valueOf(taskStepId)) >= headBlockThreshold;
+        Long failTicks = failTicksOf(queueId).get(String.valueOf(taskStepId));
+        return failTicks != null && failTicks >= headBlockThreshold;
     }
 
     private RScoredSortedSet<String> readyOf(long queueId) {
@@ -150,6 +151,9 @@ public class ReadyQueueManager {
     }
 
     private org.redisson.api.RMap<String, Long> failTicksOf(long queueId) {
-        return redisson.getMap(FAIL_TICKS_PREFIX + queueId);
+        return redisson.getMap(FAIL_TICKS_PREFIX + queueId,
+                new org.redisson.codec.CompositeCodec(
+                        org.redisson.client.codec.StringCodec.INSTANCE,
+                        org.redisson.client.codec.LongCodec.INSTANCE));
     }
 }

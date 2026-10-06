@@ -58,9 +58,9 @@ public class ExecutorDispatchSink implements DispatchSink {
         RejectedExecutionHandler backpressure = (task, pool) -> {
             if (task instanceof DispatchTask dispatchTask) {
                 log.error("下发池拒绝（背压触发）step={}，回退 WAITING_RESOURCE",
-                        dispatchTask.instruction().stepInstanceId());
-                taskStepMapper.rollbackClaim(dispatchTask.instruction().taskStepRowId(),
-                        dispatchTask.instruction().dispatchToken());
+                        dispatchTask.instruction.stepInstanceId());
+                taskStepMapper.rollbackClaim(dispatchTask.instruction.taskStepRowId(),
+                        dispatchTask.instruction.dispatchToken());
             }
         };
         this.dispatchPool = new ThreadPoolExecutor(corePoolSize, maxPoolSize, 60, TimeUnit.SECONDS,
@@ -82,7 +82,7 @@ public class ExecutorDispatchSink implements DispatchSink {
         try {
             CredentialDispatchRow credential = credentialQuery.findCredentialForDispatch(instruction.nodeId());
             if (credential == null) {
-                bus.publish(new Completion(instruction, null, "节点凭据不可用（未绑定或已失效）"));
+                bus.publish(new CompletionBus.Completion(instruction, null, "节点凭据不可用（未绑定或已失效）"));
                 return;
             }
             String secret = crypto.decrypt(credential.getSecretEncrypted());
@@ -103,7 +103,7 @@ public class ExecutorDispatchSink implements DispatchSink {
                         (streamType, line) -> logIngest.append(instruction.taskRowId(),
                                 instruction.taskStepRowId(), instruction.stepInstanceId(),
                                 "stdout".equals(streamType) ? "EOF" : "ERR", line));
-                bus.publish(new Completion(instruction, result.getExitCode(), result.getFailReason()));
+                bus.publish(new CompletionBus.Completion(instruction, result.getExitCode(), result.getFailReason()));
             } finally {
                 // secretMaterial 仅存活于本栈帧；置空是防御性写法，明确"用完即弃"的语义
                 secret = null;
@@ -111,7 +111,7 @@ public class ExecutorDispatchSink implements DispatchSink {
         } catch (Exception e) {
             // 解密失败等执行前置异常：按"未确认启动"处理（DISPATCH_FAIL）
             log.error("下发前置失败 step={}: {}", instruction.stepInstanceId(), e.getMessage(), e);
-            bus.publish(new Completion(instruction, null, "下发前置失败: " + e.getMessage()));
+            bus.publish(new CompletionBus.Completion(instruction, null, "下发前置失败: " + e.getMessage()));
         }
     }
 

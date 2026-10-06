@@ -38,6 +38,17 @@
       <artifactId>spring-boot-starter-data-redis</artifactId>
     </dependency>
 
+    <!-- 切面（docs/03 §3.3：@Audited/@RequiresPermission/@DataScope/@Idempotent 四切面）
+         与 WebSocket 日志通道（D-10 / docs/07 §7.5） -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-aop</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-websocket</artifactId>
+    </dependency>
+
     <!-- 迁移（docs/05 §7.5）：Flyway 10 对 PG 需要 database 模块 -->
     <dependency>
       <groupId>org.flywaydb</groupId>

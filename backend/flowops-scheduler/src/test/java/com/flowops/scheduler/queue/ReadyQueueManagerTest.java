@@ -122,7 +122,7 @@ class ReadyQueueManagerTest {
         manager.enqueue(q, 7L, 0, 1);
         TaskStepMapper mapper = mock(TaskStepMapper.class);
         ReadyQueueManager m = new ReadyQueueManager(redisson, mapper, 64, 256, 10);
-        when(mapper.casClaimForDispatch(7L, anyString())).thenReturn(1);
+        when(mapper.casClaimForDispatch(org.mockito.ArgumentMatchers.eq(7L), anyString())).thenReturn(1);
 
         Optional<ReadyQueueManager.Claim> claim = m.claim(q, 7L);
 
@@ -139,7 +139,7 @@ class ReadyQueueManagerTest {
         manager.enqueue(q, 7L, 0, 1);
         TaskStepMapper mapper = mock(TaskStepMapper.class);
         ReadyQueueManager m = new ReadyQueueManager(redisson, mapper, 64, 256, 10);
-        when(mapper.casClaimForDispatch(7L, anyString())).thenReturn(0);
+        when(mapper.casClaimForDispatch(org.mockito.ArgumentMatchers.eq(7L), anyString())).thenReturn(0);
 
         assertThat(m.claim(q, 7L)).isEmpty();
         assertThat(m.size(q)).isZero();                            // 幂等清理（§4.3 ① 分支）
@@ -152,7 +152,7 @@ class ReadyQueueManagerTest {
         TaskStepMapper mapper = mock(TaskStepMapper.class);
         ReadyQueueManager m = new ReadyQueueManager(redisson, mapper, 64, 256, 10);
         // member 不在队列（模拟被并发移除）：CAS 成功但 ZREM 返回 0
-        when(mapper.casClaimForDispatch(7L, anyString())).thenReturn(1);
+        when(mapper.casClaimForDispatch(org.mockito.ArgumentMatchers.eq(7L), anyString())).thenReturn(1);
 
         assertThat(m.claim(q, 7L)).isEmpty();
         verify(mapper).rollbackClaim(eq(7L), anyString());   // ② 的回滚，只退自己的位

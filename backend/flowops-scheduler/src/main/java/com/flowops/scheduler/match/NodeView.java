@@ -47,4 +47,9 @@ public class NodeView {
     public boolean online() {
         return "ONLINE".equals(onlineStatus);
     }
+
+    /** 语义化判断（lombok 对 primitive boolean 生成 is 前缀 getter，方法引用读起来别扭）。 */
+    public boolean credentialReady() {
+        return hasValidCredential;
+    }
 }

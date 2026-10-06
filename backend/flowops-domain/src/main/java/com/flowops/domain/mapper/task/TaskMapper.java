@@ -1,6 +1,7 @@
 package com.flowops.domain.mapper.task;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import org.apache.ibatis.annotations.Param;
 import com.flowops.domain.entity.task.Task;
 import org.apache.ibatis.annotations.Mapper;
 

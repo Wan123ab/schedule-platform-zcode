@@ -143,6 +143,18 @@ public class TaskOrchestrator {
         return stepNodeId != null ? runtimeByStepNodeId.get(stepNodeId) : null;
     }
 
+    /**
+     * 出队占位同步（docs/06 §4.3 ①）：claim 已把 DB 置为 SCHEDULING，
+     * 图与实例行双视图必须同步，否则回执收敛时状态机守卫会拒绝 RUNNING 转移。
+     */
+    public void markClaimed(long taskStepRowId) {
+        StepRuntimeRow runtime = runtimeOfRow(taskStepRowId);
+        if (runtime != null) {
+            runtime.setStatus(StepStatus.SCHEDULING.name());
+            graph.setStatus(runtime.getStepId(), StepStatus.SCHEDULING);
+        }
+    }
+
     /** 当前处于 WAITING_RESOURCE 的实例行（管线派发阶段构建候选反查表用）。 */
     public List<StepRuntimeRow> pendingWaitingRows() {
         return runtimeByStepNodeId.values().stream()

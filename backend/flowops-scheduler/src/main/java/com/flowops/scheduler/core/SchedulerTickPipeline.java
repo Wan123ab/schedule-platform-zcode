@@ -14,6 +14,7 @@ import com.flowops.domain.mapper.task.TaskMapper;
 import com.flowops.domain.mapper.task.TaskStepMapper;
 import com.flowops.common.guard.CheckResult;
 import com.flowops.common.guard.ConcurrencyGuard;
+import com.flowops.scheduler.dag.DagAdvancer;
 import com.flowops.scheduler.guard.MutexLockManager;
 import com.flowops.scheduler.lifecycle.LifecycleScanner;
 import com.flowops.scheduler.lifecycle.ResourceReleaser;
@@ -292,6 +293,7 @@ public class SchedulerTickPipeline {
             return;   // 两段式未占位（他方处理/并发移除），跳过
         }
         String token = claim.get().dispatchToken();
+        ctx.orchestrator().markClaimed(rowId);   // 双视图同步（DB 已是 SCHEDULING）
 
         // 节点匹配（预留账本口径，D-22）；资源申请解析失败按 0 计（§10.2 ④ 防御口径）
         NodeMatcher.Demand demand = NodeMatcher.Demand.builder()

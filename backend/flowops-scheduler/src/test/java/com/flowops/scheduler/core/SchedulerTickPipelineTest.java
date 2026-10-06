@@ -30,6 +30,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -139,11 +140,13 @@ class SchedulerTickPipelineTest {
         assertThat(dispatched).isNotNull();
 
         bus.publish(new CompletionBus.Completion(dispatched, null, "SSH 连接失败"));
+        // 回退后本 tick 不再重派（真实场景由 freeSlots/队列状态决定，这里固定探针）
+        when(readyQueue.drainCandidates(eq(5L), anyLong())).thenReturn(List.of());
         pipeline.tick();
 
         // SCHEDULING → WAITING_RESOURCE（DISPATCH_FAIL 边），重新入队用原 seq/priority
         verify(taskStepMapper).casTransition(eq(101L), eq("SCHEDULING"), eq("WAITING_RESOURCE"));
-        verify(readyQueue).enqueue(5L, 101L, 7, 101L);
+        verify(readyQueue, org.mockito.Mockito.times(2)).enqueue(5L, 101L, 7, 101L);   // advance 入队 + 回退重入队
         verify(readyQueue).recordFailure(5L, 101L);
         assertThat(ledger.reservedSteps(100L)).isZero();   // 回退即清算
     }
@@ -168,12 +171,12 @@ class SchedulerTickPipelineTest {
         mutexStep.setMutexGroup("etl-lock");
         lenient().when(schedulingQuery.findStepRuntimesByTask(1L)).thenReturn(List.of(mutexStep));
         lenient().when(mutexes.tryAcquire(eq("etl-lock"), eq(101L), anyLong(), anyInt(), eq(5L),
-                anyString(), anyString())).thenReturn(false);
+                anyString(), org.mockito.ArgumentMatchers.any(Duration.class))).thenReturn(false);
 
         pipeline.tick();
 
         verify(mutexes).tryAcquire(eq("etl-lock"), eq(101L), anyLong(), eq(7), eq(5L),
-                anyString(), anyString());
+                anyString(), org.mockito.ArgumentMatchers.any(Duration.class));
         assertThat(dispatched).isNull();                       // 拿不到锁不下发
         assertThat(ledger.reservedSteps(100L)).isZero();       // 回退即清算（§6.3）
     }
@@ -185,7 +188,7 @@ class SchedulerTickPipelineTest {
         mutexStep.setMutexGroup("etl-lock");
         lenient().when(schedulingQuery.findStepRuntimesByTask(1L)).thenReturn(List.of(mutexStep));
         lenient().when(mutexes.tryAcquire(eq("etl-lock"), eq(101L), anyLong(), anyInt(), eq(5L),
-                anyString(), anyString())).thenReturn(true);
+                anyString(), org.mockito.ArgumentMatchers.any(Duration.class))).thenReturn(true);
 
         pipeline.tick();   // 拿到锁并下发
         assertThat(dispatched).isNotNull();
@@ -218,6 +221,8 @@ class SchedulerTickPipelineTest {
         lenient().when(schedulingQuery.findStepRuntimesByTask(1L)).thenReturn(List.of(
                 retryable, runtime(102L, 2L), runtime(103L, 3L)));
 
+        when(taskStepMapper.markRetrying(eq(101L), org.mockito.ArgumentMatchers.any(), eq("exit 1"))).thenReturn(1);
+
         pipeline.tick();
         bus.publish(new CompletionBus.Completion(dispatched, 1, "exit 1"));
         pipeline.tick();
@@ -238,6 +243,11 @@ class SchedulerTickPipelineTest {
         due.setTaskId(1L);
         due.setQueueId(5L);
         due.setPriority(7);
+        // 编排器内存视图须与 DB 一致（102 已是 RETRYING），否则 applyExternalTransition 按 NOT_STARTED 转移
+        StepRuntimeRow retryingRow = runtime(102L, 2L);
+        retryingRow.setStatus("RETRYING");
+        lenient().when(schedulingQuery.findStepRuntimesByTask(1L)).thenReturn(List.of(
+                runtime(101L, 1L), retryingRow, runtime(103L, 3L)));
         when(retryQuery.findDueRetrying(100)).thenReturn(List.of(due));
 
         pipeline.tick();
@@ -285,6 +295,7 @@ class SchedulerTickPipelineTest {
         row.setStatus("NOT_STARTED");
         row.setEnqueueSeq((long) rowId);
         row.setStartCommand("echo hi");
+        row.setResourceRequest("{\"cpu\":4,\"memory\":2048}");
         return row;
     }
 

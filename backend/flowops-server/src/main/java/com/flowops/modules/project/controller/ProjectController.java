@@ -1,6 +1,6 @@
 package com.flowops.modules.project.controller;
 
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.flowops.common.annotation.Audited;
 import com.flowops.common.annotation.DataScope;
 import com.flowops.common.annotation.RequiresPermission;
@@ -42,7 +42,7 @@ public class ProjectController {
     public ApiResult<PageResult<ProjectVO>> page(@RequestParam(defaultValue = "1") long page,
                                                  @RequestParam(defaultValue = "20") long pageSize,
                                                  @RequestParam(required = false) String keyword) {
-        Page<ProjectVO> result = projectService.page(page, pageSize, keyword);
+        IPage<ProjectVO> result = projectService.page(page, pageSize, keyword);
         return ApiResult.ok(PageResult.of(result.getTotal(), result.getCurrent(), result.getSize(),
                 result.getRecords()));
     }

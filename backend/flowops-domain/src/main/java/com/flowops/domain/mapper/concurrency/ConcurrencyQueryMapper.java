@@ -1,6 +1,7 @@
 package com.flowops.domain.mapper.concurrency;
 
 import com.flowops.domain.dto.query.ProjectConcurrencyConfig;
+import com.flowops.domain.dto.query.QueueConcurrencyConfig;
 import com.flowops.domain.dto.query.WorkflowConcurrencyConfig;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;

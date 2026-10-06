@@ -1,5 +1,7 @@
 package com.flowops.scheduler.state;
 
+import com.flowops.common.enums.StepStatus;
+
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.List;

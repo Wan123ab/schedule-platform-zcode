@@ -1,5 +1,6 @@
 package com.flowops.domain.guard;
 
+import com.flowops.common.guard.CheckResult;
 import com.flowops.domain.dto.query.ProjectConcurrencyConfig;
 import com.flowops.domain.dto.query.WorkflowConcurrencyConfig;
 import com.flowops.domain.mapper.concurrency.ConcurrencyQueryMapper;

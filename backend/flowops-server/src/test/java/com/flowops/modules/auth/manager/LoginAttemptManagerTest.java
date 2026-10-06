@@ -2,6 +2,10 @@ package com.flowops.modules.auth.manager;
 
 import com.flowops.domain.entity.auth.AppUser;
 import com.flowops.domain.mapper.auth.AppUserMapper;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -36,6 +40,15 @@ class LoginAttemptManagerTest {
     @Mock private AppUserMapper appUserMapper;
 
     private LoginAttemptManager manager;
+
+    /**
+     * LambdaUpdateWrapper 的 set() 在构建期即解析列名，需要 MP 的 TableInfo 缓存；
+     * 纯 Mockito 测试没有 MyBatis 上下文，这里手工初始化（生产路径由 MapperScan 自动完成）。
+     */
+    @BeforeAll
+    static void initMybatisTableInfo() {
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), AppUser.class);
+    }
 
     @BeforeEach
     void setUp() {
