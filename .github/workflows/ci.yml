@@ -38,10 +38,11 @@ jobs:
       - name: Build & test (5 modules)
         working-directory: backend
         run: mvn -B -ntp verify
-      # ⚠️ 2026-10-07（M3）：run #13 后端 job 失败，但**取不到失败详情** ——
-      # 仓库既没上传测试报告，GitHub 的 job logs API 又需要 admin 权限，
-      # 结果是"知道红了，不知道为什么红"，只能靠重跑来猜是不是 flaky。
-      # 失败时把 surefire 报告传上来：哪怕只多一次往返，也好过靠猜。
+      # ⚠️ 2026-10-07（M3）：run #13 后端 job 失败，但当时**取不到失败详情** ——
+      # 仓库没上传测试报告，而匿名请求 GitHub 的 job logs API 一律 403。
+      # 那次失败后来查明是确定性的（测试依赖 JDK 运行期 dynamic attach，见 README-M3 §5-6），
+      # 代价却是靠重跑才绕过去。失败时把 surefire 报告传上来：这是**不依赖任何凭据**的
+      # 诊断路径（带上推送凭据请求 logs API 也能读到，但多一道手工步骤）。
       - name: Upload surefire reports（仅失败时）
         if: failure()
         uses: actions/upload-artifact@v4

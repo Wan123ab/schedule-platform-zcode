@@ -46,7 +46,55 @@
     <!-- docs/02 §5 版本锁定（质量工具）：
          JaCoCo 0.8.11 起支持 Java 21 字节码（major 65），选 0.8.12 与 JDK21 基线匹配 -->
     <jacoco.version>0.8.12</jacoco.version>
+
+    <!--
+      byte-buddy-agent 版本 —— **必须与 Spring Boot BOM 里 byte-buddy.version 一致**。
+      为什么不直接引用 BOM 的属性：本 POM 是以 `<scope>import</scope>` 引入
+      spring-boot-dependencies（无 parent），**BOM 的 <properties> 不会被继承**，
+      `${byte-buddy.version}` 在 import 场景下取不到值，只能在此复述一份。
+      升级 Spring Boot 时须同步核对此处（CI 的 green run 会打印真实解析版本，可比对）。
+
+      它为什么必须存在：Mockito 5 的 inline mock maker 需要把 byte-buddy-agent 挂到
+      JVM 上。默认做法是**运行期动态 self-attach**（`ByteBuddyAgent.installExternal`），
+      该机制在 JDK 里已被标记为将来会移除；实测在 GitHub Actions 新镜像
+      ubuntu24/20261004.327 上直接失败（见 <build> 中 surefire argLine 的说明）。
+      现在改为**启动期显式 -javaagent**，路径由本属性拼出，故两处必须同版本。
+    -->
+    <byte-buddy.version>1.14.19</byte-buddy.version>
+
+    <!--
+      默认生命周期插件的版本必须显式钉死（质量工具）：
+      本 POM 无 parent，且 BOM 的 import 只带 dependencyManagement ——
+      **BOM 的 <pluginManagement> 同样不会被继承**。于是 clean/resources/jar/surefire
+      这些被默认生命周期绑定的插件全都"无版本声明"，Maven 只能去**仓库元数据里解析
+      release 最新版**（现象：mvn -o 离线构建会报
+      "Error resolving version for plugin … Plugin not found in any plugin repository"，
+      而联网构建又会在某天悄悄升到新版本 —— CI 与本地因此可以不一致）。
+      下面钉的是当前实际解析到的版本，与本地仓库现有版本一致，离线构建不受影响。
+      maven-compiler-plugin 已在 pluginManagement 中钉 3.13.0，不重复。
+    -->
+    <surefire.version>3.2.5</surefire.version>
+    <maven-clean-plugin.version>3.2.0</maven-clean-plugin.version>
+    <maven-resources-plugin.version>3.3.1</maven-resources-plugin.version>
+    <maven-jar-plugin.version>3.4.1</maven-jar-plugin.version>
   </properties>
+
+  <dependencies>
+    <!--
+      显式声明 byte-buddy-agent（test）——不是为了在测试代码里用它，而是为了让
+      surefire 的 `-javaagent:<本地仓库路径>` 在所有模块都解析得到：
+      · 它是 mockito-core 的传递依赖，但"某个模块恰好没引 mockito"时本地仓库里
+        就可能没有这个 jar，`-javaagent` 会以"打不开 jar"的形式炸在 JVM 启动阶段；
+      · 声明在这里 = 版本与上面的 <byte-buddy.version> 同源，
+        agent 与运行时 byte-buddy 版本错配（只有运行期才发作）也就无从发生。
+    -->
+    <dependency>
+      <groupId>net.bytebuddy</groupId>
+      <artifactId>byte-buddy-agent</artifactId>
+      <version>${byte-buddy.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
 
   <dependencyManagement>
     <dependencies>
@@ -109,6 +157,32 @@
   <build>
     <pluginManagement>
       <plugins>
+        <!--
+          默认生命周期插件的版本钉子（理由见 properties 中"surefire.version"上方注释）。
+          少了这几条，`mvn -o` 会在父 POM 处直接失败：显式在 <plugins> 里声明的插件
+          必须能解析出版本，而离线时读不到仓库元数据。
+        -->
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>${surefire.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-clean-plugin</artifactId>
+          <version>${maven-clean-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-resources-plugin</artifactId>
+          <version>${maven-resources-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-jar-plugin</artifactId>
+          <version>${maven-jar-plugin.version}</version>
+        </plugin>
+
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-compiler-plugin</artifactId>
@@ -209,6 +283,45 @@
       <plugin>
         <groupId>org.jacoco</groupId>
         <artifactId>jacoco-maven-plugin</artifactId>
+      </plugin>
+
+      <!--
+        surefire：把 byte-buddy-agent 从"运行期动态 attach"改成"JVM 启动期显式挂载"。
+
+        —— 为什么必须改 ——
+        Mockito 5 默认用 inline mock maker，它需要 byte-buddy-agent 提供的
+        Instrumentation。Mockito 的默认策略是**运行期 self-attach**：JVM 起来之后
+        再去 attach 自己（ByteBuddyAgent.installExternal）。这条路径依赖 JDK 的
+        dynamic attach，而 JDK 已明确警告"If a serviceability tool is in use…"、
+        "self-attaching … will no longer work in future releases of the JDK"。
+
+        实测（2026-10-07，CI run #13）：
+          · run #12 / #14（镜像 ubuntu24/20260927.320）绿：日志里有
+            "WARNING: … -XX:+EnableDynamicAgentLoading" —— 动态 attach 成功
+          · run #13（镜像 ubuntu24/20261004.327）**红**：同一份代码，日志里该警告
+            完全消失，取而代之的是 JVM 级断言
+              *** java.lang.instrument ASSERTION FAILED ***:
+                  "success" with message createInstrumentationImpl failed
+                  at src/java.instrument/share/native/libinstrument/InvocationAdapter.c line: 425
+              Agent failed to start!
+            → IdGenTest 6 例全挂在 Mockito 初始化（MockMaker 加载不了）
+
+        结论：**不是随机抖动，是"测试依赖了 JDK 即将移除的动态 attach 机制"**，
+        环境一换就必然暴露。改法沿用官方建议（mockito#3037）：用 -javaagent 在启动期
+        就把 agent 挂上，ByteBuddyAgent.install() 会直接复用，从此不再走 dynamic attach。
+        注意这不是"绕过"——启动期 -javaagent 正是 JaCoCo agent 走的那条路，
+        而它在 run #13 里是正常工作的（失败的只有动态 attach 那一条）。
+
+        @{argLine} 不能省：JaCoCo 的 prepare-agent 把参数写在 argLine **属性**里，
+        这里用 surefire 的 late-property 语法 @{...} 追加而不是覆盖，
+        否则 JaCoCo 的 -javaagent 会被顶掉、覆盖率报告静默变空。
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <argLine>@{argLine} -javaagent:${settings.localRepository}/net/bytebuddy/byte-buddy-agent/${byte-buddy.version}/byte-buddy-agent-${byte-buddy.version}.jar</argLine>
+        </configuration>
       </plugin>
     </plugins>
   </build>
