@@ -118,6 +118,78 @@
           </execution>
         </executions>
       </plugin>
+
+      <!--
+        JaCoCo 门禁（O-14）。版本与 prepare-agent/report 由父 POM 统一管理，
+        这里只追加两条 check 规则 —— 为什么是两条而不是一条：
+
+        ① 逻辑层门禁（真门禁）：只统计 service / scope / manager 三类包。
+           这三类是"用单元测试就应当测到"的业务逻辑，覆盖率数字在这里才有意义。
+           为什么不把 controller / aspect / ws 一起纳进来：它们的行为（HTTP 绑定、
+           切面织入、WebSocket 会话）在单元测试里只能靠"调用一次然后断言没抛异常"
+           来凑数，那是在制造假覆盖。它们应由 MockMvc / @SpringBootTest 集成测试
+           覆盖 —— 即 README-M2 登记的 O-9，做完后可以再往上加规则。
+
+        ② 模块地板（防倒退）：整体 LINE ≥ 30%，其唯一目的是"不许整模块倒退"，
+           不代表 30% 是质量目标。
+
+        ⚠️ 触线时的正确处理：优先补测试。确需调整阈值，必须在本文件写明理由并同步
+        更新 README-M2/M3 的偏离登记 —— 不允许悄悄删规则或调数字。
+      -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>jacoco-check-logic-layer</id>
+            <phase>verify</phase>
+            <goals><goal>check</goal></goals>
+            <configuration>
+              <includes>
+                <include>**/service/*</include>
+                <include>**/scope/*</include>
+                <include>**/manager/*</include>
+              </includes>
+              <rules>
+                <rule>
+                  <element>BUNDLE</element>
+                  <limits>
+                    <limit>
+                      <counter>LINE</counter>
+                      <value>COVEREDRATIO</value>
+                      <!-- 基线 57.8%（2026-10-07 实测）。留约 3pt 余量：
+                           本轮 M3 新增的算子域 Service 会带测试进来，不会被这条卡住；
+                           而 task.service / auth.service 两个 M1 遗留 0% 包已被登记为待补，
+                           它们只会拖低这条线 —— 这正是期望的摩擦 -->
+                      <minimum>0.55</minimum>
+                    </limit>
+                  </limits>
+                </rule>
+              </rules>
+            </configuration>
+          </execution>
+          <execution>
+            <id>jacoco-check-module-floor</id>
+            <phase>verify</phase>
+            <goals><goal>check</goal></goals>
+            <configuration>
+              <rules>
+                <rule>
+                  <element>BUNDLE</element>
+                  <limits>
+                    <limit>
+                      <counter>LINE</counter>
+                      <value>COVEREDRATIO</value>
+                      <!-- 基线 32.9%（2026-10-07 实测），仅作防倒退地板 -->
+                      <minimum>0.30</minimum>
+                    </limit>
+                  </limits>
+                </rule>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
   </build>
 </project>

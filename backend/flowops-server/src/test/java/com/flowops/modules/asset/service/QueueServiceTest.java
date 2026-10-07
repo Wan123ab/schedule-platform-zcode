@@ -1,6 +1,7 @@
 package com.flowops.modules.asset.service;
 
 import com.flowops.common.exception.BizException;
+import com.flowops.common.util.IdGen;
 import com.flowops.domain.entity.asset.Cluster;
 import com.flowops.domain.entity.asset.Queue;
 import com.flowops.domain.mapper.asset.QueueMapper;
@@ -47,7 +48,8 @@ class QueueServiceTest {
     void setUp() {
         lenient().when(redis.opsForValue()).thenReturn(valueOps);
         lenient().when(valueOps.increment(anyString())).thenReturn(2L);
-        service = new QueueService(queueMapper, clusterService, redis, new QueueConverterImpl(), new ScopeGuard());
+        service = new QueueService(queueMapper, clusterService, new IdGen(redis), new QueueConverterImpl(),
+                new ScopeGuard());
     }
 
     private Cluster cluster() {

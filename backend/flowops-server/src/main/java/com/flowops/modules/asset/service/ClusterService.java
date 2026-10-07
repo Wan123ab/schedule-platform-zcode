@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.flowops.common.api.ErrorCode;
 import com.flowops.common.exception.BizException;
+import com.flowops.common.util.IdGen;
 import com.flowops.domain.entity.asset.Cluster;
 import com.flowops.domain.mapper.asset.ClusterMapper;
 import com.flowops.modules.asset.converter.ClusterConverter;
@@ -13,12 +14,10 @@ import com.flowops.modules.asset.dto.SaveClusterRequest;
 import com.flowops.modules.governance.scope.ScopeGuard;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.format.DateTimeFormatter;
 import java.util.Map;
 
 /**
@@ -40,10 +39,8 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ClusterService {
 
-    private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
-
     private final ClusterMapper clusterMapper;
-    private final StringRedisTemplate redis;
+    private final IdGen idGen;
     private final ClusterConverter converter;
     private final ScopeGuard scopeGuard;
 
@@ -176,11 +173,9 @@ public class ClusterService {
         }
     }
 
-    /** 业务编号 yyyyMMdd-####（docs/05 §6.2 的 Redis INCR 口径；唯一索引兜底）。 */
+    /** 业务编号 {@code CL-yyyyMMdd-####}（口径与实现统一收口在 {@link IdGen}，docs/05 §6.2）。 */
     private String nextClusterId() {
-        String date = DATE.format(java.time.LocalDate.now());
-        Long seq = redis.opsForValue().increment("flowops:seq:cl:" + date);
-        return "CL-" + date + "-" + (seq != null ? seq : System.currentTimeMillis() % 100000);
+        return idGen.nextDated("CL", "cl");
     }
 
     private BigDecimal nvl(BigDecimal value) {

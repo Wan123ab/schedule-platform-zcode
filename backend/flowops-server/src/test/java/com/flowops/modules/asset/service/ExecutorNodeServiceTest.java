@@ -1,6 +1,7 @@
 package com.flowops.modules.asset.service;
 
 import com.flowops.common.exception.BizException;
+import com.flowops.common.util.IdGen;
 import com.flowops.domain.entity.asset.Cluster;
 import com.flowops.domain.entity.asset.Credential;
 import com.flowops.domain.entity.asset.ExecutorNode;
@@ -58,7 +59,7 @@ class ExecutorNodeServiceTest {
         lenient().when(redis.opsForValue()).thenReturn(valueOps);
         lenient().when(valueOps.increment(anyString())).thenReturn(3L);
         crypto = new SecretCryptoService(TEST_KEY);
-        service = new ExecutorNodeService(nodeMapper, credentialMapper, clusterService, redis,
+        service = new ExecutorNodeService(nodeMapper, credentialMapper, clusterService, new IdGen(redis),
                 new ExecutorNodeConverterImpl(), new ScopeGuard(), crypto, executorClient);
     }
 

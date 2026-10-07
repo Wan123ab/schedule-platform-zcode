@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.flowops.common.api.ErrorCode;
 import com.flowops.common.exception.BizException;
+import com.flowops.common.util.IdGen;
 import com.flowops.domain.entity.asset.Cluster;
 import com.flowops.domain.entity.asset.Queue;
 import com.flowops.domain.mapper.asset.QueueMapper;
@@ -14,11 +15,9 @@ import com.flowops.modules.asset.dto.SaveQueueRequest;
 import com.flowops.modules.governance.scope.ScopeGuard;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.format.DateTimeFormatter;
 import java.util.Map;
 
 /**
@@ -37,11 +36,9 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class QueueService {
 
-    private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
-
     private final QueueMapper queueMapper;
     private final ClusterService clusterService;
-    private final StringRedisTemplate redis;
+    private final IdGen idGen;
     private final QueueConverter converter;
     private final ScopeGuard scopeGuard;
 
@@ -185,9 +182,7 @@ public class QueueService {
     }
 
     private String nextQueueId() {
-        String date = DATE.format(java.time.LocalDate.now());
-        Long seq = redis.opsForValue().increment("flowops:seq:qu:" + date);
-        return "QU-" + date + "-" + (seq != null ? seq : System.currentTimeMillis() % 100000);
+        return idGen.nextDated("QU", "qu");
     }
 
     /** 跨表补齐：业务编号 + 集群名（传入的 cluster 为 null 时回查一次）。 */

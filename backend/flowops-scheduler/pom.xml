@@ -70,6 +70,49 @@
           </execution>
         </executions>
       </plugin>
+
+      <!--
+        JaCoCo 门禁（O-14）：本模块是"技术风险最高"的地方（docs/06 状态机 / 队列评分 /
+        节点匹配 / 预留账本 / DAG），也是单元测试性价比最高的地方 —— 故这里卡得最严，
+        且**同时卡分支覆盖**（只卡行覆盖会出现"if 的 true 分支跑过就算过"的假象，
+        而调度逻辑的正确性恰恰藏在 else 与边界里）。
+
+        阈值依据（docs/09 §M3/§M1 DoD："三域状态机/CAS/节点匹配 ≥70%"）：
+        实测基线 行 80.8% / 分支 71.2%（2026-10-07），取 75% / 65% 留约 5pt 余量 —— 
+        高于 DoD 的 70%，同时不让正常迭代因几个百分点波动而误伤。
+
+        ⚠️ 触线时优先补测试；确需调整阈值必须在 README-M3 的偏离登记里写明理由。
+      -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>jacoco-check</id>
+            <phase>verify</phase>
+            <goals><goal>check</goal></goals>
+            <configuration>
+              <rules>
+                <rule>
+                  <element>BUNDLE</element>
+                  <limits>
+                    <limit>
+                      <counter>LINE</counter>
+                      <value>COVEREDRATIO</value>
+                      <minimum>0.75</minimum>
+                    </limit>
+                    <limit>
+                      <counter>BRANCH</counter>
+                      <value>COVEREDRATIO</value>
+                      <minimum>0.65</minimum>
+                    </limit>
+                  </limits>
+                </rule>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
   </build>
 </project>

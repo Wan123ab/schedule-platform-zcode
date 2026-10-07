@@ -1,6 +1,7 @@
 package com.flowops.modules.asset.service;
 
 import com.flowops.common.exception.BizException;
+import com.flowops.common.util.IdGen;
 import com.flowops.domain.entity.asset.Credential;
 import com.flowops.domain.entity.project.Project;
 import com.flowops.domain.mapper.asset.CredentialMapper;
@@ -45,8 +46,8 @@ class CredentialServiceTest {
         lenient().when(redis.opsForValue()).thenReturn(valueOps);
         lenient().when(valueOps.increment(any(String.class))).thenReturn(1L);
         // 真实加密服务（test-key）：验证加密-解密全链路而非 mock 掉被测核心
-        service = new CredentialService(credentialMapper, projectMapper, new SecretCryptoService("test-key"), redis,
-                new CredentialConverterImpl());   // MapStruct 生成物：让掩码/映射逻辑真实执行
+        service = new CredentialService(credentialMapper, projectMapper, new SecretCryptoService("test-key"),
+                new IdGen(redis), new CredentialConverterImpl());   // MapStruct 生成物：让掩码/映射逻辑真实执行
     }
 
     private SaveCredentialRequest request(String secret) {

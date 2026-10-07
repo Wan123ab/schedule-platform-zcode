@@ -23,6 +23,16 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-validation</artifactId>
     </dependency>
+    <!--
+      公共 util/IdGen 需要发号（docs/05 §6.2 用 Redis INCR），故 common 引入 Redis 客户端。
+      由 common 引入而非各业务模块各自引入：发号是全平台能力，若依赖散落各处，
+      迟早出现"某模块漏引 → 编译报错 → 顺手在本地再写一份发号"的退化路径。
+      运行时前提不变：所有使用 IdGen 的模块（server / scheduler）本来就必须有 Redis。
+    -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-redis</artifactId>
+    </dependency>
     <dependency>
       <groupId>com.baomidou</groupId>
       <artifactId>mybatis-plus-annotation</artifactId>

@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.flowops.common.api.ErrorCode;
 import com.flowops.common.exception.BizException;
+import com.flowops.common.util.IdGen;
 import com.flowops.domain.entity.auth.AppUser;
 import com.flowops.domain.entity.project.Project;
 import com.flowops.domain.entity.project.ProjectMember;
@@ -19,11 +20,9 @@ import com.flowops.modules.project.dto.SaveProjectRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 
@@ -42,14 +41,13 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ProjectService {
 
-    private static final DateTimeFormatter PRJ_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private final ProjectMapper projectMapper;
     private final ProjectMemberMapper projectMemberMapper;
     private final AppUserMapper appUserMapper;
     private final ConcurrencyQueryMapper concurrencyQuery;
-    private final StringRedisTemplate redis;
+    private final IdGen idGen;
     private final ProjectConverter converter;
 
     // ── 查询 ────────────────────────────────────────────────
@@ -226,11 +224,9 @@ public class ProjectService {
         return project;
     }
 
-    /** 业务编号 PRJ-yyyyMMdd-####（Redis INCR，docs/05 §6.2；uk_project_project_id 兜底）。 */
+    /** 业务编号 {@code PRJ-yyyyMMdd-####}（口径与实现统一收口在 {@link IdGen}，docs/05 §6.2）。 */
     private String nextProjectId() {
-        String date = PRJ_DATE.format(java.time.LocalDate.now());
-        Long seq = redis.opsForValue().increment("flowops:seq:prj:" + date);
-        return "PRJ-" + date + "-" + (seq != null ? seq : System.currentTimeMillis() % 100000);
+        return idGen.nextDated("PRJ", "prj");
     }
 
     private String toJson(Map<String, Object> params) {

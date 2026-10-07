@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.flowops.common.api.ErrorCode;
 import com.flowops.common.exception.BizException;
+import com.flowops.common.util.IdGen;
 import com.flowops.domain.entity.asset.Cluster;
 import com.flowops.domain.entity.asset.Credential;
 import com.flowops.domain.entity.asset.ExecutorNode;
@@ -19,12 +20,10 @@ import com.flowops.modules.asset.dto.SaveExecutorNodeRequest;
 import com.flowops.modules.governance.scope.ScopeGuard;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.format.DateTimeFormatter;
 import java.util.Map;
 
 /**
@@ -43,12 +42,10 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ExecutorNodeService {
 
-    private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
-
     private final ExecutorNodeMapper nodeMapper;
     private final CredentialMapper credentialMapper;
     private final ClusterService clusterService;
-    private final StringRedisTemplate redis;
+    private final IdGen idGen;
     private final ExecutorNodeConverter converter;
     private final ScopeGuard scopeGuard;
     private final SecretCryptoService crypto;
@@ -276,9 +273,7 @@ public class ExecutorNodeService {
     }
 
     private String nextNodeId() {
-        String date = DATE.format(java.time.LocalDate.now());
-        Long seq = redis.opsForValue().increment("flowops:seq:en:" + date);
-        return "EN-" + date + "-" + (seq != null ? seq : System.currentTimeMillis() % 100000);
+        return idGen.nextDated("EN", "en");
     }
 
     private ExecutorNodeVO toVO(ExecutorNode node, Cluster cluster) {

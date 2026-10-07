@@ -1,6 +1,7 @@
 package com.flowops.modules.project.service;
 
 import com.flowops.common.exception.BizException;
+import com.flowops.common.util.IdGen;
 import com.flowops.domain.entity.project.Project;
 import com.flowops.domain.mapper.auth.AppUserMapper;
 import com.flowops.domain.mapper.concurrency.ConcurrencyQueryMapper;
@@ -49,7 +50,7 @@ class ProjectServiceTest {
     @BeforeEach
     void initService() {
         service = new ProjectService(projectMapper, projectMemberMapper, appUserMapper,
-                concurrencyQuery, redis, new ProjectConverterImpl());
+                concurrencyQuery, new IdGen(redis), new ProjectConverterImpl());
     }
 
     private Project project;

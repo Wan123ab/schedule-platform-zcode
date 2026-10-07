@@ -1,6 +1,7 @@
 package com.flowops.modules.asset.service;
 
 import com.flowops.common.exception.BizException;
+import com.flowops.common.util.IdGen;
 import com.flowops.domain.entity.asset.Cluster;
 import com.flowops.domain.mapper.asset.ClusterMapper;
 import com.flowops.modules.asset.converter.ClusterConverterImpl;
@@ -45,7 +46,7 @@ class ClusterServiceTest {
     void setUp() {
         lenient().when(redis.opsForValue()).thenReturn(valueOps);
         lenient().when(valueOps.increment(anyString())).thenReturn(7L);
-        service = new ClusterService(clusterMapper, redis, new ClusterConverterImpl(), new ScopeGuard());
+        service = new ClusterService(clusterMapper, new IdGen(redis), new ClusterConverterImpl(), new ScopeGuard());
     }
 
     private Cluster cluster() {

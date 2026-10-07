@@ -42,6 +42,10 @@
     <cron-utils.version>9.2.1</cron-utils.version>
     <lombok.version>1.18.34</lombok.version>
     <spring-security.version>6.3.3</spring-security.version>
+
+    <!-- docs/02 §5 版本锁定（质量工具）：
+         JaCoCo 0.8.11 起支持 Java 21 字节码（major 65），选 0.8.12 与 JDK21 基线匹配 -->
+    <jacoco.version>0.8.12</jacoco.version>
   </properties>
 
   <dependencyManagement>
@@ -145,7 +149,59 @@
             </excludes>
           </configuration>
         </plugin>
+
+        <!--
+          JaCoCo（O-14 覆盖率门禁）：插件与执行期配置在这里统一锁定，父 POM 的
+          <plugins> 里只声明 GA，各模块按需追加自己的 check 规则（见 flowops-server /
+          flowops-scheduler 的 pom）。
+
+          —— 排除项为什么是这三个 ——
+          · FlowopsApplication：Spring Boot 启动壳，只有 main()，无业务语义
+          · *ConverterImpl / *MapperImpl：MapStruct 在编译期生成的字段搬运代码，
+            不是手写逻辑；"生成了多少行赋值语句"不该影响对手写代码的覆盖评价
+            （转换器里手写的 default 方法如 maskFingerprint 仍在接口中，照常被统计）
+          Lombok 生成物不在这里排除 —— 它们由 backend/lombok.config 的
+          addLombokGeneratedAnnotation 打上 @lombok.Generated，由 JaCoCo 自身过滤，
+          口径更准确（只跳生成方法，类里手写的方法仍被统计）。
+        -->
+        <plugin>
+          <groupId>org.jacoco</groupId>
+          <artifactId>jacoco-maven-plugin</artifactId>
+          <version>${jacoco.version}</version>
+          <configuration>
+            <excludes>
+              <exclude>**/FlowopsApplication*</exclude>
+              <exclude>**/*ConverterImpl</exclude>
+              <exclude>**/*MapperImpl</exclude>
+            </excludes>
+          </configuration>
+          <executions>
+            <execution>
+              <id>jacoco-prepare-agent</id>
+              <goals>
+                <goal>prepare-agent</goal>
+              </goals>
+            </execution>
+            <execution>
+              <id>jacoco-report</id>
+              <phase>verify</phase>
+              <goals>
+                <goal>report</goal>
+              </goals>
+            </execution>
+          </executions>
+        </plugin>
       </plugins>
     </pluginManagement>
+
+    <plugins>
+      <!-- 全模块统一采集 + 出报告（report 落在各模块 target/site/jacoco/）。
+           门禁规则（check）刻意**不**在这里 —— 各模块阈值不同且需要显式声明生效范围，
+           集中写会让人分不清"哪些模块真的被卡"，故下沉到模块 pom。 -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
   </build>
 </project>

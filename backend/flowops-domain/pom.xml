@@ -38,4 +38,45 @@
       <scope>test</scope>
     </dependency>
   </dependencies>
+
+  <build>
+    <plugins>
+      <!--
+        JaCoCo 门禁（O-14）。本模块 50 个类里绝大多数是 Lombok 数据类与 Mapper 接口
+        （生成物由 lombok.config 的 @lombok.Generated + JaCoCo 过滤剔除，实测报告里
+        只剩 4 个手写类），所以这里的覆盖率数字是**小而实**的：
+          · SecretCryptoService（AES-256-GCM 加解密，安全敏感，改错不会报错只会泄密）
+          · JsonbTypeHandler / StringArrayTypeHandler（jsonb / text[] 映射，静默错映射）
+          · DbConcurrencyGuard（CAS 更新闸门）
+        这几处恰好都是"出错不吱声"的类型，用一条行覆盖下限把它们钉住最划算。
+
+        阈值：实测基线 61.4%（2026-10-07），取 55% 留余量。
+      -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>jacoco-check</id>
+            <phase>verify</phase>
+            <goals><goal>check</goal></goals>
+            <configuration>
+              <rules>
+                <rule>
+                  <element>BUNDLE</element>
+                  <limits>
+                    <limit>
+                      <counter>LINE</counter>
+                      <value>COVEREDRATIO</value>
+                      <minimum>0.55</minimum>
+                    </limit>
+                  </limits>
+                </rule>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
 </project>

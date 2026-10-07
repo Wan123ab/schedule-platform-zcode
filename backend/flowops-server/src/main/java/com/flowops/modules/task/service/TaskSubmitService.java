@@ -7,6 +7,7 @@ import com.flowops.common.enums.TriggerType;
 import com.flowops.common.exception.BizException;
 import com.flowops.common.guard.CheckResult;
 import com.flowops.common.guard.ConcurrencyGuard;
+import com.flowops.common.util.IdGen;
 import com.flowops.domain.entity.task.Task;
 import com.flowops.domain.entity.task.TaskStep;
 import com.flowops.domain.dto.query.StepDefRow;
@@ -47,9 +48,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class TaskSubmitService {
 
-    private static final DateTimeFormatter TASK_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final String SEQ_ENQUEUE = "flowops:seq:enqueue";
-    private static final String SEQ_TASK_PREFIX = "flowops:seq:task:";
 
     private final ConcurrencyGuard concurrencyGuard;
     private final SubmitQueryMapper submitQuery;
@@ -57,6 +56,7 @@ public class TaskSubmitService {
     private final TaskMapper taskMapper;
     private final TaskStepMapper taskStepMapper;
     private final StringRedisTemplate redis;
+    private final IdGen idGen;
     private final ObjectMapper objectMapper;
 
     /** 提交结果：任务行 + 排队信息（deferred 时前端渲染"已排队"）。 */
@@ -138,13 +138,9 @@ public class TaskSubmitService {
         return new Creation(task.getId(), taskId, guard.deferred(), guard.runningCount());
     }
 
-    /** 业务编号：TASK-yyyyMMdd-####（日序列 Redis INCR，跨日归零；docs/05 §6.2）。 */
+    /** 业务编号：{@code TASK-yyyyMMdd-####}（口径与实现统一收口在 {@link IdGen}，docs/05 §6.2）。 */
     private String nextTaskId() {
-        String date = TASK_DATE.format(LocalDate.now());
-        Long seq = redis.opsForValue().increment(SEQ_TASK_PREFIX + date);
-        // DB uk_task_task_id 兜底唯一（docs/05 §6.2）；Redis 不可用时降级随机段避免阻塞提交
-        long n = seq != null ? seq : (System.currentTimeMillis() % 100000);
-        return "TASK-" + date + "-" + n;
+        return idGen.nextDated("TASK", "task");
     }
 
     /** 全局入队序号（M-09：Redis INCR 严格单调，同毫秒并列会破坏 FIFO 确定性）。 */

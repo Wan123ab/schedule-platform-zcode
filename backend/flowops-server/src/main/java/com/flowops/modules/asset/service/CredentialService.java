@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.flowops.common.api.ErrorCode;
 import com.flowops.common.context.UserContext;
 import com.flowops.common.exception.BizException;
+import com.flowops.common.util.IdGen;
 import com.flowops.domain.entity.asset.Credential;
 import com.flowops.domain.entity.project.Project;
 import com.flowops.domain.mapper.asset.CredentialMapper;
@@ -15,14 +16,12 @@ import com.flowops.modules.asset.dto.CredentialVO;
 import com.flowops.modules.asset.dto.SaveCredentialRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.OffsetDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.HexFormat;
 
 /**
@@ -37,12 +36,10 @@ import java.util.HexFormat;
 @RequiredArgsConstructor
 public class CredentialService {
 
-    private static final DateTimeFormatter CR_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
-
     private final CredentialMapper credentialMapper;
     private final ProjectMapper projectMapper;
     private final SecretCryptoService crypto;
-    private final StringRedisTemplate redis;
+    private final IdGen idGen;
     private final CredentialConverter converter;
 
     // ── 查询 ────────────────────────────────────────────────
@@ -189,9 +186,7 @@ public class CredentialService {
     }
 
     private String nextCredentialId() {
-        String date = CR_DATE.format(java.time.LocalDate.now());
-        Long seq = redis.opsForValue().increment("flowops:seq:cr:" + date);
-        return "CR-" + date + "-" + (seq != null ? seq : System.currentTimeMillis() % 100000);
+        return idGen.nextDated("CR", "cr");
     }
 
     private String currentUsername() {
