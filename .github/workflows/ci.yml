@@ -38,6 +38,18 @@ jobs:
       - name: Build & test (5 modules)
         working-directory: backend
         run: mvn -B -ntp verify
+      # ⚠️ 2026-10-07（M3）：run #13 后端 job 失败，但**取不到失败详情** ——
+      # 仓库既没上传测试报告，GitHub 的 job logs API 又需要 admin 权限，
+      # 结果是"知道红了，不知道为什么红"，只能靠重跑来猜是不是 flaky。
+      # 失败时把 surefire 报告传上来：哪怕只多一次往返，也好过靠猜。
+      - name: Upload surefire reports（仅失败时）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: backend/**/target/surefire-reports/
+          if-no-files-found: ignore
+          retention-days: 14
 
   frontend:
     name: Frontend · lint & typecheck & test & build
