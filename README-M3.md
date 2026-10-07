@@ -50,7 +50,7 @@
 | 10 | **触发器 CRON**（42216） | ⏳ 未开工 | §7-6 |
 | 11 | **前端 6 页**（算子 3 + 工作流 3） | ⏳ 未开工 | §7-7 |
 | — | 单测覆盖门禁（O-14） | ✅ **已实测** | 4 个模块 5 道门禁全绿，且经**反向扰动验证会拦**（见 §5-3） |
-| — | **CI 全绿** | ✅ **已实测** | **run #12（`dev_workbuddy` @ `ddadde7`）conclusion = success**：`Backend · build & test` 9 步全过、`Frontend · lint & typecheck & test & build` 12 步全过（GitHub API 自查，两个 job 的每一步 `conclusion=success`） |
+| — | **CI 全绿** | ✅ **已实测**（含一次未复现的不稳定，见 §5-6） | **run #14（`dev_workbuddy` @ `3104871`）conclusion = success**；`run #12`（`ddadde7`）同样 success，两个 job 的每一步 `conclusion=success`（GitHub API 自查）。**`run #13`（`686d7bb`，仅改 Markdown）后端 job 失败** —— 与 #12 是同一份后端代码，判定为环境相关不稳定；提交面已补 surefire 上传以便下次定位（§5-6 / O-22） |
 
 ## 3. 测试资产与覆盖率基线
 
@@ -94,6 +94,7 @@
 | **O-19** | `flowops-common` 的 `api`/`enums`/`exception`/`web` 四包无门禁 | 该模块整体 10.8%，但未覆盖部分主要是枚举常量、`ErrorCode`、`ApiResult` 这类"常量 + 几行 getter"；给它们设行覆盖下限只会逼人写凑数测试。其中 `GlobalExceptionHandler`(0/26)、`TraceIdFilter`(0/16) 是**真有逻辑**的 | 门禁已按 `includes` 收窄到 `util`/`guard`/`context` 三包（100%）。前两者需 MockMvc，随 O-9 补 |
 | **O-20** | M3 剩余 6 大块（试运行/工作流/画布/DAG 规则/变量解析/CRON + 前端 6 页） | 未开工 | §7 给出建议顺序 |
 | **O-21** | `countVersionReferences` 依赖 `workflow_step` / `workflow_version` 表 | 这两张表 M3 尚未建实体，SQL 直查表名。**若表名/列名在建模时变动，这条 SQL 会静默查不到引用（返回 0）→ 42211 闸门失效** | M3-2（工作流 CRUD）落地后，用一条 `@SpringBootTest` 引用闸门正例把它钉住；在那之前，改动这两张表必须回头改 `OperatorMapper.xml` |
+| **O-22** | CI `run #13` 后端失败的**具体用例未知** | 同一份代码在 #12/#14 均绿，本地重复 3 轮（含真实 Redis 的互斥锁集成测试）未复现 → 偶发；详情不可得（无 admin 权限取日志、仓库无产物） | 已补"失败时上传 surefire 报告"（§5-6）。下次再红则直接下报告定位；届时优先看 `MutexLockManagerTest` / `ReadyQueueManagerTest` / `HeartbeatScannerTest` / `LifecycleScannerTest` |
 
 ## 5. 本轮修复记录（留档防复发）
 
@@ -148,6 +149,25 @@ M2 把 `excludes` 写在父 POM 的 `pluginManagement` 里，本意是"MapStruct
 - `OperatorServiceTest` 只桩了 `projectMapper.selectOne`（入参解析用），漏了 `selectById`（出参补齐用）→ VO 里项目字段静默为 null。抽成 `givenProjectResolvable()` 一并桩。
 *教训*：**"入参解析"与"出参补齐"走的是两条不同的查询路径**，只桩其一会得到"接口能跑但字段为空"的假绿。
 
+### 5-6. CI run #13 后端 job 失败：**未复现的环境不稳定**（并顺带修掉"红了也查不到原因"）
+
+现象：`run #13`（`686d7bb`）后端 job 的 `Build & test (5 modules)` 失败，而**该提交相对 `run #12`（`ddadde7`，success）只多了一次 Markdown 编辑** —— 后端构建内容完全相同。同一份代码既绿又红，只能是环境相关的不稳定。
+
+排查动作与结论：
+
+| 动作 | 结果 |
+|---|---|
+| 取失败详情（GitHub job logs API） | ❌ `403 Must have admin rights to Repository`；仓库也未上传任何产物 → **知道红了，不知道为什么红** |
+| 判定"是否本地被跳过的测试在 CI 才跑" | 否。`MutexLockManagerTest`（真实 Redis，`Assumptions` 可跳过）在本地**实际执行了** 6 例 0 跳过（本机 6379 有 Redis） |
+| 本地重复压调度模块（时间/Redis 敏感）3 轮 × 88 例 | ❌ 未复现 |
+| 重跑同一份代码（`run #14`，`3104871`） | ✅ success → 判定为**偶发**，非确定性失败 |
+
+处理：**没有改任何测试去"洗绿"** —— 未复现的不稳定最忌凭猜测改断言（会把真实缺陷一起改掉）。改为**提升可诊断性**：CI 后端 job 增加 `if: failure()` 时上传 `surefire-reports`（`.github/workflows/ci.yml`），下次再红可直接下载报告定位到具体用例，而不是靠重跑猜。
+
+嫌疑范围（下次优先看这几处，均依赖真实 Redis 或真实时间）：`MutexLockManagerTest`、`ReadyQueueManagerTest`、`HeartbeatScannerTest`、`LifecycleScannerTest`。
+
+*教训*：CI 失败时"拿到失败详情"的能力，应该和"跑测试"一起建设。这次靠重跑才绕过去，下次不能指望同样的运气。
+
 ## 6. 复跑命令（本地）
 
 ```bash
@@ -174,4 +194,4 @@ cd frontend && npm run lint && npm run test && npm run build
 
 ---
 
-**本切片一句话总结**：算子域后端全链（含两条最容易做错的闸门——42211 引用闸门与 42210 错误聚合）已落地并实测；同时把 M2 留下的 `O-14` 覆盖率门禁**真正闭环**——4 个模块 5 道门禁全绿、经反向扰动验证会拦，并在补门禁的过程中抓出并修掉了一个 M2 遗留的配置缺陷（`*ConverterImpl` 从未被排除）和一处新代码零覆盖。
+**本切片一句话总结**：算子域后端全链（含两条最容易做错的闸门——42211 引用闸门与 42210 错误聚合）已落地并实测；同时把 M2 留下的 `O-14` 覆盖率门禁**真正闭环**——4 个模块 5 道门禁全绿、经反向扰动验证会拦，并在补门禁的过程中抓出并修掉了一个 M2 遗留的配置缺陷（`*ConverterImpl` 从未被排除）和一处新代码零覆盖。收尾时又补了 CI 失败的上传报告步骤——**"过 CI"这件事本身也要可诊断**，不能只靠重跑赌运气（§5-6）。
