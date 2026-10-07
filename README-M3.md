@@ -103,7 +103,7 @@
 
 ## 3. 测试资产与覆盖率基线
 
-后端 `mvn -o -B -ntp clean verify` **365 用例全绿**（common 27 / domain 21 / server 229 / scheduler 88），6 个模块 + 5 道 JaCoCo 门禁 `BUILD SUCCESS`。
+后端 `mvn -o -B -ntp clean verify` **365 用例全绿**（common 27 / domain 21 / server 229 / scheduler 88），**5 个代码模块 + 父 POM 聚合器** 全 `BUILD SUCCESS`，5 道 JaCoCo 门禁全跑（`flowops-executor-client` 无门禁，见 O-17）。
 
 | 模块 | 行覆盖 | 分支覆盖 | 门禁 | 门槛 |
 |---|---|---|---|---|
