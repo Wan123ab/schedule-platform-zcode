@@ -110,3 +110,82 @@ export const STEP_STATUS_MARKER: Record<StepStatus, Marker> = {
   STOPPED: 'square',
   TIMEOUT: 'clock',
 }
+
+// ─────────────────────────────────────────────────────────────
+// 资产域枚举（M2 新增：集群 / 节点 / 队列 / 凭据）
+//
+// 与任务/步骤保持同一套纪律（docs/04 §2.4 / F-5）：
+// 文案与颜色只从映射表取，业务代码里禁止出现 `if (status === 'NORMAL')` 决定颜色。
+// 用 Record<留出字面量联合类型> 而不是 Record<string, ...>：
+// 前者漏一个取值就编译失败，后者永远不报错（也就是永远可能漏）。
+// ─────────────────────────────────────────────────────────────
+
+export type ClusterStatus = 'NORMAL' | 'PARTIAL_ABNORMAL' | 'UNAVAILABLE' | 'MAINTENANCE'
+
+export const CLUSTER_STATUS_LABEL: Record<ClusterStatus, string> = {
+  NORMAL: '正常',
+  PARTIAL_ABNORMAL: '部分异常',
+  UNAVAILABLE: '不可用',
+  MAINTENANCE: '维护中',
+}
+
+export const CLUSTER_STATUS_TONE: Record<ClusterStatus, Tone> = {
+  NORMAL: 'ok',
+  PARTIAL_ABNORMAL: 'warn',
+  UNAVAILABLE: 'fail',
+  MAINTENANCE: 'info', // 维护是"人为正常状态"，不是故障 —— 用信息色而非告警色
+}
+
+/** 节点在线状态（心跳链路推导，接口只读）。 */
+export type NodeOnlineStatus = 'ONLINE' | 'OFFLINE' | 'UNKNOWN'
+
+export const NODE_ONLINE_LABEL: Record<NodeOnlineStatus, string> = {
+  ONLINE: '在线',
+  OFFLINE: '离线',
+  UNKNOWN: '未上报',
+}
+
+export const NODE_ONLINE_TONE: Record<NodeOnlineStatus, Tone> = {
+  ONLINE: 'ok',
+  OFFLINE: 'fail',
+  // UNKNOWN = 从没收到过心跳（新加机器）——判成"离线"会误报，故用中性色
+  UNKNOWN: 'idle',
+}
+
+export type QueueStatus = 'ENABLED' | 'DISABLED'
+
+export const QUEUE_STATUS_LABEL: Record<QueueStatus, string> = {
+  ENABLED: '启用',
+  DISABLED: '停用',
+}
+
+export const QUEUE_STATUS_TONE: Record<QueueStatus, Tone> = {
+  ENABLED: 'ok',
+  DISABLED: 'idle',
+}
+
+export type CredentialStatus = 'VALID' | 'EXPIRING' | 'EXPIRED' | 'REVOKED'
+
+export const CREDENTIAL_STATUS_LABEL: Record<CredentialStatus, string> = {
+  VALID: '有效',
+  EXPIRING: '即将过期',
+  EXPIRED: '已过期',
+  REVOKED: '已吊销',
+}
+
+export const CREDENTIAL_STATUS_TONE: Record<CredentialStatus, Tone> = {
+  VALID: 'ok',
+  EXPIRING: 'warn',
+  EXPIRED: 'fail',
+  REVOKED: 'idle',
+}
+
+/** 凭据类型（docs/05 §3.3 credential.credential_type；与后端 @Pattern 白名单一致） */
+export type CredentialType = 'SSH_KEY' | 'USER_PASSWORD' | 'WINRM' | 'TOKEN'
+
+export const CREDENTIAL_TYPE_LABEL: Record<CredentialType, string> = {
+  SSH_KEY: 'SSH 密钥',
+  USER_PASSWORD: '用户名密码',
+  WINRM: 'WinRM',
+  TOKEN: 'Token',
+}

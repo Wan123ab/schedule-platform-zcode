@@ -17,7 +17,13 @@ public class CredentialVO {
     private String username;
     /** 仅后 4 位，如 ****a1b2 */
     private String secretFingerprint;
-    private Long projectId;
+
+    /** 归属项目的**业务编号**（PRJ-xxxx）；平台级凭据为 null（内部 Long 主键不出网） */
+    private String projectId;
+
+    /** 归属项目名（服务层填充；平台级为 null） */
+    private String projectName;
+
     private Integer refCount;
     private String status;
     private OffsetDateTime lastRotatedAt;

@@ -6,7 +6,9 @@ import com.flowops.common.api.ErrorCode;
 import com.flowops.common.context.UserContext;
 import com.flowops.common.exception.BizException;
 import com.flowops.domain.entity.asset.Credential;
+import com.flowops.domain.entity.project.Project;
 import com.flowops.domain.mapper.asset.CredentialMapper;
+import com.flowops.domain.mapper.project.ProjectMapper;
 import com.flowops.domain.security.SecretCryptoService;
 import com.flowops.modules.asset.converter.CredentialConverter;
 import com.flowops.modules.asset.dto.CredentialVO;
@@ -38,6 +40,7 @@ public class CredentialService {
     private static final DateTimeFormatter CR_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
 
     private final CredentialMapper credentialMapper;
+    private final ProjectMapper projectMapper;
     private final SecretCryptoService crypto;
     private final StringRedisTemplate redis;
     private final CredentialConverter converter;
@@ -50,12 +53,12 @@ public class CredentialService {
                         .eq(Credential::getDeleted, false)
                         .like(keyword != null && !keyword.isBlank(), Credential::getCredentialName, keyword)
                         .orderByDesc(Credential::getCreatedAt));
-        return result.convert(converter::toVO);
+        return result.convert(this::toVO);
     }
 
     public CredentialVO get(String credentialId) {
         Credential credential = requireByBusinessId(credentialId);
-        return converter.toVO(credential);
+        return toVO(credential);
     }
 
     // ── 写操作 ──────────────────────────────────────────────
@@ -74,7 +77,7 @@ public class CredentialService {
         credentialMapper.insert(credential);
         log.info("凭据已创建 credential={} type={}（明文已加密入库，不落日志）",
                 credential.getCredentialId(), credential.getCredentialType());
-        return converter.toVO(credential);
+        return toVO(credential);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -82,7 +85,7 @@ public class CredentialService {
         Credential credential = requireByBusinessId(credentialId);
         applyRequest(credential, request);
         credentialMapper.updateById(credential);
-        return converter.toVO(credential);
+        return toVO(credential);
     }
 
     /** 轮换（必审动作 ROTATE_CREDENTIAL）：换密文 + 刷新指纹与时间戳；引用它的节点无需感知。 */
@@ -97,7 +100,7 @@ public class CredentialService {
         credential.setLastRotatedAt(OffsetDateTime.now());
         credentialMapper.updateById(credential);
         log.info("凭据已轮换 credential={}（引用节点下次执行自动使用新凭据）", credentialId);
-        return converter.toVO(credential);
+        return toVO(credential);
     }
 
     /** 删除闸门（PRD §7.2 / docs/05 §6.3）：实时 COUNT > 0 → 42202；ref_count 列只做展示。 */
@@ -114,8 +117,8 @@ public class CredentialService {
             log.warn("凭据 ref_count 快照与实时 COUNT 不一致 credential={} snapshot={}",
                     credentialId, credential.getRefCount());
         }
-        credential.setDeleted(true);
-        credentialMapper.updateById(credential);
+        // 走显式 XML 软删除：MP 的 updateById 会把逻辑删除列从 SET 中剔除（M2 实测，见 Mapper 注释）
+        credentialMapper.softDelete(credential.getId());
     }
 
     // ── 内部 ────────────────────────────────────────────────
@@ -124,13 +127,45 @@ public class CredentialService {
         credential.setCredentialName(request.getCredentialName());
         credential.setCredentialType(request.getCredentialType());
         credential.setUsername(request.getUsername());
-        credential.setProjectId(request.getProjectId());
+        credential.setProjectId(resolveProjectId(request.getProjectId()));
         credential.setExpireAt(request.getExpireAt());
         credential.setDescription(request.getDescription());
         if (request.getSecret() != null && !request.getSecret().isBlank()) {
             credential.setSecretEncrypted(crypto.encrypt(request.getSecret()));
             credential.setSecretFingerprint(fingerprint(request.getSecret()));
         }
+    }
+
+    /**
+     * 归属项目解析：入参是**业务编号** {@code PRJ-xxxx}（内部 Long 主键不出网），
+     * 这里翻译成内部主键；留空表示平台级凭据（{@code project_id IS NULL}）。
+     *
+     * <p>归属一个不存在的项目会让凭据变成"孤儿"，故在写路径直接 40400。</p>
+     */
+    private Long resolveProjectId(String projectBusinessId) {
+        if (projectBusinessId == null || projectBusinessId.isBlank()) {
+            return null;
+        }
+        Project project = projectMapper.selectOne(Wrappers.<Project>lambdaQuery()
+                .eq(Project::getProjectId, projectBusinessId).eq(Project::getDeleted, false));
+        if (project == null) {
+            throw new BizException(ErrorCode.NOT_FOUND, "归属项目不存在: " + projectBusinessId,
+                    java.util.Map.of("resource_type", "PROJECT", "resource_id", projectBusinessId));
+        }
+        return project.getId();
+    }
+
+    /** 出参补齐：内部主键 → 业务编号 + 跨表项目名（converter 已 ignore 这两个字段）。 */
+    private CredentialVO toVO(Credential credential) {
+        CredentialVO vo = converter.toVO(credential);
+        if (credential.getProjectId() != null) {
+            Project project = projectMapper.selectById(credential.getProjectId());
+            if (project != null) {
+                vo.setProjectId(project.getProjectId());
+                vo.setProjectName(project.getProjectName());
+            }
+        }
+        return vo;
     }
 
     /** SHA-256(secret) 全量 hex 入库；展示侧取后 4 位（docs/03 §4.1）。 */

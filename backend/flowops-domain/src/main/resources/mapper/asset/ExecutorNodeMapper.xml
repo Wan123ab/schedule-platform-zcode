@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 执行节点自定义 SQL（docs/05 §3.3）。 -->
+<mapper namespace="com.flowops.domain.mapper.asset.ExecutorNodeMapper">
+
+    <!--
+      42205：节点被运行中任务占用（PRD §10.4）。
+      task_step 无 node_id 列，按 (cluster_id, machine_ip) 定位；
+      含 SCHEDULING —— 该状态已下发，只算 RUNNING 会漏掉"下发到回执"的窗口。
+    -->
+    <select id="countActiveStepsOnNode" resultType="long">
+        SELECT count(*) FROM task_step
+         WHERE cluster_id = #{clusterId}
+           AND machine_ip = #{machineIp}
+           AND status IN ('SCHEDULING', 'RUNNING')
+    </select>
+
+    <!-- 软删除（不从 updateById 走，原因见 ClusterMapper.xml 同处注释） -->
+    <update id="softDelete">
+        UPDATE executor_node
+           SET deleted = true,
+               version = version + 1,
+               updated_at = now()
+         WHERE id = #{id}
+           AND deleted = false
+    </update>
+
+</mapper>

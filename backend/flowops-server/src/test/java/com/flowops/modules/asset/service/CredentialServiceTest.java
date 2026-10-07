@@ -2,7 +2,9 @@ package com.flowops.modules.asset.service;
 
 import com.flowops.common.exception.BizException;
 import com.flowops.domain.entity.asset.Credential;
+import com.flowops.domain.entity.project.Project;
 import com.flowops.domain.mapper.asset.CredentialMapper;
+import com.flowops.domain.mapper.project.ProjectMapper;
 import com.flowops.domain.security.SecretCryptoService;
 import com.flowops.modules.asset.dto.CredentialVO;
 import com.flowops.modules.asset.converter.CredentialConverterImpl;
@@ -32,6 +34,7 @@ import static org.mockito.Mockito.when;
 class CredentialServiceTest {
 
     @Mock private CredentialMapper credentialMapper;
+    @Mock private ProjectMapper projectMapper;
     @Mock private StringRedisTemplate redis;
     @Mock private ValueOperations<String, String> valueOps;
 
@@ -42,7 +45,7 @@ class CredentialServiceTest {
         lenient().when(redis.opsForValue()).thenReturn(valueOps);
         lenient().when(valueOps.increment(any(String.class))).thenReturn(1L);
         // 真实加密服务（test-key）：验证加密-解密全链路而非 mock 掉被测核心
-        service = new CredentialService(credentialMapper, new SecretCryptoService("test-key"), redis,
+        service = new CredentialService(credentialMapper, projectMapper, new SecretCryptoService("test-key"), redis,
                 new CredentialConverterImpl());   // MapStruct 生成物：让掩码/映射逻辑真实执行
     }
 
@@ -79,6 +82,52 @@ class CredentialServiceTest {
     }
 
     @Test
+    void 项目级凭据_业务编号解析成内部主键_出参回填业务编号与项目名() {
+        Project project = new Project();
+        project.setId(7L);
+        project.setProjectId("PRJ-20261007-0001");
+        project.setProjectName("推荐系统");
+        when(projectMapper.selectOne(any())).thenReturn(project);
+        when(projectMapper.selectById(7L)).thenReturn(project);
+        ArgumentCaptor<Credential> captor = ArgumentCaptor.forClass(Credential.class);
+        when(credentialMapper.insert(captor.capture())).thenReturn(1);
+
+        SaveCredentialRequest r = request("s3cret");
+        r.setProjectId("PRJ-20261007-0001");
+        CredentialVO vo = service.create(r);
+
+        assertThat(captor.getValue().getProjectId()).isEqualTo(7L);      // 落库存内部主键（外键语义）
+        assertThat(vo.getProjectId()).isEqualTo("PRJ-20261007-0001");    // 出网只给业务编号
+        assertThat(vo.getProjectName()).isEqualTo("推荐系统");
+    }
+
+    @Test
+    void 项目级凭据_归属项目不存在_40400且不落库() {
+        when(projectMapper.selectOne(any())).thenReturn(null);
+
+        SaveCredentialRequest r = request("s3cret");
+        r.setProjectId("PRJ-20990101-9999");
+
+        assertThatThrownBy(() -> service.create(r))
+                .isInstanceOf(BizException.class)
+                .extracting(e -> ((BizException) e).getErrorCode().getCode())
+                .isEqualTo(40400);
+        verify(credentialMapper, never()).insert(any(Credential.class));
+    }
+
+    @Test
+    void 平台级凭据_项目编号留空_project_id落NULL() {
+        ArgumentCaptor<Credential> captor = ArgumentCaptor.forClass(Credential.class);
+        when(credentialMapper.insert(captor.capture())).thenReturn(1);
+
+        CredentialVO vo = service.create(request("s3cret"));
+
+        assertThat(captor.getValue().getProjectId()).isNull();
+        assertThat(vo.getProjectId()).isNull();
+        assertThat(vo.getProjectName()).isNull();
+    }
+
+    @Test
     void 被节点引用_42202_禁止删除_实时COUNT为唯一权威() {
         Credential existing = new Credential();
         existing.setId(1L);
@@ -91,7 +140,7 @@ class CredentialServiceTest {
                 .isInstanceOf(BizException.class)
                 .extracting(e -> ((BizException) e).getErrorCode().getCode())
                 .isEqualTo(42202);
-        verify(credentialMapper, never()).updateById(any(Credential.class));   // 闸门在先，绝不落删除
+        verify(credentialMapper, never()).softDelete(any(Long.class));   // 闸门在先，绝不落删除
     }
 
     @Test
@@ -105,6 +154,8 @@ class CredentialServiceTest {
 
         service.delete("CR-20261007-0001");
 
-        verify(credentialMapper).updateById(any(Credential.class));   // docs/05 §6.3：实时 COUNT 是唯一权威
+        // docs/05 §6.3：实时 COUNT 是唯一权威；且删除必须走显式 XML softDelete
+        // （MP 的 updateById 会把逻辑删除列从 SET 剔除 → setDeleted(true) 静默失效，M2 实测）
+        verify(credentialMapper).softDelete(1L);
     }
 }

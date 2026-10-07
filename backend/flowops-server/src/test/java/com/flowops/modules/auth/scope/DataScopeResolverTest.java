@@ -2,6 +2,7 @@ package com.flowops.modules.auth.scope;
 
 import com.flowops.common.context.ScopeContext;
 import com.flowops.common.context.UserContext;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -21,7 +22,7 @@ class DataScopeResolverTest {
 
     private DataScopeResolver resolver;
 
-    @org.junit.jupiter.api.BeforeEach
+    @BeforeEach
     void setUp() {
         resolver = new DataScopeResolver(queries);   // mock 注入完成后构造（字段初始化会拿到 null）
     }
@@ -48,6 +49,32 @@ class DataScopeResolverTest {
 
         assertThat(scope.getType()).isEqualTo(ScopeContext.Type.PROJECT);
         assertThat(scope.getVisibleProjectIds()).containsExactlyInAnyOrder(1L, 3L);
+    }
+
+    @Test
+    void AUTHORIZED_CLUSTER范围_可见集群集来自授权查询_M2新增() {
+        when(queries.roleScopeTypes(7L)).thenReturn(Set.of("AUTHORIZED_CLUSTER"));
+        when(queries.authorizedClusterIds(7L)).thenReturn(Set.of(11L, 12L));
+
+        ScopeContext scope = resolver.resolve(user());
+
+        assertThat(scope.getType()).isEqualTo(ScopeContext.Type.AUTHORIZED_CLUSTER);
+        assertThat(scope.getVisibleClusterIds()).containsExactlyInAnyOrder(11L, 12L);
+        assertThat(scope.getVisibleProjectIds()).isEmpty();   // 运维范围不按项目收窄
+    }
+
+    @Test
+    void 项目管理员兼运维_两个可见集都备好_类型取更宽者() {
+        when(queries.roleScopeTypes(7L)).thenReturn(Set.of("PROJECT", "AUTHORIZED_CLUSTER"));
+        when(queries.memberProjectIds(7L)).thenReturn(Set.of(1L));
+        when(queries.authorizedClusterIds(7L)).thenReturn(Set.of(11L));
+
+        ScopeContext scope = resolver.resolve(user());
+
+        assertThat(scope.getType()).isEqualTo(ScopeContext.Type.AUTHORIZED_CLUSTER);
+        // 行级过滤按表列的维度二选一，故两个集合都必须备好，缺一个就会静默少算
+        assertThat(scope.getVisibleProjectIds()).containsExactly(1L);
+        assertThat(scope.getVisibleClusterIds()).containsExactly(11L);
     }
 
     @Test

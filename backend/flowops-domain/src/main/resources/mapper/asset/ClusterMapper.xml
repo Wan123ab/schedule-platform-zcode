@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 集群自定义 SQL（docs/05 §3.3；闸门口径 docs/05 §6.3：实时 COUNT 优先于冗余快照列）。 -->
+<mapper namespace="com.flowops.domain.mapper.asset.ClusterMapper">
+
+    <!--
+      被授权集群（docs/07 §5.3 AUTHORIZED_CLUSTER 的数据来源）。
+      R3 project_cluster 是 M:N，故 DISTINCT 收敛；JOIN project_member 取"本人所属项目"。
+      project/executor_node 均带逻辑删除，授权链路两侧都要过滤 deleted。
+    -->
+    <select id="findAuthorizedClusterIds" resultType="long">
+        SELECT DISTINCT pc.cluster_id
+          FROM project_cluster pc
+          JOIN project_member pm ON pm.project_id = pc.project_id
+          JOIN project p ON p.id = pc.project_id AND p.deleted = false
+         WHERE pm.user_id = #{userId}
+    </select>
+
+    <!-- 42204：集群下仍有执行节点（不论在线与否）→ 禁删 -->
+    <select id="countNodes" resultType="long">
+        SELECT count(*) FROM executor_node
+         WHERE cluster_id = #{clusterId} AND deleted = false
+    </select>
+
+    <!-- 删除集群的前置检查：queue.cluster_id 是 ON DELETE RESTRICT 外键，有队列同样禁删 -->
+    <select id="countQueues" resultType="long">
+        SELECT count(*) FROM queue
+         WHERE cluster_id = #{clusterId} AND deleted = false
+    </select>
+
+    <!-- 非终态任务（PENDING/SCHEDULING/RUNNING/STOPPING）—— 维护模式前的作业面检查 -->
+    <select id="countRunningTasks" resultType="long">
+        SELECT count(*) FROM task
+         WHERE cluster_id = #{clusterId}
+           AND status IN ('PENDING', 'SCHEDULING', 'RUNNING', 'STOPPING')
+           AND deleted = false
+    </select>
+
+    <!--
+      软删除（⚠️ 不能用 BaseMapper.updateById：MP 会把逻辑删除列从 SET 子句里剔除，
+      实测 TableInfo#sqlSet(ignoreLogicDelFiled=true) —— 见 README-M2「已知修复记录」）。
+      用 XML 显式写：deleted=true + version 自增（CAS）+ updated_at（M1 留档规矩：
+      XML 更新绕过 MetaObjectHandler，必须自己补 updated_at）。
+    -->
+    <update id="softDelete">
+        UPDATE cluster
+           SET deleted = true,
+               version = version + 1,
+               updated_at = now()
+         WHERE id = #{id}
+           AND deleted = false
+    </update>
+
+</mapper>

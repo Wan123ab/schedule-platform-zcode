@@ -25,7 +25,8 @@ public class SaveCredentialRequest {
     /** 明文仅此一处入网；更新/轮换时必填 */
     private String secret;
 
-    private Long projectId;
+    /** 归属项目的**业务编号**（PRJ-xxxx）；留空 = 平台级凭据（服务层解析成内部主键） */
+    private String projectId;
 
     private OffsetDateTime expireAt;
 

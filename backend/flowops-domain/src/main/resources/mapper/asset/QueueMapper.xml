@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 队列自定义 SQL（docs/05 §3.3；出队/提交两处并发闸门的数据来源，docs/06 §6.1）。 -->
+<mapper namespace="com.flowops.domain.mapper.asset.QueueMapper">
+
+    <!-- 等待数：PENDING 即"已创建但未出队"（07 §6.4：排队语义 = PENDING + queue_position） -->
+    <select id="countWaitingTasks" resultType="long">
+        SELECT count(*) FROM task
+         WHERE queue_id = #{queueId} AND status = 'PENDING' AND deleted = false
+    </select>
+
+    <!-- 运行中：SCHEDULING + RUNNING + STOPPING（禁用队列前必须确认作业面空闲） -->
+    <select id="countRunningTasks" resultType="long">
+        SELECT count(*) FROM task
+         WHERE queue_id = #{queueId}
+           AND status IN ('SCHEDULING', 'RUNNING', 'STOPPING')
+           AND deleted = false
+    </select>
+
+    <!-- 软删除（不从 updateById 走，原因见 ClusterMapper.xml 同处注释） -->
+    <update id="softDelete">
+        UPDATE queue
+           SET deleted = true,
+               version = version + 1,
+               updated_at = now()
+         WHERE id = #{id}
+           AND deleted = false
+    </update>
+
+</mapper>

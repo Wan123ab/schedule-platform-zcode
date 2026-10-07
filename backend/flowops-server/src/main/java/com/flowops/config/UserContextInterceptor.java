@@ -55,5 +55,9 @@ public class UserContextInterceptor implements HandlerInterceptor {
     @Override
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) {
         UserContext.clear();
+        // ⚠️ 必须连 ScopeContext 一起清：它同样是 ThreadLocal，而虚拟线程会被复用。
+        // 漏清的后果不是"多过滤"而是"用上一条请求的项目集去过滤下一条请求"——
+        // 例如上一个请求是 PROJECT 范围，下一个请求在 Service 内部查授权集群时会静默少算。
+        ScopeContext.clear();
     }
 }

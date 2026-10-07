@@ -17,6 +17,8 @@ import org.mapstruct.ReportingPolicy;
 public interface CredentialConverter {
 
     @Mapping(target = "secretFingerprint", source = "secretFingerprint", qualifiedByName = "maskFingerprint")
+    @Mapping(target = "projectId", ignore = true)      // 内部主键 → 业务编号，Service 回填
+    @Mapping(target = "projectName", ignore = true)    // 跨表字段，Service 回填
     CredentialVO toVO(Credential entity);
 
     /** 指纹仅后 4 位可见（****xxxx），docs/03 §4.1。 */

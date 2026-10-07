@@ -23,6 +23,14 @@
       <groupId>com.flowops</groupId>
       <artifactId>flowops-domain</artifactId>
     </dependency>
+    <!-- 节点连通性测试（docs/07 §5.4 的 schedule:node:test）需要一次真实 SSH 握手。
+         executor-client 是纯客户端库（只依赖 common + jsch），不含 Spring/DB 耦合，
+         故 server 直接复用它，而不是在 server 里另写一份 SSH 逻辑。
+         D-08 约束的是 server ✗ scheduler，此处不涉及。 -->
+    <dependency>
+      <groupId>com.flowops</groupId>
+      <artifactId>flowops-executor-client</artifactId>
+    </dependency>
 
     <!-- 会话（D-06）：Sa-Token + Redis 存储 -->
     <dependency>
