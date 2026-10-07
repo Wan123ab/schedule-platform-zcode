@@ -95,22 +95,22 @@
 | 6 | **工作流 CRUD + 版本化** | ✅ **已实测** | 四表实体/Mapper/XML ✅；DAG 校验 10 条 ✅；DTO/Service/Controller ✅（§1.2）。**42215**（`has_draft_changes=true` 时再新开草稿）与 **42212**（非草稿不可编辑）均有单测；草稿/发布的编号（`WFV-`/`WFS-`/`WFE-`）、整包替换顺序（`inOrder(edgeMapper, stepMapper)`）、发布先校验后切指针均有断言 |
 | 7 | **自研 SVG 画布编辑器**（D-14） | ⏳ 未开工 | §7-3 |
 | 8 | **DAG 校验 8 条规则**（含规则 7 的 42218） | ✅ **已实测（含挂到接口）** | `DagValidatorTest` 28 例覆盖规则 1~10 各一条"该报"用例 + 关键规则的反例（菱形 DAG 不算环、恰好 10 次重试通过、备注节点不参与可达性、集群无上限数据时跳过而不当成 0）。规则已**挂到两个接口**：保存草稿跑结构子集（42213 + `errors[]`）、发布跑全量；错误码分流 42213/42214/42218 在 `WorkflowVersionServiceTest` 中逐条断言（含"42218 而不是 42213"的哨兵用例） |
-| 9 | **六层变量覆盖链解析器** | ⏳ 未开工 | §7-5 |
-| 10 | **触发器 CRON**（42216） | ⏳ 未开工 | §7-6 |
+| 9 | **六层变量覆盖链解析器** | ✅ **已实测** | `VariableChainResolver`（domain，纯函数）：五条覆盖规则各一个**名字即答案**的用例（`项目参数覆盖平台变量`…`步骤参数覆盖一切`）、点名引用不受覆盖链影响、整串单引用透传原类型（数字不拍平）、混排拼接、失败路径（不存在的步骤/未产出的变量/格式非法/未闭合）、**敏感值快照脱敏但真实值保留**（M-07）、溯源记录实际胜出的层（PRD §10.0.4）。启动命令渲染走六层扁平上下文（步骤参数最后 put = 第 6 层最高） |
+| 10 | **触发器 CRON**（42216）+ 时间窗（42217） | ✅ **已实测** | `TriggerConfigValidator` 纯函数三分流（42216 含"二选一"约束与方言提示 / 42217 / 40001）；CRUD 6 端点含 `/triggers/cron-preview`（默认 5 个、上限 20、严格递增断言）；可见性借父 workflow（40301/40400）；`next_fire_time` 只在调度配置变化时重算；**工作流停用联动停触发器**；软删走显式 XML（MP `updateById` 剔除逻辑删除列的坑不再踩） |
 | 11 | **前端 6 页**（算子 3 + 工作流 3） | ⏳ 未开工 | §7-7 |
 | — | 单测覆盖门禁（O-14） | ✅ **已实测** | 4 个模块 5 道门禁全绿，且经**反向扰动验证会拦**（见 §5-3） |
 | — | **CI 全绿** | ✅ **已实测（含新镜像）** | **run #19（`dev_workbuddy` @ `8f13ac5`）conclusion = success**，落在 **`ubuntu24/20261004.327.1`** —— 正是 run #13 挂掉的那个镜像版本。用 API 取回日志核实：动态 attach 警告 **0** 次、365 用例全绿（含本轮 5 个新测试类）、5 道 JaCoCo 门禁全跑。更早 **run #17（`df97558`）**、**run #16（`51915ac`）** 亦 success（后两者落在旧镜像 `20260927.320`）。历史失败 `run #13` 的根因已查明并修复（§5-6）。**先前"尚未在新镜像上实测"的诚实保留已由 run #19 关闭** |
 
 ## 3. 测试资产与覆盖率基线
 
-后端 `mvn -o -B -ntp clean verify` **365 用例全绿**（common 27 / domain 21 / server 229 / scheduler 88），**5 个代码模块 + 父 POM 聚合器** 全 `BUILD SUCCESS`，5 道 JaCoCo 门禁全跑（`flowops-executor-client` 无门禁，见 O-17）。
+后端 `mvn -o -B -ntp clean verify` **428 用例全绿**（common 27 / domain 62 / server 251 / scheduler 88），**5 个代码模块 + 父 POM 聚合器** 全 `BUILD SUCCESS`，5 道 JaCoCo 门禁全跑（`flowops-executor-client` 无门禁，见 O-17）。
 
 | 模块 | 行覆盖 | 分支覆盖 | 门禁 | 门槛 |
 |---|---|---|---|---|
 | `flowops-common` | util+guard+context 三包 **100%** | — | `jacoco-check`（按 `includes` 收窄） | 0.85 |
-| `flowops-domain` | **93.5%** | 91.7% | `jacoco-check` | 0.55 |
-| `flowops-server` | 逻辑层(service/scope/manager) **78.0%** ↑ | — | `jacoco-check-logic-layer` | 0.55 |
-| `flowops-server` | 模块整体 **67.3%** ↑ | 61.1% | `jacoco-check-module-floor` | 0.30 |
+| `flowops-domain` | **94.0%** ↑ | 91.7% | `jacoco-check` | 0.55 |
+| `flowops-server` | 逻辑层(service/scope/manager) **78.7%** ↑ | — | `jacoco-check-logic-layer` | 0.55 |
+| `flowops-server` | 模块整体 **68.0%** ↑ | 61.1% | `jacoco-check-module-floor` | 0.30 |
 | `flowops-scheduler` | **80.8%** | **71.2%** | `jacoco-check` | 0.75 / 0.65 |
 | `flowops-executor-client` | **无数据**（零测试 → 无 `jacoco.exec` → report 跳过） | — | 无 | 见 **O-17** |
 
@@ -127,6 +127,11 @@
 | `WorkflowVersionService` | 317/329 = **96.4%** |
 | `DagAssembler` | 137/157 = **87.3%** |
 | `WorkflowAccessGuard` | 14/14 = **100%** |
+| `TriggerService` | 141/165 = **85.5%** |
+| `TriggerConfigValidator` | 39/42 = **92.9%** |
+| `VariableChainResolver`（domain） | 134/143 = **93.7%** |
+| `VariableRefParser`（domain） | 67/71 = **94.4%** |
+| `TriggerController` | 0%（见 **O-18**，同为刻意） |
 | `WorkflowController` / `WorkflowVersionController` | 0%（见 **O-18**，同为刻意） |
 | `modules/workflow/converter/*` | CSV 里**计数为 0**（被 M2 修好的 `*ConverterImpl*` exclude 排除，见 §5-2） |
 
@@ -139,15 +144,50 @@
 | `WorkflowServiceTest` | 16 | 编号 `WF-####` 与 DDL 默认值显式落内存（`FORBID`/`1`/`false`）、同项目重名拒绝且不落库、**排序白名单外 → 40003**、**401 项目不可变更**、并发设置、**发布顺序 `inOrder(versionService, workflowMapper)`**（先校验冻结、再切 `current_version`）、发布失败不更新工作流、停用仅限 PUBLISHED、40301/40400 两态 |
 | `WorkflowVersionServiceTest` | 28 | 保存草稿**只跑规则 1/5/10**（未绑算子的步骤能存下、违反规则的请求体不落库）、重名 → 42213 + `errors[]{rule,step_name}`、**自环闭环的不可达（规则 1 先于规则 5 输出）**、端点不存在 → **40001 且不删旧图**、非草稿 → **42212**、已存在草稿 → **42215**、整包替换顺序（`inOrder`）、**服务端重新发号（客户端 `s1` 不出网）**、外键解析不到写 `null` 而非哨兵、JSONB 参数来回不丢、新开草稿**整图复制并重新发号**（含"从未发布过也能建空草稿"、**版本序号含软删行不复用**）、发布全量校验**对象是库内数据**、**42218 而非 42213**、已发布版本不回写发布人、ARCHIVED → 40900、悬挂连线跳过、40301/40400、**外键解析走批量 `IN`（20 节点仍只查 1 次）** |
 | `DagAssemblerTest` | 11 | 40001 三分支（键重复 / 端点缺失 / 自环）、合法图的键→下标与连线下标、**哨兵 vs null 六种取值**、空集合不发起 `IN ()`、反向映射查不到不把内部主键当业务编号、`full=false` 不查算子规格 vs `full=true` 查、实体路径不翻译外键、**坏 JSON 按空对象参与校验（而非抛异常）** |
-| `DataPermissionSchemaConsistencyTest` | 3 | 登记表 ↔ 真实 DDL 一致性（项目/集群两维各一条）+ 反向断言"无 `project_id` 的派生表不得被登记" |
-| `MapperXmlSchemaConsistencyTest` | 1 | 全部 Mapper XML 里的 `别名.列` ↔ 真实 DDL 一致性（`file:` 与 `jar:` 两种 classpath 形态都支持）；**这一条抓出了 `ws.start_command` 这个跨域 SQL 空列引用**（见 §5-9） |
+| `DataPermissionSchemaConsistencyTest` | 3 | 登记表 ↔ 真实 DDL 一致性（项目/集群两维各一条）+ 反向断言"无 `project_id` 的派生表不得被登记"（本轮把 `trigger` 加进该名单） |
+| `MapperXmlSchemaConsistencyTest` | 1 | 全部 Mapper XML 里的 `别名.列` ↔ 真实 DDL 一致性（`file:` 与 `jar:` 两种 classpath 形态都支持）；**这一条抓出了 `ws.start_command` 这个跨域 SQL 空列引用**（见 §5-9）。本轮提取正则升级为**支持 PG 引号表名**（`"trigger"`），并把 `trigger` 点名进自检——否则引号表会被整表静默跳过（§5-10） |
+| `VariableChainResolverTest`（domain） | 23 | **五条覆盖规则各一例（名字即答案）**、点名引用不受覆盖链影响、`param.` 中段退化匹配（docs 两处示例风格都接）、整串单引用透传原类型、混排拼接溯源记首引用、失败路径四态、**敏感值脱敏但真实值保留**、命令渲染（步骤参数覆盖一切/无引用原样/坏引用保留并报错/null 命令）、六层顺序与 docs 一致 |
+| `VariableRefParserTest`（domain，搬迁 +3） | 13 | D-20 语法全套（步骤名引号/特殊字符/未知来源/output 段缺失/未闭合）、嵌套结构递归收集、**裸引用**（标识符/中文/非法字符） |
+| `TriggerConfigValidatorTest` | 13 | 42216 三态（二选一/缺一/语法错）、周期非正、MANUAL 免检、时区 40001、时间窗 end=lt/gt start 三态、**跨时区比较发生在时间轴上** |
+| `TriggerServiceTest` | 19 | 业务编号 `TRG-####` 与 DDL 默认值显式落内存、**next_fire_time 只在调度配置变化时重算**（改名字不动游标）、挂靠不可变更、API/EVENT 一期置灰、42216/42217 不落库、重名 42200、40400/40301 两态、软删而非物理删、停用联动、cron-preview（默认 5/上限 20/严格递增/非法 42216） |
 
 前端：`npm run lint`（`--max-warnings 0`）· `npm run test`（3 文件 19 例）· `npm run build`（`vue-tsc --noEmit` + vite build）三件套本地全绿。
+
+## 1.3 第四切片：变量覆盖链解析器 + 触发器（本轮新增）
+
+| 交付物 | 落点 | 状态 |
+|---|---|---|
+| **`VariableChainResolver`**：六层覆盖链值解析（平台 < 项目 < 工作流 < 触发 < 上游输出 < 步骤参数），含**溯源**（每个参数记录"哪层给的"，PRD §10.0.4）与**敏感值脱敏**（M-07，快照不落原文） | `flowops-domain/resolve/` | ✅ |
+| **`VariableRefParser` 搬迁至 domain 并扩展裸引用**：`${taskId}` 这类无前缀写法（docs/03 §4.4 在用）与 D-20 带前缀写法并存 | 同上 | ✅ |
+| **`TriggerConfigValidator`**（纯函数）：42216（cron 非法/二选一）/ 42217（时间窗 `end<=start`）/ 40001（时区与时间格式）三分流 | `modules/workflow/validator/` | ✅ |
+| **触发器 CRUD**：`Trigger` 实体 + Mapper/XML（软删、工作流停用联动）+ `TriggerService` + `TriggerController`（6 端点，含 **`/triggers/cron-preview`**） | `domain/entity/workflow` + `modules/workflow/` | ✅ |
+| **工作流停用联动**：`WorkflowService.disable` → 批量停用其触发器（`enabled_before_disable` 记原状态） | `TriggerMapper.disableByWorkflowId` | ✅ |
+| 单测 | `VariableChainResolverTest` 23 + `VariableRefParserTest` 13（新增 3）+ `TriggerConfigValidatorTest` 13 + `TriggerServiceTest` 19 | ✅ |
+
+**本切片的关键设计**：
+
+1. **解析器放 domain 不放 server**：算子试运行（server）与步骤下发（scheduler）都要用它，
+   domain 是二者唯一公共依赖。纯函数、无 Mapper，两边都能直接单测。
+2. **点名引用不受覆盖链影响**：`${project.param.x}` 只看项目参数层 —— "点名要哪层"与
+   "按覆盖链赢"是两种意图，混在一起覆盖链就失去意义；裸引用 `${taskId}` 才走扁平上下文，
+   溯源记录**实际胜出的层**（这是"哪层赢"的可验证实现，docs/03 §4.4 的原话要求）。
+3. **整串单引用透传原类型**：`${step.清洗.output.n}` 引到数字 `15234` 时参数值保持数字，
+   不被 `String.valueOf` 拍平成字符串；混排（`前缀${ref}后缀`）才走字符串拼接。
+4. **触发器可见性借父 workflow**（与 workflow_version 同一模式）：表无 `project_id`，
+   数据权限不注册本表（一致性测试的反向断言已加 `trigger`）。
+5. **`next_fire_time` 只在调度配置变化时重算**：它是调度器扫表游标，改个名字不该被
+   "顺手"清掉。
+
 
 ## 4. 偏离与遗留项（如实登记，均注明去处）
 
 | # | 项 | 现状 | 去处 |
 |---|---|---|---|
+| **O-28** | **`trigger` 表名是 PostgreSQL 保留字，docs/05 §3.4 的 DDL 原文未加引号** | `CREATE TABLE trigger (...)` 在真实 PG 上是**语法错误**——本项目至今没有真实 PG 环境（CI 只有 Redis），所以一直潜伏；`ProjectMapper.xml` 里 3 处 `FROM trigger` / `UPDATE trigger` 同理，一执行就炸。本轮修掉：V1 基线 DDL 全部表名位置加引号、XML 同步、一致性测试的提取正则支持引号并把 `trigger` 加进自检点名表（否则它会被**整表静默跳过**——恰恰是本测试最忌讳的失败模式） | 已闭环（构建期防复发）。教训与 §5-8/§5-9 同类："从未在真实环境执行过的路径"需要额外的防御手段 |
+| **O-29** | **docs/05 §6.2 业务编号表漏了触发器** | `trigger` 表有 `trigger_id varchar(32)` 与唯一索引，但 §6.2 的编号表没有它。自定 **`TRG-####`**（Redis `INCR trg:seq`，与同表其他编号同一风格），不改动其他编号 | 需回写 docs/05 §6.2 补一行 |
+| **O-30** | **触发器一期不支持 `locked_version_id` / `target_queue_id` / `fail_notify` 配置** | DDL 有这三列，请求 DTO 不收（锁定版本=null=跟随最新发布版，队列=null=默认路由，告警=空）。docs/07 §6.4 未定义它们的请求语义 | 随调度器（M4）一起定语义——这三列都是调度行为参数，提前收了也没有消费方 |
+| **O-31** | **cron 方言未在 docs 定义，实现采用 Spring `CronExpression`（6 段）** | 调度引擎是 Spring 生态，用 Quartz 7 段方言要在调度侧再翻译一层。Quartz 风格表达式会被 42216 拒绝，报错信息里带格式提示（"Spring 6 段格式，秒 分 时 日 月 周"） | 需回写 docs/07 §6.4 明确方言；若用户群强烈习惯 Quartz 风格，再评估兼容层 |
+| **D-30** | **变量引用的"裸引用"形态：docs/03 §4.4 与 docs/07 §9.1 矛盾，按"都支持"落定** | §9.1 的 EBNF 要求来源前缀（`${step.X.output.y}`），§4.4 的启动命令示例却是裸引用（`${taskId}`）。落定：带前缀=**点名某层**（不受覆盖链影响），裸=**扁平上下文按覆盖链取值**（六层合并、后者覆盖前者）。`VariableRefParser` 两种都合法，`DagValidator` 规则 4 对裸引用不做可达性判定（无 DAG 语义） | 需回写 docs/07 §9.1 的 EBNF（补 `bare_ref = "${" ident "}"`） |
 | **O-9** | DataScope 全端点越权实跑（M2 遗留） | 仍未做（分层单测已就绪） | 同上，需 PG+Redis 环境 |
 | **O-17** | `flowops-executor-client` **零测试、无覆盖率数据** | 模块含 `SshExecutorClient`（176 行真实 SSH 逻辑：连接/流泵/T超时/退出码判定），且已被 `ExecutorNodeService` 的连通性测试与 scheduler 接线**实际使用**。因无测试 → 无 `jacoco.exec` → `report` 直接 skip（日志 `Skipping JaCoCo execution due to missing execution data file`）→ **门禁连装都装不上** | 补 `SshExecutorClientTest`（Mockito 代理 JSch 的 `Session`/`ChannelExec` + 假 `LineListener`，断言成功码匹配、超时、流泵、`terminate` 幂等），随后模块才能加门禁。建议随「算子试运行」（§7-1）一并做——那正是它第一次被高频使用的地方 |
 | **O-18** | 门禁的"逻辑层"口径**不含 controller/aspect/ws** | `OperatorController`/`OperatorVersionController` 覆盖率 0%。这是**刻意的**：对 controller 写单测只能得到"调一遍方法、断言返回对象非空"的假覆盖率，真正要验的是鉴权/参数绑定/错误码映射/Swagger 契约，那是集成测试的活 | 随 O-9 的 `@SpringBootTest` 一起补（同一个环境前提） |
@@ -382,6 +422,26 @@ LEFT JOIN operator_version ov ON ov.id = ws.operator_version_id
 *与 §5-2 / §5-6 同源*：`*ConverterImpl` 的 exclude 只在一个 goal 生效、动态 attach 只在一种 JDK 路径成立、
 mapper 只在一种 classpath 形态下能被枚举 —— 都是"**同一个配置/代码有两个语义域，只验证了其中一个**"。
 
+### 5-10. `trigger` 表名是 **PostgreSQL 保留字**：DDL 与 3 处 XML 从未加引号（做触发器 CRUD 前先抓到的潜伏缺陷）
+
+docs/05 §3.4 的 DDL 原文写的是 `CREATE TABLE trigger (...)`——而 `TRIGGER` 在 PostgreSQL 里是
+**保留关键字**，这条 DDL 在真实 PG 上是语法错误，**根本建不出表**。同理 `ProjectMapper.xml` 里
+`FROM trigger tr` / 两处 `UPDATE trigger` 也是一执行就炸的 SQL。它们能安然活到今天，唯一原因是
+**本项目至今没有真实 PG 环境**（CI 只挂 Redis；Flyway 从未对真库跑过）——与 §5-8
+（管理员 scope 注入空条件）、§5-9（调度器单测 mock 掉 Mapper）完全同构：
+**从未被真实执行过的路径，缺陷不会自己现形**。
+
+修法（三层）：
+1. V1 基线 DDL：所有"表名位置"的 `trigger`（建表 / 索引 / FK 引用 / ALTER）统一加双引号；
+2. `ProjectMapper.xml` 三处活 SQL 同步加引号；触发器实体 `@TableName("\"trigger\"")`，
+   MP 生成的 CRUD 也走引号形态；
+3. **一致性测试同步升级**：`CREATE_TABLE` / `ALTER_ADD_COLUMN` / `TABLE_REF` 三个提取正则
+   支持 `?` 引号（捕获组拿裸名，DDL 侧与 XML 侧才能对上），并把 `trigger` 点名进自检断言 ——
+   这一步是必须的，因为引号表名对旧正则是**静默跳过**（别名注册不上 → 引用全部漏检），
+   恰好是 §5-9 里"少测 90% 而不报错"的失败模式的翻版。
+
+*登记为 O-28*。编号新增 O-29~O-31 与决策 D-30，见 §4。
+
 ## 6. 复跑命令（本地）
 
 ```bash
@@ -402,23 +462,24 @@ cd frontend && npm run lint && npm run test && npm run build
 | 2 | ~~工作流 CRUD + 版本化~~ | ✅ **已完成**（§1.2）；O-21 也随之以"构建期一致性测试"的口径闭环（§5-9） |
 | 3 | 自研 SVG 画布编辑器（**D-14**） | 止损线：**超 10 人日即降级 LogicFlow**；机制注释按 D-26 第 4 条 |
 | 4 | ~~DAG 校验规则接到接口并把 42213/42214/42218 回填~~ | ✅ **已完成**：保存草稿跑结构子集、发布跑全量，三码分流见 `WorkflowVersionServiceTest` |
-| 5 | 六层变量覆盖链解析器（**D-20** 语法；42214） | 逐层覆盖优先级必须有可读的测试名，否则"哪层赢"永远说不清。**注**：规则 4（变量引用可达性）已在 `DagValidator` 落地，本块补的是**取值侧**的六层覆盖链 |
-| 6 | 触发器 CRON（42216）+ 时间窗（42217） | `workflow_version.trigger_config` 列已就位（当前写 `[]` 快照） |
+| 5 | ~~六层变量覆盖链解析器~~ | ✅ **已完成**（§1.3）：值侧六层覆盖链 + 溯源 + 脱敏；规则 4（可达性）此前已在 `DagValidator` 落地 |
+| 6 | ~~触发器 CRON（42216）+ 时间窗（42217）~~ | ✅ **已完成**（§1.3）：CRUD 6 端点 + cron-preview + 停用联动；42216/42217 纯函数三分流。**注**：调度侧的 fire 推进 / catch-up（docs/06 §11.2）属 M4，本轮只做"配置进得来、下次时间算得出" |
 | 7 | 前端 6 页（算子列表/详情/版本 + 工作流列表/编辑器/详情） | 画布页单独排期 |
 
-> **下一步建议**：先做 **5（变量解析）**——它是算子试运行（1）与画布（3）共同的前置，
-> 且是纯逻辑、可完全单测，不依赖画布 UI。画布（3）排在它之后，因为画布要展示"这层的值从哪来"。
+> **下一步建议**：**1（算子试运行）**——它同时是 **O-17**（`SshExecutorClient` 首次高频使用）的收口点；
+> 画布（3）单独排期。
 
 ---
 
-**M3 第二/第三切片一句话总结**：工作流 CRUD + 版本化（草稿/发布/`42215`）与 DAG 校验的**接口化**（三码分流）
-已落地并实测，接口层单测 55 例、新增类覆盖率 87%~100%，逻辑层覆盖率 68.7% → **78.0%**。
+**M3 第二/第三/第四切片一句话总结**：工作流 CRUD + 版本化、DAG 校验接口化（三码分流）、六层变量覆盖链、
+触发器 CRUD 四块后端主干已落地并实测（428 用例，逻辑层覆盖 68.7% → **78.7%**）。
 
-更有价值的是**顺带修掉的三个真缺陷**，它们都属于同一类"**本地恰好没事、换个执行路径就出事**"：
+更有价值的是**顺带修掉的四个真缺陷**，它们都属于同一类"**本地恰好没事、换个执行路径就出事**"：
 
 1. `workflow_version` 被登记到数据权限表却**没有 `project_id` 列** → 非管理员查询必 500（§5-8）；
 2. `ws.start_command` 引用了**不属于该表的列** → 调度器每 tick 必失败（§5-9）；
-3. 一致性测试自身只认 `file:` 协议 → 在 `mvn verify` 下**静默少扫 90% 的 XML**（§5-9 尾部）。
+3. 一致性测试自身只认 `file:` 协议 → 在 `mvn verify` 下**静默少扫 90% 的 XML**（§5-9 尾部）；
+4. `trigger` 是 **PG 保留字**，DDL 与 XML 从未加引号 → 真实 PG 环境一来就全炸（§5-10）。
 
 前两个都是"**被 mock 掩盖**"的：单测把 Mapper 整个 mock 掉，SQL 从未真的打过库。
 处理方式不是"下次注意"，而是各加一条 **DDL 一致性测试**，把这类错误整体提前到构建期。

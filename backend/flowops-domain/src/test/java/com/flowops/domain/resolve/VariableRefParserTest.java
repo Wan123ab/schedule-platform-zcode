@@ -1,6 +1,6 @@
-package com.flowops.modules.workflow.validator;
+package com.flowops.domain.resolve;
 
-import com.flowops.modules.workflow.validator.VariableRefParser.VariableRef;
+import com.flowops.domain.resolve.VariableRefParser.VariableRef;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -109,5 +109,29 @@ class VariableRefParserTest {
         assertThat(VariableRefParser.parse("")).isEmpty();
         assertThat(VariableRefParser.parse("没有引用的普通文本")).isEmpty();
         assertThat(VariableRefParser.parseParams(null)).isEmpty();
+    }
+    @Test
+    void 裸引用_无前缀的标识符合法() {
+        // docs/03 §4.4 的平台变量写法（${taskId}）—— 与 §9.1 EBNF 的矛盾按"都支持"落定
+        var refs = VariableRefParser.parse("${taskId}");
+        assertThat(refs).hasSize(1);
+        assertThat(refs.get(0).valid()).isTrue();
+        assertThat(refs.get(0).isBare()).isTrue();
+        assertThat(refs.get(0).varName()).isEqualTo("taskId");
+    }
+
+    @Test
+    void 裸引用_中文名合法() {
+        var refs = VariableRefParser.parse("${任务编号}");
+        assertThat(refs.get(0).valid()).isTrue();
+        assertThat(refs.get(0).isBare()).isTrue();
+        assertThat(refs.get(0).varName()).isEqualTo("任务编号");
+    }
+
+    @Test
+    void 裸引用_含非法字符报错() {
+        var refs = VariableRefParser.parse("${a-b}");
+        assertThat(refs.get(0).valid()).isFalse();
+        assertThat(refs.get(0).error()).contains("裸引用");
     }
 }

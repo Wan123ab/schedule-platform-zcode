@@ -60,7 +60,8 @@ class DataPermissionSchemaConsistencyTest {
     @Test
     void 无项目归属列的派生表不得进入登记表() {
         Set<String> registered = FlowopsDataPermissionHandler.projectScopedTables();
-        assertThat(registered).doesNotContain("workflow_version", "workflow_step", "workflow_edge");
+        assertThat(registered).doesNotContain("workflow_version", "workflow_step", "workflow_edge",
+                "trigger");
     }
 
     private void assertColumnsExist(Map<String, String> registry, String dimension) {

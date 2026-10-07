@@ -6,6 +6,7 @@ import com.flowops.domain.entity.project.Project;
 import com.flowops.domain.entity.workflow.Workflow;
 import com.flowops.domain.entity.workflow.WorkflowVersion;
 import com.flowops.domain.mapper.project.ProjectMapper;
+import com.flowops.domain.mapper.workflow.TriggerMapper;
 import com.flowops.domain.mapper.workflow.WorkflowMapper;
 import com.flowops.domain.mapper.workflow.WorkflowVersionMapper;
 import com.flowops.modules.governance.scope.ScopeGuard;
@@ -46,6 +47,7 @@ class WorkflowServiceTest {
     @Mock private WorkflowMapper workflowMapper;
     @Mock private WorkflowVersionMapper versionMapper;
     @Mock private ProjectMapper projectMapper;
+    @Mock private TriggerMapper triggerMapper;
     @Mock private IdGen idGen;
     @Mock private WorkflowVersionService versionService;
 
@@ -56,7 +58,7 @@ class WorkflowServiceTest {
     void setUp() {
         when(idGen.next(anyString(), anyString())).thenReturn("WF-0003");
         guard = new WorkflowAccessGuard(workflowMapper, new ScopeGuard());
-        service = new WorkflowService(workflowMapper, versionMapper, projectMapper, idGen,
+        service = new WorkflowService(workflowMapper, versionMapper, projectMapper, triggerMapper, idGen,
                 new WorkflowConverterImpl(), new WorkflowVersionConverterImpl(), guard, versionService);
     }
 
@@ -278,6 +280,8 @@ class WorkflowServiceTest {
         when(projectMapper.selectById(11L)).thenReturn(project());
 
         assertThat(service.disable("WF-0001").getStatus()).isEqualTo("DISABLED");
+        // 停用联动：该工作流的触发器一并置 enabled=false（docs/07 §6.4），软状态不恢复
+        verify(triggerMapper).disableByWorkflowId(workflow.getId());
     }
 
     // ── 越权语义（40301 / 40400）─────────────────────────────

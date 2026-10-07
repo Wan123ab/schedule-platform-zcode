@@ -10,7 +10,7 @@
 
     <select id="countTriggersByProject" resultType="long">
         SELECT count(*)
-          FROM trigger tr
+          FROM "trigger" tr
           JOIN workflow w ON w.id = tr.workflow_id
          WHERE w.project_id = #{projectId}
            AND tr.deleted = false AND w.deleted = false
@@ -27,7 +27,7 @@
 
     <!-- ① 记录原状态（enabled_before_disable）后暂停：重新启用时按原状态恢复 -->
     <update id="disableProjectTriggers">
-        UPDATE trigger
+        UPDATE "trigger"
            SET enabled_before_disable = enabled,
                enabled = false,
                version = version + 1
@@ -37,7 +37,7 @@
 
     <!-- ② 恢复原状态 + next_fire_time 置空（重算在 M3 TriggerService；见 ProjectMapper 接口注释） -->
     <update id="enableProjectTriggers">
-        UPDATE trigger
+        UPDATE "trigger"
            SET enabled = COALESCE(enabled_before_disable, enabled),
                enabled_before_disable = NULL,
                next_fire_time = NULL,

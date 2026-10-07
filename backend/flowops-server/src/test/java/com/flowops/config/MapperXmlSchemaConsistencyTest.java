@@ -53,14 +53,18 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class MapperXmlSchemaConsistencyTest {
 
+    /**
+     * 表名允许两侧带双引号（PG 保留字表，如 {@code trigger}，DDL 与 XML 里都必须写 {@code "trigger"}）。
+     * 引号不在捕获组里，两条链路（DDL 提取 / XML 别名提取）都拿裸名，才能对上。
+     */
     private static final Pattern CREATE_TABLE =
-            Pattern.compile("(?i)CREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?(\\w+)\\s*\\(");
+            Pattern.compile("(?i)CREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?\"?(\\w+)\"?\\s*\\(");
     private static final Pattern ALTER_ADD_COLUMN =
-            Pattern.compile("(?i)ALTER\\s+TABLE\\s+(\\w+)\\s+ADD\\s+COLUMN\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?(\\w+)");
+            Pattern.compile("(?i)ALTER\\s+TABLE\\s+\"?(\\w+)\"?\\s+ADD\\s+COLUMN\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?(\\w+)");
     private static final Pattern STATEMENT =
             Pattern.compile("(?is)<(select|insert|update|delete)\\b[^>]*>(.*?)</\\1>");
     private static final Pattern TABLE_REF =
-            Pattern.compile("(?i)\\b(from|join)\\s+([a-z_][a-z0-9_]*)(?:\\s+(?:as\\s+)?([a-z_][a-z0-9_]*))?");
+            Pattern.compile("(?i)\\b(from|join)\\s+\"?([a-z_][a-z0-9_]*)\"?(?:\\s+(?:as\\s+)?([a-z_][a-z0-9_]*))?");
     private static final Pattern QUALIFIED_REF =
             Pattern.compile("\\b([a-z_][a-z0-9_]*)\\.([a-z_][a-z0-9_]*)\\b");
     private static final Pattern FIRST_TOKEN =
@@ -122,7 +126,10 @@ class MapperXmlSchemaConsistencyTest {
         assertThat(tablesChecked)
                 .as("跨域语句没被解析到：这些表正是 O-21 要保护的对象（扫到 %d 处引用 / %d 个 XML）",
                         checked, mapperXmlFiles().size())
-                .contains("workflow_step", "workflow_version", "workflow", "operator_version", "task_step");
+                .contains("workflow_step", "workflow_version", "workflow", "operator_version", "task_step",
+                        // "trigger" 是 PG 保留字，必须以 "trigger" 形式出现在 DDL 与 XML 里；
+                        // 提取正则若不认引号会把它整表静默跳过（这正是本测试最忌讳的失败模式）
+                        "trigger");
         // 一次报全部：不必"修一条跑一次"
         assertThat(problems)
                 .as("Mapper XML 与 DDL 不一致：这些列在库里不存在，SQL 一执行就是 500")

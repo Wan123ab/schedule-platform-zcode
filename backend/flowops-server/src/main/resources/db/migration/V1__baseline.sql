@@ -499,7 +499,7 @@ CREATE UNIQUE INDEX uk_wedge_pair ON workflow_edge(workflow_version_id, source_s
 CREATE INDEX idx_wedge_version ON workflow_edge(workflow_version_id);
 
 -- R15/R16：触发器
-CREATE TABLE trigger (
+CREATE TABLE "trigger" (
     id bigserial PRIMARY KEY,
     trigger_id varchar(32) NOT NULL,
     trigger_name varchar(128) NOT NULL,
@@ -527,10 +527,10 @@ CREATE TABLE trigger (
     updated_by varchar(64), version integer NOT NULL DEFAULT 0,
     deleted boolean NOT NULL DEFAULT false
 );
-CREATE UNIQUE INDEX uk_trigger_trigger_id ON trigger(trigger_id);
-CREATE UNIQUE INDEX uk_trigger_workflow_name ON trigger(workflow_id, trigger_name) WHERE deleted = false;
+CREATE UNIQUE INDEX uk_trigger_trigger_id ON "trigger"(trigger_id);
+CREATE UNIQUE INDEX uk_trigger_workflow_name ON "trigger"(workflow_id, trigger_name) WHERE deleted = false;
 -- ⭐ 调度器扫描索引：找"已启用 + 到期"
-CREATE INDEX idx_trigger_next_fire ON trigger(next_fire_time)
+CREATE INDEX idx_trigger_next_fire ON "trigger"(next_fire_time)
     WHERE enabled = true AND deleted = false;
 
 -- R20 前置：回填批次（task.backfill_batch_id 引用）
@@ -582,7 +582,7 @@ CREATE TABLE task (
     project_id bigint NOT NULL REFERENCES project(id) ON DELETE RESTRICT,
     trigger_type varchar(32) NOT NULL
                  CHECK (trigger_type IN ('MANUAL','CRON','API','EVENT','BACKFILL')),
-    trigger_id   bigint REFERENCES trigger(id) ON DELETE SET NULL,
+    trigger_id   bigint REFERENCES "trigger"(id) ON DELETE SET NULL,
     backfill_batch_id bigint REFERENCES backfill_batch(id) ON DELETE SET NULL,
     biz_date   date,                                   -- 业务日期（回填/定时场景）
     submitter  varchar(64),
@@ -631,7 +631,7 @@ CREATE INDEX idx_task_active ON task(status)
 CREATE INDEX idx_task_conflict ON task(workflow_id, biz_date, submit_at)
     WHERE deleted = false;
 
-ALTER TABLE trigger
+ALTER TABLE "trigger"
     ADD CONSTRAINT fk_trigger_last_task FOREIGN KEY (last_fire_task_id) REFERENCES task(id) ON DELETE SET NULL;
 
 -- 步骤实例（11 态，写入量最大）
@@ -714,7 +714,7 @@ CREATE UNIQUE INDEX uk_tsretry_attempt ON task_step_retry(task_step_id, attempt_
 -- v3：触发点火日志（06 §11.1.1 的幂等支点，uq_trigger_fire 是唯一支点）
 CREATE TABLE trigger_fire_log (
     id          bigserial PRIMARY KEY,
-    trigger_id  bigint      NOT NULL REFERENCES trigger(id) ON DELETE CASCADE,
+    trigger_id  bigint      NOT NULL REFERENCES "trigger"(id) ON DELETE CASCADE,
     fire_time   timestamptz NOT NULL,
     task_id     bigint REFERENCES task(id) ON DELETE SET NULL,
     status      varchar(16) NOT NULL

@@ -1,4 +1,4 @@
-package com.flowops.modules.workflow.validator;
+package com.flowops.domain.resolve;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -24,8 +24,9 @@ import java.util.regex.Pattern;
  * 引用的（传递）上游。后者需要把引用解析成结构化结果再和 DAG 图比对，
  * 引擎给不出来。</p>
  *
- * <p><b>本类只做语法与拆分</b>：可达性判定在 {@link DagValidator} 里（需要图）。
- * 分开的理由是两者可以独立测 —— 语法用例不需要构造 DAG。</p>
+ * <p><b>本类只做语法与拆分</b>：可达性判定在 server 侧的 DagValidator 里（需要图）。
+ * 分开的理由是两者可以独立测 —— 语法用例不需要构造 DAG；也正因本类无任何 server
+ * 依赖，运行时的值解析器（同包 VariableChainResolver）才能在 scheduler 里复用它。</p>
  */
 public final class VariableRefParser {
 
@@ -45,9 +46,9 @@ public final class VariableRefParser {
      * 一个已解析出的引用。
      *
      * @param raw       原文（含 {@code ${}}），用于错误提示里原样回显
-     * @param source    来源关键字；语法非法时为 {@code null}
+     * @param source    来源关键字；语法非法时为 {@code null}；<b>裸引用</b>（无前缀）也为 {@code null}
      * @param stepName  仅 {@code source=step} 时有值（已去掉引号）
-     * @param varName   仅 {@code source=step} 时有值（{@code output} 之后的变量名）
+     * @param varName   {@code source=step} 时为输出变量名；<b>裸引用</b>时为标识符本身
      * @param error     语法错误说明；合法时为 {@code null}
      */
     public record VariableRef(String raw, String source, String stepName, String varName, String error) {
@@ -58,6 +59,15 @@ public final class VariableRefParser {
 
         public boolean isStepOutput() {
             return valid() && "step".equals(source);
+        }
+
+        /**
+         * 裸引用：{@code ${taskId}} 这种无来源前缀的写法（docs/03 §4.4 的平台变量与
+         * 扁平上下文风格）。它不在发布校验里判可达性（没有 DAG 语义），运行时从
+         * 六层合并的扁平上下文取值（同包 VariableChainResolver）。
+         */
+        public boolean isBare() {
+            return valid() && source == null;
         }
     }
 
@@ -121,7 +131,17 @@ public final class VariableRefParser {
             return new VariableRef(raw, null, null, null, "变量引用为空");
         }
         int dot = inner.indexOf('.');
-        if (dot <= 0) {
+        if (dot < 0) {
+            // 裸引用：${taskId}（docs/03 §4.4）。docs/07 §9.1 的 EBNF 只写了带前缀的
+            // 形式，但 §4.4 的启动命令示例（${taskId} / ${input_path}）是裸的 ——
+            // 两处矛盾按"都支持"落定：带前缀=点名某层，裸=扁平上下文按覆盖链取值。
+            if (!IDENT.matcher(inner).matches() && !CJK.matcher(inner).matches()) {
+                return new VariableRef(raw, null, null, null,
+                        "裸引用 '" + inner + "' 需为合法标识符（或改用带来源前缀的写法，如 ${platform.task_id}）");
+            }
+            return new VariableRef(raw, null, null, inner, null);
+        }
+        if (dot == 0) {
             return new VariableRef(raw, null, null, null,
                     "变量引用缺少来源前缀，应为 ${step.步骤名.output.变量名}");
         }

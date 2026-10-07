@@ -4,7 +4,8 @@ import com.flowops.modules.workflow.validator.DagValidationContext.Concurrency;
 import com.flowops.modules.workflow.validator.DagValidationContext.EdgeLink;
 import com.flowops.modules.workflow.validator.DagValidationContext.OperatorSpec;
 import com.flowops.modules.workflow.validator.DagValidationContext.StepNode;
-import com.flowops.modules.workflow.validator.VariableRefParser.VariableRef;
+import com.flowops.domain.resolve.VariableRefParser;
+import com.flowops.domain.resolve.VariableRefParser.VariableRef;
 
 import java.math.BigDecimal;
 import java.util.ArrayDeque;

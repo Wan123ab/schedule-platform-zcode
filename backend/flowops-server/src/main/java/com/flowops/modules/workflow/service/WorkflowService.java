@@ -12,6 +12,7 @@ import com.flowops.domain.entity.project.Project;
 import com.flowops.domain.entity.workflow.Workflow;
 import com.flowops.domain.entity.workflow.WorkflowVersion;
 import com.flowops.domain.mapper.project.ProjectMapper;
+import com.flowops.domain.mapper.workflow.TriggerMapper;
 import com.flowops.domain.mapper.workflow.WorkflowMapper;
 import com.flowops.domain.mapper.workflow.WorkflowVersionMapper;
 import com.flowops.modules.workflow.converter.WorkflowConverter;
@@ -65,6 +66,7 @@ public class WorkflowService {
     private final WorkflowMapper workflowMapper;
     private final WorkflowVersionMapper versionMapper;
     private final ProjectMapper projectMapper;
+    private final TriggerMapper triggerMapper;
     private final IdGen idGen;
     private final WorkflowConverter converter;
     private final WorkflowVersionConverter versionConverter;
@@ -195,6 +197,10 @@ public class WorkflowService {
         }
         workflow.setStatus("DISABLED");
         workflowMapper.updateById(workflow);
+        // 联动停触发器（docs/07 §6.4"触发器自动置 enabled=false"）。
+        // 直接用 TriggerMapper 而不是 TriggerService：后者依赖本类，反向注入成环。
+        // enabled_before_disable 记住原状态，恢复时按原状态还原（与项目级启停同一约定）。
+        triggerMapper.disableByWorkflowId(workflow.getId());
         log.info("工作流已停用 workflow={}", workflowId);
         return toVO(workflow);
     }

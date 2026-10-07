@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 触发器自定义 SQL。表名 trigger 是 PG 保留字，必须带双引号（docs/05 原文没加，本轮修正）。 -->
+<mapper namespace="com.flowops.domain.mapper.workflow.TriggerMapper">
+
+    <!-- 不走 updateById：MP 会静默剔除逻辑删除列，软删变成"什么都没改"（资产域同坑） -->
+    <update id="softDelete">
+        UPDATE "trigger"
+           SET deleted = true,
+               enabled = false,
+               next_fire_time = NULL,
+               version = version + 1,
+               updated_at = now()
+         WHERE id = #{id}
+           AND deleted = false
+    </update>
+
+    <!-- 工作流停用联动：enabled_before_disable 记住原状态，恢复时由项目级启停逻辑统一处理 -->
+    <update id="disableByWorkflowId">
+        UPDATE "trigger"
+           SET enabled_before_disable = enabled,
+               enabled = false,
+               next_fire_time = NULL,
+               version = version + 1,
+               updated_at = now()
+         WHERE workflow_id = #{workflowId}
+           AND deleted = false
+           AND enabled = true
+    </update>
+
+</mapper>
