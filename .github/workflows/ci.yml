@@ -1,11 +1,16 @@
 # FlowOps CI（docs/09 M0 交付物：构建 + 单测 + 静态检查）
 # 触发：PR 与 main 推送。后端矩阵编译 5 模块 + Flyway 语法随集成测试覆盖（M1 引 Testcontainers）。
+#
+# ⚠️ 2026-10-07（M2）：M2 起的开发全部在 dev_workbuddy 分支上进行，而原触发条件只覆盖
+# main/PR —— 结果是"分支上的代码没有任何 CI 守卫"，与"推送前必须本地实跑"的约束叠加后
+# 反而更容易漏网（本地跑过 ≠ CI 环境跑过）。故补上 dev_* 通配：开发分支同样必须过 CI。
+# 用通配而非写死分支名：分支合并删除后无需回头改这里。
 name: ci
 
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, 'dev_*']
 
 jobs:
   backend:
