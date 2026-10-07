@@ -42,7 +42,7 @@ M2 分两段推进：**前半程**（认证/权限/项目/凭据/心跳）与**�
 | 5 | **DataScope 越权测试**：A 项目用户访问 B 项目资源全端点 → 全 `40301` | ⚠️ **分层已测 / 全端点实跑未做** | 已测：拦截器 SQL 注入正确性（`FlowopsDataPermissionHandlerTest` 11 例）、解析器可见集与类型择优（`DataScopeResolverTest`）、Service 层 40301/40400 区分（`ScopeGuardTest` + 各 ServiceTest）。**未做**：起 PG+Redis 用真实 token 打完整端点矩阵 —— 见偏离项 **O-9** |
 | 6 | 单测覆盖：三域状态机/CAS/节点匹配 ≥70% | ✅ **已实测**（行覆盖率门禁待补） | `mvn -o clean test` **178 用例全绿**（server 77 / scheduler 88 / domain 8 / common 5）；JaCoCo 门禁仍缺，见 **O-14** |
 | 7 | 前端四类页面可用 | ✅ **已实测** | `pnpm lint`（`--max-warnings 0`）· `pnpm test`（3 文件 19 例）· `pnpm build`（`vue-tsc --noEmit` + vite build）三件套本地全绿 |
-| — | **CI 全绿** | ⏳ 待本轮推送验证 | 推送 `dev_workbuddy` 后经 GitHub API 自查（`main` 基线：run 9 success）；结果见 §3 末 |
+| — | **CI 全绿** | ✅ **已实测** | **run #10（`dev_workbuddy` @ `2891fe8`）conclusion = success**：`Backend · build & test` 9 步全过、`Frontend · lint & typecheck & test & build` 12 步全过（GitHub API 自查） |
 
 ## 3. 测试资产
 
@@ -58,9 +58,9 @@ M2 分两段推进：**前半程**（认证/权限/项目/凭据/心跳）与**�
 | scheduler | （同 M1，88 例） | 状态机/队列 CAS/节点匹配/预留账本/DAG/恢复 |
 | frontend | permissions.spec.ts · **format.spec.ts（10 例）** · **assetContract.spec.ts（6 例）** | 49 点与路由一致性；格式化边界（假时钟固定相对时间）；**资产域错误码文案与权限点防漏**（`Record<number,string>` 的类型系统管不到"该有的码写全了"） |
 
-**CI**：`.github/workflows/ci.yml`（backend `mvn verify` + frontend 三件套，Redis 服务容器）。
+**CI**：`.github/workflows/ci.yml`（backend `mvn verify` + frontend 三件套，Redis 服务容器）。**触发范围本轮扩到 `dev_*`**（见 §5-4）。
 **本地工具链**：`tools/` 下 JDK21 + Maven 3.9.9 + Node 20/pnpm 9。**推送前必须本地实跑后端 `mvn -o clean test` 与前端三件套**——这条约束来自 M1 首轮 CI 暴露 20+ 编译问题的血泪记录，本轮继续遵守（也确实在本地先抓到了一次 `CredentialServiceTest` 的 import 缺失）。
-**验证顺序**：本地实跑 → 提交 → 双推（origin + gitee）→ GitHub API 自查。
+**验证顺序**：本地实跑 → 提交 → 双推（origin + gitee）→ GitHub API 自查。**最终结果：run #10（`2891fe8`）双 job 全绿。**
 
 ## 4. 偏离与简化项（如实登记，均注明去处）
 
@@ -90,6 +90,21 @@ M2 分两段推进：**前半程**（认证/权限/项目/凭据/心跳）与**�
    起因：写节点详情页的"绑定凭据"下拉时，为了把 `CR-20261007-0001` 还原成下拉需要的主键，写了 `Number(cred.credentialId.replace(/\D/g, ''))` 这种"从业务编号里抠数字"的代码 —— 它揭示的是**后端契约漏了翻译**，而不是前端需要更巧的正则。
    修复：`ExecutorNodeVO/SaveExecutorNodeRequest.credentialRefId(Long)` → `credentialId(String)`、`CredentialVO/SaveCredentialRequest.projectId(Long)` → `projectId(PRJ-xxxx)`（VO 另加只读 `projectName`），Service 层负责翻译，翻不到即 40400；口径固化为 **D-27**。前端下拉改回 `:value="cred.credentialId"`。
    *教训*：前端出现"字符串里抠数字"的代码时，先怀疑契约，不要给前端加正则。
+
+4. **CI 触发范围漏掉 `dev_*` 分支（分支代码处于无守卫状态）**
+   `ci.yml` 原本只监听 `push: branches: [main]` 与 `pull_request`。而从 M2 起开发都在 `dev_workbuddy` 上进行、且不通过 PR 合入 → **分支上的所有提交都跑不到 CI**，"过 CI 再合"的守卫事实上失效（本轮的 M2 提交就是裸推上去的）。
+   修复：触发分支扩为 `[main, 'dev_*']`；该提交（`2891fe8`）推送后 **run #10 立即触发并 success**，证明守卫已生效。
+   *教训*：长驻开发分支一旦偏离"PR 合入"流程，`pull_request` 触发就等于没有触发——**触发条件要跟着工作流走**。
+
+5. **本地 Git 弹「CredentialHelperSelector」窗口（环境问题，非代码问题）**
+   `PortableGit` 的系统级 `etc/gitconfig` 里写死 `credential.helper = helper-selector`，全局 `~/.gitconfig` 又配了 `credential.helper = !"...git-credential-manager.exe"`。`credential.helper` 是**多值键**：Git 会把各层级的值**串成列表依次调用**（不是后者覆盖前者），于是每次认证都先弹选择器；而选择器记着 `wincred`（`[credential "helperselector"] selected = wincred`）、实际配的却是 `manager`，**两边不一致 → 每次都重新问**。所以弹窗里勾「Always use this from now on」永远治不了本（它只是在标记一个已被绕过的选择）。
+   修复：在全局配置用**空值重置 helper 列表**再只挂 GCM ——
+   ```ini
+   [credential]
+       helper =                      # 空值 = 丢弃系统级继承来的 helper-selector
+       helper = !"...git-credential-manager.exe"
+   ```
+   并删掉陈旧的 `[credential "helperselector"]` 段。已用 `GIT_TRACE=1` 端到端验证：`run_command` 只剩 `git-credential-manager.exe`，`helper-selector` 不再被执行，弹窗根除（后续双推均无弹窗）。
 
 4. **`ExecutorNodeService.toVO(node, cluster, String ignored)` 的无用参数** —— 写的时候就发现是手滑，直接删掉；不留 `@SuppressWarnings` 之类的东西掩盖。
 
