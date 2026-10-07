@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 工作流连线自定义 SQL（docs/05 §3.4 workflow_edge）。 -->
+<mapper namespace="com.flowops.domain.mapper.workflow.WorkflowEdgeMapper">
+
+    <!--
+      物理删除某版本的全部连线。
+      必须先于步骤的物理删除执行：边引用步骤主键（FK），
+      先删步骤会让边悬空 → 要么撞 FK 报错，要么残留脏行。
+    -->
+    <delete id="deleteByVersionId">
+        DELETE FROM workflow_edge
+         WHERE workflow_version_id = #{versionId}
+    </delete>
+
+    <select id="listByVersionId" resultType="com.flowops.domain.entity.workflow.WorkflowEdge">
+        SELECT *
+          FROM workflow_edge
+         WHERE workflow_version_id = #{versionId}
+         ORDER BY id
+    </select>
+
+</mapper>

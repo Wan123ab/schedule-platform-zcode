@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 工作流自定义 SQL（docs/05 §3.4 workflow）。 -->
+<mapper namespace="com.flowops.domain.mapper.workflow.WorkflowMapper">
+
+    <!--
+      软删除。
+      ⚠️ 不能用 BaseMapper.updateById：MP 会把逻辑删除列从 SET 子句剔除，
+      结果是"调用成功但一行没变"（软删静默失效）。这条语句同时补上
+      version 自增（CAS 语义）与 updated_at —— XML 更新绕过 MetaObjectHandler，
+      时间戳不会自动填。
+    -->
+    <update id="softDelete">
+        UPDATE workflow
+           SET deleted = true,
+               version = version + 1,
+               updated_at = now()
+         WHERE id = #{id}
+           AND deleted = false
+    </update>
+
+</mapper>

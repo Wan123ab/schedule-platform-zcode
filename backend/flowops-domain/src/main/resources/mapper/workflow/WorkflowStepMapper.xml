@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 工作流步骤自定义 SQL（docs/05 §3.4 workflow_step）。 -->
+<mapper namespace="com.flowops.domain.mapper.workflow.WorkflowStepMapper">
+
+    <!--
+      物理删除某版本的全部步骤 —— 整包替换的第一步。
+      为什么是物理删而不是软删：步骤是版本的从属快照（表上没有 deleted 列），
+      "这个版本当时的图"由版本行 + 当时的 JSONB 快照负责留档；
+      给从属行做软删只会让每次保存都留下一堆不可见的旧行。
+    -->
+    <delete id="deleteByVersionId">
+        DELETE FROM workflow_step
+         WHERE workflow_version_id = #{versionId}
+    </delete>
+
+    <!-- 步骤列表：按画布位置排序，前端渲染时不必再排一次。 -->
+    <select id="listByVersionId" resultType="com.flowops.domain.entity.workflow.WorkflowStep">
+        SELECT *
+          FROM workflow_step
+         WHERE workflow_version_id = #{versionId}
+         ORDER BY pos_y, pos_x, id
+    </select>
+
+</mapper>

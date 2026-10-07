@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 工作流版本自定义 SQL（docs/05 §3.4 workflow_version）。 -->
+<mapper namespace="com.flowops.domain.mapper.workflow.WorkflowVersionMapper">
+
+    <!--
+      当前最大版本序号。
+      · version_no 形如 v1 / v2，故剥掉非数字字符再转 int 比较
+      · ⚠️ 刻意 **不加** deleted = false：uk_wv_version_id 是全表唯一索引，
+        软删过的 v3 若不参与计数，下次会再生成一个 v3 并撞唯一索引，
+        而报错信息（duplicate key）与真实原因（序号没跳过已删行）对不上
+      · NULLIF(..., '') 防住"整列都是非数字"时 regexp_replace 得到空串 → '' ::int 报错
+    -->
+    <select id="selectMaxVersionIndex" resultType="java.lang.Integer">
+        SELECT COALESCE(max(NULLIF(regexp_replace(version_no, '\D', '', 'g'), '')::int), 0)
+          FROM workflow_version
+         WHERE workflow_id = #{workflowId}
+    </select>
+
+    <!-- 软删单个版本（同 WorkflowMapper.softDelete 的理由，不能用 updateById）。 -->
+    <update id="softDelete">
+        UPDATE workflow_version
+           SET deleted = true,
+               version = version + 1,
+               updated_at = now()
+         WHERE id = #{id}
+           AND deleted = false
+    </update>
+
+    <update id="softDeleteByWorkflowId">
+        UPDATE workflow_version
+           SET deleted = true,
+               version = version + 1,
+               updated_at = now()
+         WHERE workflow_id = #{workflowId}
+           AND deleted = false
+    </update>
+
+</mapper>
