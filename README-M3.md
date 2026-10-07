@@ -50,6 +50,7 @@
 | 10 | **触发器 CRON**（42216） | ⏳ 未开工 | §7-6 |
 | 11 | **前端 6 页**（算子 3 + 工作流 3） | ⏳ 未开工 | §7-7 |
 | — | 单测覆盖门禁（O-14） | ✅ **已实测** | 4 个模块 5 道门禁全绿，且经**反向扰动验证会拦**（见 §5-3） |
+| — | **CI 全绿** | ✅ **已实测** | **run #12（`dev_workbuddy` @ `ddadde7`）conclusion = success**：`Backend · build & test` 9 步全过、`Frontend · lint & typecheck & test & build` 12 步全过（GitHub API 自查，两个 job 的每一步 `conclusion=success`） |
 
 ## 3. 测试资产与覆盖率基线
 
