@@ -15,4 +15,15 @@
          ORDER BY seq, id
     </select>
 
+    <!-- 批量取（DAG 校验装配）：一次 IN 查询换掉 N 次单版本查询。
+         调用方负责按 operator_version_id 分组；空集合直接短路，避免拼出 IN ()。 -->
+    <select id="listByVersionIds" resultType="com.flowops.domain.entity.asset.OperatorParamDef">
+        SELECT * FROM operator_param_def
+         WHERE operator_version_id IN
+        <foreach collection="operatorVersionIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+         ORDER BY operator_version_id, seq, id
+    </select>
+
 </mapper>

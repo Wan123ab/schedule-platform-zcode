@@ -5,6 +5,7 @@ import com.flowops.domain.entity.asset.OperatorParamDef;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -21,4 +22,13 @@ public interface OperatorParamDefMapper extends BaseMapper<OperatorParamDef> {
 
     /** 详情页与变量校验都要按 seq 稳定排序。 */
     List<OperatorParamDef> listByVersionId(@Param("operatorVersionId") Long operatorVersionId);
+
+    /**
+     * 批量取多个版本的参数定义（DAG 校验装配必填参数集合时用）。
+     *
+     * <p><b>为什么必须批量</b>：一个 100 节点的画布就是 100 次 {@code listByVersionId}，
+     * 而"保存草稿"是编辑器里最高频的写操作。这里按 {@code operator_version_id IN (...)}
+     * 一次取回后在内存分组，节点数与 SQL 次数解耦。</p>
+     */
+    List<OperatorParamDef> listByVersionIds(@Param("operatorVersionIds") Collection<Long> operatorVersionIds);
 }

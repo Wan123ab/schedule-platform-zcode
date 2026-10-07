@@ -14,4 +14,14 @@
          ORDER BY seq, id
     </select>
 
+    <!-- 批量取（DAG 规则 4 的"变量是否已声明"判定）；空集合由调用方短路。 -->
+    <select id="listByVersionIds" resultType="com.flowops.domain.entity.asset.OperatorOutputDecl">
+        SELECT * FROM operator_output_decl
+         WHERE operator_version_id IN
+        <foreach collection="operatorVersionIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+         ORDER BY operator_version_id, seq, id
+    </select>
+
 </mapper>

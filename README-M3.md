@@ -47,11 +47,41 @@
 | 错误聚合（不抛第一个错）+ 逐条字段定位（`rule` + `stepName`） | `DagViolation`（42213 / 42214 / 42218 三码分流） | ✅ |
 | 单测 | `DagValidatorTest` 28 例 + `VariableRefParserTest` 10 例 | ✅ |
 | Flyway V7：给 `workflow` 补 `description` 列 | `db/migration/V7__workflow_description.sql` | ✅ |
-| **工作流 CRUD / 版本接口 / 发布接口**（DTO + Service + Controller） | —— | ⏳ 下一轮（§7-2） |
+| **工作流 CRUD / 版本接口 / 发布接口**（DTO + Service + Controller） | —— | ✅ **已落 §1.2** |
+| 单测 | `DagValidatorTest` 28 例 + `VariableRefParserTest` 10 例 | ✅ |
+| Flyway V7：给 `workflow` 补 `description` 列 | `db/migration/V7__workflow_description.sql` | ✅ |
 
 > **本切片刻意只做"域模型 + 校验内核"**：校验器是纯函数（输入只有 `DagValidationContext`，不注入任何 Mapper），
 > 因此"逐条规则造错误用例"是真单测而不是验证 mock 的形状；DTO/Service/Controller 放在下一轮，
 > 由它们负责把跨域数据（算子参数模板、发布状态、集群上限）装配成上下文。
+
+## 1.2 第三切片：工作流接口层（本轮新增）
+
+| 交付物 | 落点 | 状态 |
+|---|---|---|
+| 工作流 DTO（`WorkflowVO` / `SaveWorkflowRequest` / `SaveConcurrencyRequest` / `WorkflowVersionBrief`） | `modules/workflow/dto/` | ✅ |
+| DAG DTO（`DagStepDef` / `DagEdgeDef` / `SaveWorkflowVersionRequest` / `WorkflowVersionVO`） | 同上（注解只覆盖"填错就该 40001"的情形） | ✅ |
+| MapStruct 转换器（`unmappedTargetPolicy=ERROR`，ignore 列表 = "哪些字段必须 Service 补齐"的契约） | `modules/workflow/converter/` | ✅ |
+| **`DagAssembler`**：请求 DTO ⇄ `DagValidationContext` 的装配（业务编号↔内部主键**只有这一份实现**） | `modules/workflow/service/DagAssembler` | ✅ |
+| **`WorkflowAccessGuard`**：工作流可见性单点（40301/40400），版本侧"取自身行→回父 workflow 判范围" | `modules/workflow/service/WorkflowAccessGuard` | ✅ |
+| **`WorkflowService`**：分页（排序白名单）/详情/新建/编辑/并发设置/发布/停用 | `modules/workflow/service/WorkflowService` | ✅ |
+| **`WorkflowVersionService`**：版本详情/新开草稿（**42215**）/保存草稿（整包替换，**42212**）/发布（全量 10 条） | `modules/workflow/service/WorkflowVersionService` | ✅ |
+| 接口层：`/workflows`（7 个端点）+ `/workflow-versions/{versionId}`（2 个端点） | `modules/workflow/controller/` | ✅ |
+| 资产域 Mapper 批量查询（`listByVersionIds`，一次 `IN` 取代 N 次单查） | `OperatorParamDefMapper` / `OperatorOutputDeclMapper` + XML | ✅ |
+| 单测 | `WorkflowServiceTest` 16 + `WorkflowVersionServiceTest` 28 + `DagAssemblerTest` 11 | ✅ |
+
+**本切片的三条关键设计**（都写进了类注释，防复发）：
+
+1. **一次请求两次校验，规则集不同**（docs/07 §9.2）：保存草稿只跑规则 **1/5/10**（结构），
+   发布跑全量 10 条。若保存也跑全量，"画了半个图想先存一下"会被拒，编辑中途无法保存。
+2. **哨兵 ≠ null**（`DagValidationContext.UNRESOLVED_ID = -1`）：`null` 是"用户没选算子"（规则 2），
+   哨兵是"用户选了 `OPV-xxxx`，但那一版已解析不到"（规则 7 → **42218**）。把后者压成 `null`
+   会给出指向错误方向的提示。**落库**时两者都写 `NULL`（FK 列可空，写 `-1` 直接撞外键）。
+3. **写完读回组参**：`saveDraft` / `createDraft` 的返回值一律经 `readGraph` 从库里读回来，
+   而不是把请求对象改改就返回 —— 多一次读，换来"**响应 == 库里真实内容**"这条可验证性质
+   （`step_count`、`dag_definition`、外键翻译都在读回时被真实地重算了一遍）。单测为此配了
+   一个 3 行的**内存伪库**，让 `insert → listByVersionId` 真的能读回写进去的东西。
+
 
 ## 2. DoD 自检（`docs/09` §M3 相关项）
 
@@ -62,9 +92,9 @@
 | 3 | 版本不可变（非草稿不可编辑 → 42212） | ✅ **已实测** | 状态机三段均有断言：非草稿编辑 42212、非草稿发布 42212、非 PUBLISHED 下线 40900 |
 | 4 | 引用闸门（42211） | ✅ **已实测** | `OperatorServiceTest#删除_版本已被工作流引用_42211且不落删`，双向断言（`never()` 校验不落删） |
 | 5 | **算子试运行**（选节点 + 实时日志 + 退出码，`DRYRUN_OPERATOR`） | ⏳ 未开工 | §7-1 |
-| 6 | **工作流 CRUD + 版本化** | 🟡 **部分**（域模型与校验内核已落地，接口层下一轮） | 四表实体/Mapper/XML ✅；DAG 校验 10 条 ✅；CRUD 与 42215 草稿变更待决 ⏳（§7-2） |
+| 6 | **工作流 CRUD + 版本化** | ✅ **已实测** | 四表实体/Mapper/XML ✅；DAG 校验 10 条 ✅；DTO/Service/Controller ✅（§1.2）。**42215**（`has_draft_changes=true` 时再新开草稿）与 **42212**（非草稿不可编辑）均有单测；草稿/发布的编号（`WFV-`/`WFS-`/`WFE-`）、整包替换顺序（`inOrder(edgeMapper, stepMapper)`）、发布先校验后切指针均有断言 |
 | 7 | **自研 SVG 画布编辑器**（D-14） | ⏳ 未开工 | §7-3 |
-| 8 | **DAG 校验 8 条规则**（含规则 7 的 42218） | ✅ **校验内核已实测**（10 条，逐条造用例） | `DagValidatorTest` 28 例覆盖规则 1~10 各一条"该报"用例 + 关键规则的反例（菱形 DAG 不算环、恰好 10 次重试通过、备注节点不参与可达性、集群无上限数据时跳过而不当成 0）；错误码分流 42213/42214/42218 均已断言。**注意**：规则目前只到校验器，尚未挂到发布接口上（随 §7-2） |
+| 8 | **DAG 校验 8 条规则**（含规则 7 的 42218） | ✅ **已实测（含挂到接口）** | `DagValidatorTest` 28 例覆盖规则 1~10 各一条"该报"用例 + 关键规则的反例（菱形 DAG 不算环、恰好 10 次重试通过、备注节点不参与可达性、集群无上限数据时跳过而不当成 0）。规则已**挂到两个接口**：保存草稿跑结构子集（42213 + `errors[]`）、发布跑全量；错误码分流 42213/42214/42218 在 `WorkflowVersionServiceTest` 中逐条断言（含"42218 而不是 42213"的哨兵用例） |
 | 9 | **六层变量覆盖链解析器** | ⏳ 未开工 | §7-5 |
 | 10 | **触发器 CRON**（42216） | ⏳ 未开工 | §7-6 |
 | 11 | **前端 6 页**（算子 3 + 工作流 3） | ⏳ 未开工 | §7-7 |
@@ -73,14 +103,14 @@
 
 ## 3. 测试资产与覆盖率基线
 
-后端 `mvn -o clean verify` **306 用例全绿**（common 27 / domain 21 / server 170 / scheduler 88），5 个模块 + 5 道 JaCoCo 门禁 `BUILD SUCCESS`。
+后端 `mvn -o -B -ntp clean verify` **365 用例全绿**（common 27 / domain 21 / server 229 / scheduler 88），6 个模块 + 5 道 JaCoCo 门禁 `BUILD SUCCESS`。
 
 | 模块 | 行覆盖 | 分支覆盖 | 门禁 | 门槛 |
 |---|---|---|---|---|
 | `flowops-common` | util+guard+context 三包 **100%** | — | `jacoco-check`（按 `includes` 收窄） | 0.85 |
 | `flowops-domain` | **93.5%** | 91.7% | `jacoco-check` | 0.55 |
-| `flowops-server` | 逻辑层(service/scope/manager) **68.7%** | — | `jacoco-check-logic-layer` | 0.55 |
-| `flowops-server` | 模块整体 **51.0%** | 47.1% | `jacoco-check-module-floor` | 0.30 |
+| `flowops-server` | 逻辑层(service/scope/manager) **78.0%** ↑ | — | `jacoco-check-logic-layer` | 0.55 |
+| `flowops-server` | 模块整体 **67.3%** ↑ | 61.1% | `jacoco-check-module-floor` | 0.30 |
 | `flowops-scheduler` | **80.8%** | **71.2%** | `jacoco-check` | 0.75 / 0.65 |
 | `flowops-executor-client` | **无数据**（零测试 → 无 `jacoco.exec` → report 跳过） | — | 无 | 见 **O-17** |
 
@@ -93,6 +123,12 @@
 | `OperatorFileStorage` | 40/41 = **97.6%** |
 | `OperatorVersionService` | 210/245 = **85.7%** |
 | `OperatorController` / `OperatorVersionController` | 0%（见 **O-18**） |
+| `WorkflowService` | 106/110 = **96.4%** |
+| `WorkflowVersionService` | 317/329 = **96.4%** |
+| `DagAssembler` | 137/157 = **87.3%** |
+| `WorkflowAccessGuard` | 14/14 = **100%** |
+| `WorkflowController` / `WorkflowVersionController` | 0%（见 **O-18**，同为刻意） |
+| `modules/workflow/converter/*` | CSV 里**计数为 0**（被 M2 修好的 `*ConverterImpl*` exclude 排除，见 §5-2） |
 
 | 测试类 | 例数 | 覆盖点 |
 |---|---|---|
@@ -100,6 +136,11 @@
 | `OperatorFileStorageTest` | 12 | 扩展名白名单/大小上限/空文件；**校验阶段零磁盘写入**；内容寻址（同内容复用同一份文件）；不同算子分目录；落盘失败报 50000 而非 42210 |
 | `OperatorServiceTest` | 13 | 编号 `OP-####` 与 `ENABLED` 缺省、重名拒绝、项目不可变更、**42211 双向断言**、删除顺序（先版本后算子，`inOrder`）、40301/40400、项目过滤翻译、快照单点维护 |
 | `OperatorVersionServiceTest` | 19 | 状态机三段、42210 错误聚合、meta 非法 JSON 并入 42210（非 40002）、checksum 去重提示、**版本号含软删行续号（不复用）**、子表先删后插且挂版本行主键、`seq` 显式优先/缺省补号、发布先清旧默认（`inOrder`）、下线清默认标记、**版本可见性借父算子判定** |
+| `WorkflowServiceTest` | 16 | 编号 `WF-####` 与 DDL 默认值显式落内存（`FORBID`/`1`/`false`）、同项目重名拒绝且不落库、**排序白名单外 → 40003**、**401 项目不可变更**、并发设置、**发布顺序 `inOrder(versionService, workflowMapper)`**（先校验冻结、再切 `current_version`）、发布失败不更新工作流、停用仅限 PUBLISHED、40301/40400 两态 |
+| `WorkflowVersionServiceTest` | 28 | 保存草稿**只跑规则 1/5/10**（未绑算子的步骤能存下、违反规则的请求体不落库）、重名 → 42213 + `errors[]{rule,step_name}`、**自环闭环的不可达（规则 1 先于规则 5 输出）**、端点不存在 → **40001 且不删旧图**、非草稿 → **42212**、已存在草稿 → **42215**、整包替换顺序（`inOrder`）、**服务端重新发号（客户端 `s1` 不出网）**、外键解析不到写 `null` 而非哨兵、JSONB 参数来回不丢、新开草稿**整图复制并重新发号**（含"从未发布过也能建空草稿"、**版本序号含软删行不复用**）、发布全量校验**对象是库内数据**、**42218 而非 42213**、已发布版本不回写发布人、ARCHIVED → 40900、悬挂连线跳过、40301/40400、**外键解析走批量 `IN`（20 节点仍只查 1 次）** |
+| `DagAssemblerTest` | 11 | 40001 三分支（键重复 / 端点缺失 / 自环）、合法图的键→下标与连线下标、**哨兵 vs null 六种取值**、空集合不发起 `IN ()`、反向映射查不到不把内部主键当业务编号、`full=false` 不查算子规格 vs `full=true` 查、实体路径不翻译外键、**坏 JSON 按空对象参与校验（而非抛异常）** |
+| `DataPermissionSchemaConsistencyTest` | 3 | 登记表 ↔ 真实 DDL 一致性（项目/集群两维各一条）+ 反向断言"无 `project_id` 的派生表不得被登记" |
+| `MapperXmlSchemaConsistencyTest` | 1 | 全部 Mapper XML 里的 `别名.列` ↔ 真实 DDL 一致性（`file:` 与 `jar:` 两种 classpath 形态都支持）；**这一条抓出了 `ws.start_command` 这个跨域 SQL 空列引用**（见 §5-9） |
 
 前端：`npm run lint`（`--max-warnings 0`）· `npm run test`（3 文件 19 例）· `npm run build`（`vue-tsc --noEmit` + vite build）三件套本地全绿。
 
@@ -112,7 +153,9 @@
 | **O-18** | 门禁的"逻辑层"口径**不含 controller/aspect/ws** | `OperatorController`/`OperatorVersionController` 覆盖率 0%。这是**刻意的**：对 controller 写单测只能得到"调一遍方法、断言返回对象非空"的假覆盖率，真正要验的是鉴权/参数绑定/错误码映射/Swagger 契约，那是集成测试的活 | 随 O-9 的 `@SpringBootTest` 一起补（同一个环境前提） |
 | **O-19** | `flowops-common` 的 `api`/`enums`/`exception`/`web` 四包无门禁 | 该模块整体 10.8%，但未覆盖部分主要是枚举常量、`ErrorCode`、`ApiResult` 这类"常量 + 几行 getter"；给它们设行覆盖下限只会逼人写凑数测试。其中 `GlobalExceptionHandler`(0/26)、`TraceIdFilter`(0/16) 是**真有逻辑**的 | 门禁已按 `includes` 收窄到 `util`/`guard`/`context` 三包（100%）。前两者需 MockMvc，随 O-9 补 |
 | **O-20** | M3 剩余 6 大块（试运行/工作流/画布/DAG 规则/变量解析/CRON + 前端 6 页） | 未开工 | §7 给出建议顺序 |
-| **O-21** | `countVersionReferences` 依赖 `workflow_step` / `workflow_version` 表 | **本轮已缓解**：两张表已建实体与 Mapper（`domain/entity/workflow`），`OperatorMapper.xml` 里的裸 SQL 表名/列名与实体逐列核对过，本轮起改动可由编译器与 Mapper 一起发现 | 仍欠一条 `@SpringBootTest` 引用闸门正例（需 PG 环境，随 O-9 一起）；在那之前，改动这两张表的列名必须回头改 `OperatorMapper.xml` |
+| **O-21** | ~~跨域 SQL 的列名与实体/DDL 不一致，改动靠人记~~ → **已闭环（口径改进）** | 原先的缓解只是"两张表建了实体 + 人工核对过一遍"，仍留着一条**靠人记**的约束（"改动这两张表的列名必须回头改 `OperatorMapper.xml`"）。本轮改为**构建期强制**：`MapperXmlSchemaConsistencyTest` 把全部 27 个 Mapper XML 里的 `别名.列` 逐个对回 Flyway DDL 解析出的真实列，不一致即 `BUILD FAILURE`。**不需要 PG**（故不必挂在 O-9 后面），随每次 `mvn test` 跑 | 已闭环。原先设想的 `@SpringBootTest` 正例**不再必需**——它验的是"SQL 能跑通"，而一致性测试验的是"列存在"，后者覆盖面更大且无环境依赖。真正的 SQL 语义（`count(distinct)`、`deleted` 过滤口径）仍需 O-9 的集成环境 |
+| **O-26** | **没有独立的"校验"端点** | 编辑器画布上通常会有个「校验」按钮，但 `prd/CONTRACT-API.md` §6.2 只定了 `GET`/`PUT /workflow-versions/{versionId}`，**没有** `POST /workflow-versions/{id}/validate`。故一期不实现：结构校验挂在保存路径上（保存即校验），全量校验挂在发布路径上 | 契约缺口：如需"不落库先验一遍"，需先回写 CONTRACT 再实现。当前前端可用"保存草稿"代替（它跑结构子集，且失败不落库） |
+| **O-27** | **`WORKFLOW_PROJECT_IMMUTABLE`：归属项目创建后不可变更** | 这是**实现自加的规则**（回 `40001` + `rule=WORKFLOW_PROJECT_IMMUTABLE`），docs 未明文。理由是照搬算子的同一条口径：换项目等于把一份可能正被引用的编排搬出原项目边界，而数据范围的判定依据就是 `project_id` | 若产品要求允许迁移，需先定语义（迁移时版本/触发器/运行中任务怎么办）再放开。已登记以便复核 |
 | **O-23** | **空工作流可以发布** | `docs/07` §9.2 的 10 条规则**没有一条**覆盖"一个步骤都没有"：规则 1 写的是"至少一个入度 0 步骤"（0 个步骤时该命题为空真，不触发），而 v3 评审明确删掉了自创的"至少 1 个步骤"。即：按现行文档，空图发布是合法的 | 这属于**文档缺口而非实现偷懒**：代码里没有自造规则（自造规则号会与前端共用的一套编号冲突）。若要拦，需先回写 PRD §10.8 增补规则 11 并同步 `docs/07` §9.2，再改 `DagValidator` |
 | **O-24** | **DAG 规则 6 只按集群聚合，不校验队列** | `docs/07` §9.2 规则 6 的原文是"不超过目标集群/队列上限"，但 `docs/05` 的 `queue` 表**只有** `max_concurrent_tasks` / `max_waiting_tasks`（并发口径），**没有任何资源上限列**（`cpu/memory/disk` 只在 `cluster` 上）。拿并发上限去比资源申请量是无意义的 | 按 DDL 的真实结构实现为"按目标集群聚合 `cpu/gpu/memory/disk` 比 `cluster.*_total`"。若确需队列维度的资源上限，需先给 `queue` 加列（迁移），不是校验器能单方面决定的 |
 | **O-25** | **工作流没有 DELETE 端点，但存在 `schedule:workflow:delete` 权限点** | `docs/07` §5.2 列了权限点 `schedule:workflow:delete`（26 号，"工作流删除"），但 `prd/CONTRACT-API.md` §6.1 与 `docs/07` §5.4 的映射表里**都没有对应的 DELETE 端点**。故本轮不实现删除接口（不凭空造端点），`WorkflowVersionMapper.softDeleteByWorkflowId` 先留着 | 契约缺口：需先定 DELETE 的语义（是否级联软删版本与触发器、有运行中任务时是否 42203）并回写 CONTRACT，再实现 |
@@ -277,6 +320,67 @@ if (!IDENT.matches(stepName) && !CJK.matches(stepName))  // ← 两条路径共�
 
 *留档价值*：这类错误在人工点页面时几乎测不出来（谁会去用带连字符的步骤名？），是"按语法写测试用例"直接抓出来的 —— 也正是把校验器写成纯函数、能逐条造用例的收益。
 
+### 5-8. `workflow_version` 被登记进数据权限表，而它**没有 `project_id` 列**（写工作流域代码之前先抓到的越权/500 缺陷）
+
+`FlowopsDataPermissionHandler` 的 `PROJECT_SCOPED_COLUMNS` 里赫然写着 `workflow_version → project_id`。
+但 `docs/05` §3.4 的 DDL 里**这张表没有 `project_id`**（它没有也不需要：归属靠 `workflow_id` 推）。
+
+危险之处不在"写错了"，而在**谁能看见**：
+
+- 行级过滤注入的是 **裸列名**，列名写错 → 编译器不知道、断言字符串拼接的单测也不知道；
+- 它只在**真的打库**时炸（`column project_id does not exist`），
+- 而那条路径是**非管理员**才会走到的 —— 数据范围 `ALL` 的管理员**不注入任何条件**，
+  于是"本地用管理员账号点一遍"永远看不到这个问题。
+
+处理（两步，缺一不可）：
+
+1. 摘掉这条登记，并给登记表加长篇注释说明"只有**真的存在该列**的表才能登记；
+   `workflow_version`/`workflow_step`/`workflow_edge` 刻意走「先取自身行→回父 workflow 判范围」"；
+2. 新增 `DataPermissionSchemaConsistencyTest`，把登记表逐项对回 Flyway DDL，使这一整类
+   （"登记了一个不存在的列"）从**打库才炸**提前到**构建期失败**。
+
+**双向验证**（不留"改了个摆设"的余地）：把错误登记塞回去 → 测试报
+`Expecting empty but was: {"workflow_version"="project_id"}` 并 `BUILD FAILURE`；摘掉 → 3/3 绿。
+*教训沿用 §5-3 的口径*：门禁类测试必须先用扰动证明它会拦；而这条测试的扰动用的是**真实缺陷**，比人造扰动更有说服力。
+
+### 5-9. 跨域 SQL 里的空列引用 `ws.start_command`：**由新建的一致性测试当场抓出**
+
+`SchedulingQueryMapper.findStepRuntimesByTask`（**每个 tick 都跑**）里有：
+
+```sql
+ws.start_command AS startCommand,   -- ws = workflow_step
+...
+LEFT JOIN workflow_step ws ON ws.id = ts.step_id
+```
+
+而 `start_command` 是 **`operator_version`** 的列（`docs/05` §3.4 的 DDL，`docs/07` §6.7 也把
+`start_command` 列在算子版本的上传 meta 里），`workflow_step` **没有这一列**。
+即：这条 SQL 一执行就 `column ws.start_command does not exist`，而调度器单测
+（`SchedulerTickPipelineTest`）把这个 Mapper **整体 mock 掉**了 —— 于是它从未真的打过库。
+
+修法：补一个到算子版本的连接，取 `ov.start_command`（起始命令的来源本就是"步骤绑定的算子版本"）：
+
+```sql
+LEFT JOIN operator_version ov ON ov.id = ws.operator_version_id
+```
+
+其余三处（`ts.*` / `COALESCE(ws.retry_count, …)` / `ws.retry_interval_seconds`）确实都是
+`workflow_step` 的列（步骤级对算子的覆盖），保持不变。
+
+*这类"mock 掩盖的真缺陷"是 O-21 那条待办的真实价值所在*：`MapperXmlSchemaConsistencyTest`
+第一次跑就把它抓出来了 —— 比我为它写的任何背景说明都更有说服力。
+
+**顺带记一个测试自身的坑（同一类问题的第三次复发）**：该测试第一个版本只认 `file:` 协议
+（`target/classes` 目录形态）。而 `mvn verify` 时上游模块**已经 package**，`mapper/` 是以
+**`jar:`** 形态在 classpath 上的 —— 于是它静默退化成"只扫本模块的 3 个 XML / 21 处引用"，
+**不报错、只是少测了 90%**。抓住它的是我自己写的那条自检断言。
+修法：`file:` 与 `jar:` 两种形态都支持；并把自检从"数量 > 50"改成**点名**
+（"`workflow_step`/`workflow_version`/`workflow`/`operator_version`/`task_step` 必须都被扫到"）——
+数量门槛无法区分"扫全了"和"只扫到 3 个文件"，点名可以。
+
+*与 §5-2 / §5-6 同源*：`*ConverterImpl` 的 exclude 只在一个 goal 生效、动态 attach 只在一种 JDK 路径成立、
+mapper 只在一种 classpath 形态下能被枚举 —— 都是"**同一个配置/代码有两个语义域，只验证了其中一个**"。
+
 ## 6. 复跑命令（本地）
 
 ```bash
@@ -294,15 +398,34 @@ cd frontend && npm run lint && npm run test && npm run build
 | 序 | 块 | 关键约束（来自 docs） |
 |---|---|---|
 | 1 | 算子试运行（选节点 + 实时日志 + 退出码 + `DRYRUN_OPERATOR`） | 需先补 **O-17**（`SshExecutorClient` 无测试）；试运行**不得**写任务/步骤实例表 |
-| 2 | 工作流 CRUD + 版本化（`WF-####`、草稿/发布、42215 草稿变更待决） | 🟡 域模型 + DAG 校验内核**已完成**（§1.1）；剩 DTO/Service/Controller。落地后回头补 **O-21** 的引用闸门正例 |
+| 2 | ~~工作流 CRUD + 版本化~~ | ✅ **已完成**（§1.2）；O-21 也随之以"构建期一致性测试"的口径闭环（§5-9） |
 | 3 | 自研 SVG 画布编辑器（**D-14**） | 止损线：**超 10 人日即降级 LogicFlow**；机制注释按 D-26 第 4 条 |
-| 4 | DAG 校验 8 条规则（42213 汇总回填；规则 7 = 引用未发布/已下线版本 → **42218**） | 校验内核**已完成**（10 条 + 逐条单测）；剩"接到发布接口并把 42213/42214/42218 回填给前端" |
-| 5 | 六层变量覆盖链解析器（**D-20** 语法；42214） | 逐层覆盖优先级必须有可读的测试名，否则"哪层赢"永远说不清 |
-| 6 | 触发器 CRON（42216）+ 时间窗（42217） | |
+| 4 | ~~DAG 校验规则接到接口并把 42213/42214/42218 回填~~ | ✅ **已完成**：保存草稿跑结构子集、发布跑全量，三码分流见 `WorkflowVersionServiceTest` |
+| 5 | 六层变量覆盖链解析器（**D-20** 语法；42214） | 逐层覆盖优先级必须有可读的测试名，否则"哪层赢"永远说不清。**注**：规则 4（变量引用可达性）已在 `DagValidator` 落地，本块补的是**取值侧**的六层覆盖链 |
+| 6 | 触发器 CRON（42216）+ 时间窗（42217） | `workflow_version.trigger_config` 列已就位（当前写 `[]` 快照） |
 | 7 | 前端 6 页（算子列表/详情/版本 + 工作流列表/编辑器/详情） | 画布页单独排期 |
+
+> **下一步建议**：先做 **5（变量解析）**——它是算子试运行（1）与画布（3）共同的前置，
+> 且是纯逻辑、可完全单测，不依赖画布 UI。画布（3）排在它之后，因为画布要展示"这层的值从哪来"。
 
 ---
 
-**本切片一句话总结**：算子域后端全链（含两条最容易做错的闸门——42211 引用闸门与 42210 错误聚合）已落地并实测；同时把 M2 留下的 `O-14` 覆盖率门禁**真正闭环**——4 个模块 5 道门禁全绿、经反向扰动验证会拦，并在补门禁的过程中抓出并修掉了一个 M2 遗留的配置缺陷（`*ConverterImpl` 从未被排除）和一处新代码零覆盖。
+**M3 第二/第三切片一句话总结**：工作流 CRUD + 版本化（草稿/发布/`42215`）与 DAG 校验的**接口化**（三码分流）
+已落地并实测，接口层单测 55 例、新增类覆盖率 87%~100%，逻辑层覆盖率 68.7% → **78.0%**。
+
+更有价值的是**顺带修掉的三个真缺陷**，它们都属于同一类"**本地恰好没事、换个执行路径就出事**"：
+
+1. `workflow_version` 被登记到数据权限表却**没有 `project_id` 列** → 非管理员查询必 500（§5-8）；
+2. `ws.start_command` 引用了**不属于该表的列** → 调度器每 tick 必失败（§5-9）；
+3. 一致性测试自身只认 `file:` 协议 → 在 `mvn verify` 下**静默少扫 90% 的 XML**（§5-9 尾部）。
+
+前两个都是"**被 mock 掩盖**"的：单测把 Mapper 整个 mock 掉，SQL 从未真的打过库。
+处理方式不是"下次注意"，而是各加一条 **DDL 一致性测试**，把这类错误整体提前到构建期。
+第三个是同一主题的第三次复发（前两次是 §5-2 的 exclude 双语义、§5-6 的动态 attach）：
+**同一个配置/代码存在两个语义域，而只验证了其中一个。**
+
+---
+
+**第一切片（算子域）总结（留档）**：算子域后端全链（含两条最容易做错的闸门——42211 引用闸门与 42210 错误聚合）已落地并实测；同时把 M2 留下的 `O-14` 覆盖率门禁**真正闭环**——4 个模块 5 道门禁全绿、经反向扰动验证会拦，并在补门禁的过程中抓出并修掉了一个 M2 遗留的配置缺陷（`*ConverterImpl` 从未被排除）和一处新代码零覆盖。
 
 收尾阶段（用户要求"通过 API 自查 CI 失败并修复"）又挖出并修掉了第三个**真缺陷**：整套测试依赖 JDK 运行期 dynamic attach 来初始化 Mockito，在 CI 新 runner 镜像上必然失败——先前被我误判为"偶发"，取到 CI 日志后推翻并改为启动期 `-javaagent`（§5-6）；顺带把从未钉过版本的默认生命周期插件一并钉死。**这一轮的共同主题是"消除隐式的环境依赖"**：`*ConverterImpl` 的 exclude 模式、MapStruct 生成物、动态 attach、插件版本解析，四个都是"本地恰好没事、环境一换就出事"的同一类问题。

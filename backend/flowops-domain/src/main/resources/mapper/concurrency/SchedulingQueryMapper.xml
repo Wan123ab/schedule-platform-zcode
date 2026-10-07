@@ -42,6 +42,20 @@
          WHERE workflow_version_id = #{workflowVersionId}
     </select>
 
+    <!--
+      步骤实例运行时行（工作流编排器的内存状态初始化输入）。
+
+      ⚠️ 修复记录（M3 由 MapperXmlSchemaConsistencyTest 发现，属"mock 掩盖的真缺陷"）：
+         start_command 是 operator_version 的列，不是 workflow_step 的列
+         （docs/05 §3.4 DDL；docs/07 §6.7 也把 start_command 列在算子版本的上传 meta 里）。
+         原先写的是 ws.start_command —— 该列在 workflow_step 上不存在，SQL 一执行就报
+         `column ws.start_command does not exist`。因为调度器单测全部 mock 掉了本 Mapper，
+         这条语句从未真的打库，缺陷一路潜伏到本轮才被一致性测试拦下。
+         起始命令的来源是"步骤绑定的算子版本"，故补一个到 operator_version 的连接。
+
+      其余三处 COALESCE/取值都确实是 workflow_step 的列（步骤级对算子的覆盖，
+      见 docs/05 §3.4 的 retry_count / retry_interval_seconds），保持不变。
+    -->
     <select id="findStepRuntimesByTask"
             resultType="com.flowops.domain.dto.query.StepRuntimeRow">
         SELECT ts.id,
@@ -52,11 +66,12 @@
                ts.enqueue_seq      AS enqueueSeq,
                ts.retry_count      AS retryCount,
                ts.resource_request AS resourceRequest,
-               ws.start_command    AS startCommand,
+               ov.start_command    AS startCommand,
                COALESCE(ts.max_retry_count, ws.retry_count, 0)          AS maxRetryCount,
                COALESCE(ws.retry_interval_seconds, 5)                    AS retryIntervalSeconds
           FROM task_step ts
           LEFT JOIN workflow_step ws ON ws.id = ts.step_id
+          LEFT JOIN operator_version ov ON ov.id = ws.operator_version_id
          WHERE ts.task_id = #{taskId}
          ORDER BY ts.step_index
     </select>

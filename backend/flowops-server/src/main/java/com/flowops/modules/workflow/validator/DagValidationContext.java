@@ -33,6 +33,22 @@ public record DagValidationContext(
         Map<Long, ClusterSpec> clusterSpecs) {
 
     /**
+     * 「用户填了业务编号，但库里查不到对应行」的哨兵值。
+     *
+     * <p><b>为什么需要一个哨兵</b>：{@code StepNode.operatorVersionId} 为 {@code null} 与
+     * 为哨兵，对使用者的含义完全不同 ——</p>
+     * <ul>
+     *   <li>{@code null}：用户压根没选算子版本 → 规则 2「未选择算子或算子版本」
+     *       （提示"去选一个"）；</li>
+     *   <li>哨兵：用户选了 {@code OPV-0001-02}，但那一版已被删除/下线到查不到
+     *       → 规则 7 → <b>42218</b>（提示"换一个版本"）。</li>
+     * </ul>
+     * <p>若把后者也压成 {@code null}，用户会收到一句指向错误方向的提示 —— 他明明选了。
+     * 这也是为什么装配器必须先解析业务编号再构造本上下文，而不是把字符串原样丢进来。</p>
+     */
+    public static final long UNRESOLVED_ID = -1L;
+
+    /**
      * 一个步骤节点。
      *
      * @param retryCount       步骤级重试次数（规则 9）

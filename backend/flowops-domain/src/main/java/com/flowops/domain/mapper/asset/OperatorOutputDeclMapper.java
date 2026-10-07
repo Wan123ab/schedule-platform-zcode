@@ -5,6 +5,7 @@ import com.flowops.domain.entity.asset.OperatorOutputDecl;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -18,4 +19,7 @@ public interface OperatorOutputDeclMapper extends BaseMapper<OperatorOutputDecl>
     int deleteByVersionId(@Param("operatorVersionId") Long operatorVersionId);
 
     List<OperatorOutputDecl> listByVersionId(@Param("operatorVersionId") Long operatorVersionId);
+
+    /** 批量取多个版本的输出声明（DAG 规则 4 的"变量是否存在"判定，理由见参数定义侧同名方法）。 */
+    List<OperatorOutputDecl> listByVersionIds(@Param("operatorVersionIds") Collection<Long> operatorVersionIds);
 }

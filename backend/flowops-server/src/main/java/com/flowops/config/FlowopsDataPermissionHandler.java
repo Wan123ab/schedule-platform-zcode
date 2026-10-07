@@ -39,13 +39,25 @@ public class FlowopsDataPermissionHandler
      * 项目维度隔离：表名 → 承载「项目归属」的列名。
      *
      * <p>{@code project} 表没有 project_id 列（它就是项目本体），归属列即主键 {@code id}。</p>
+     *
+     * <p><b>⚠️ 只登记"表上真的有这一列"的表</b>。本层注入的是裸 SQL 条件
+     * （形如 {@code workflow.project_id = 3}），列不存在时数据库直接报
+     * {@code column ... does not exist}，表现为该端点在 PROJECT 范围下稳定 500 ——
+     * 而且因为"管理员看不到问题"（ALL 范围不注入），这类错误极难在联调中被发现。
+     * 故 {@code DataPermissionSchemaConsistencyTest} 会拿本表与 {@code V1__baseline.sql}
+     * 逐条比对，新登记一张表若写错列名会当场失败。</p>
+     *
+     * <p><b>派生链上的表刻意不登记</b>：{@code workflow_version} / {@code workflow_step} /
+     * {@code workflow_edge} 都没有 {@code project_id}（见 docs/05 §3.4 的 DDL），
+     * 与 {@code operator_version} 同理 —— 它们的可见性一律「先取自身行，再回父对象
+     * （workflow / operator）做范围判定」。这样判定口径只有一处，也不会出现
+     * "主子表过滤强度不一致"的半越权。</p>
      */
     private static final Map<String, String> PROJECT_SCOPED_COLUMNS = Map.of(
             "project", "id",
             "project_member", "project_id",
             "task", "project_id",
             "workflow", "project_id",
-            "workflow_version", "project_id",
             "operator", "project_id");
 
     /**
@@ -67,6 +79,16 @@ public class FlowopsDataPermissionHandler
 
     public static Set<String> clusterScopedTables() {
         return CLUSTER_SCOPED_COLUMNS.keySet();
+    }
+
+    /** 表名 → 项目归属列（供 {@code DataPermissionSchemaConsistencyTest} 与 DDL 逐条比对）。 */
+    public static Map<String, String> projectScopedColumns() {
+        return PROJECT_SCOPED_COLUMNS;
+    }
+
+    /** 表名 → 集群归属列（同上）。 */
+    public static Map<String, String> clusterScopedColumns() {
+        return CLUSTER_SCOPED_COLUMNS;
     }
 
     @Override
