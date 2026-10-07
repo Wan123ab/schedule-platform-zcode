@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 算子参数定义自定义 SQL（docs/05 §3.3 operator_param_def，R9）。 -->
+<mapper namespace="com.flowops.domain.mapper.asset.OperatorParamDefMapper">
+
+    <!-- 替换式更新（先删后插）：草稿版本编辑时整包替换，避免"先插入后删除"中途撞 uk_param_def_key -->
+    <delete id="deleteByVersionId">
+        DELETE FROM operator_param_def WHERE operator_version_id = #{operatorVersionId}
+    </delete>
+
+    <select id="listByVersionId" resultType="com.flowops.domain.entity.asset.OperatorParamDef">
+        SELECT * FROM operator_param_def
+         WHERE operator_version_id = #{operatorVersionId}
+         ORDER BY seq, id
+    </select>
+
+</mapper>

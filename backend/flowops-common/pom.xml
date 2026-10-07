@@ -49,4 +49,54 @@
       <scope>test</scope>
     </dependency>
   </dependencies>
+
+  <build>
+    <plugins>
+      <!--
+        JaCoCo 门禁（O-14）。本模块整体覆盖率不高（枚举、错误码、响应包这些
+        "常量 + 几行 getter"的类天然没必要单测），所以这里只圈出**真正有逻辑、
+        且出错不报错**的三个包，把门禁收窄到它们身上：
+          · util    —— IdGen：业务编号发号，重复编号要等 DB 唯一索引兜底才发现
+          · guard   —— ConcurrencyPolicyEvaluator / CheckResult：并发闸门判定
+          · context —— ScopeContext / UserContext / TraceContext：ThreadLocal 上下文，
+                       写错不会抛异常，只会静默地"该过滤的没过滤"
+        不圈 api/enums/exception/web：那些要靠 MockMvc 集成测试（遗留项 O-9），
+        给它们设行覆盖下限只会逼人写"调一遍 getter"的凑数测试。
+
+        阈值 0.85：实测三个包 100%（2026-10-07）。留 15pt 是给后续新增工具类留的
+        缓冲，不是给"降标准"留的后门 —— 若某次改动让这里掉到 0.85 以下，
+        先怀疑是不是漏测了新逻辑，而不是先来改这个数字。
+      -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>jacoco-check</id>
+            <phase>verify</phase>
+            <goals><goal>check</goal></goals>
+            <configuration>
+              <includes>
+                <include>**/util/*</include>
+                <include>**/guard/*</include>
+                <include>**/context/*</include>
+              </includes>
+              <rules>
+                <rule>
+                  <element>BUNDLE</element>
+                  <limits>
+                    <limit>
+                      <counter>LINE</counter>
+                      <value>COVEREDRATIO</value>
+                      <minimum>0.85</minimum>
+                    </limit>
+                  </limits>
+                </rule>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
 </project>

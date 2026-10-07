@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 算子版本自定义 SQL（docs/05 §3.3 operator_version）。 -->
+<mapper namespace="com.flowops.domain.mapper.asset.OperatorVersionMapper">
+
+    <!--
+      已用过的最大版本序号（含已软删行 —— 这正是必须写自定义 SQL 的原因：
+      MP 的 lambda 查询会自动追加 deleted = false，而 uk_ov_version_id 是**全表**唯一索引，
+      漏掉已删行就会算出重复的版本编号，最后撞出一个与用户操作毫无关联的 23505）。
+      版本号形如 v3 → 取 substring 后的数字；无任何版本时返回 0。
+    -->
+    <select id="selectMaxVersionIndex" resultType="int">
+        SELECT COALESCE(max(NULLIF(regexp_replace(version_no, '\D', '', 'g'), '')::int), 0)
+          FROM operator_version
+         WHERE operator_id = #{operatorId}
+    </select>
+
+    <!-- 同算子内的重复文件识别（仅看未删除版本：删过的版本不应再拦用户重传） -->
+    <select id="findByChecksum" resultType="com.flowops.domain.entity.asset.OperatorVersion">
+        SELECT * FROM operator_version
+         WHERE operator_id = #{operatorId}
+           AND file_checksum = #{checksum}
+           AND deleted = false
+         ORDER BY id DESC
+         LIMIT 1
+    </select>
+
+    <!-- 发布新默认版本前先清掉旧的默认标记：uk_ov_default 是"每算子至多一个默认版本"的唯一索引 -->
+    <update id="clearDefaultFlag">
+        UPDATE operator_version
+           SET is_default_version = false,
+               version = version + 1,
+               updated_at = now()
+         WHERE operator_id = #{operatorId}
+           AND is_default_version = true
+           AND deleted = false
+    </update>
+
+    <!-- 软删除（同 OperatorMapper.softDelete：MP 会剔除逻辑删除列，必须显式写） -->
+    <update id="softDelete">
+        UPDATE operator_version
+           SET deleted = true,
+               version = version + 1,
+               updated_at = now()
+         WHERE id = #{id}
+           AND deleted = false
+    </update>
+
+    <!-- 删除算子时连带软删其全部版本（调用前已由 42211 闸门确认无工作流引用） -->
+    <update id="softDeleteByOperatorId">
+        UPDATE operator_version
+           SET deleted = true,
+               version = version + 1,
+               updated_at = now()
+         WHERE operator_id = #{operatorId}
+           AND deleted = false
+    </update>
+
+</mapper>

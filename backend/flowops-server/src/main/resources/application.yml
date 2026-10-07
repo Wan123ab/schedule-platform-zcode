@@ -9,6 +9,14 @@ spring:
   threads:
     virtual:
       enabled: true          # docs/03 §6.1：REST 请求走虚拟线程
+  servlet:
+    multipart:
+      # 算子包上传（docs/07 §6.3：默认上限 500MB）。
+      # ⚠️ Spring 的 multipart 默认上限只有 1MB，不放开的话大包会在进入业务代码
+      # 之前就被容器拒掉 —— 表现为 50000，而不是我们精心设计的 42210 errors[]。
+      # max-request-size 要比 max-file-size 略大，给 meta 字段与 multipart 边界留余量。
+      max-file-size: ${FLOWOPS_UPLOAD_MAX_FILE:500MB}
+      max-request-size: ${FLOWOPS_UPLOAD_MAX_REQUEST:520MB}
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:flowops}
     username: ${DB_USER:flowops}
@@ -75,3 +83,9 @@ flowops:
   crypto:
     master-key: ${FLOWOPS_CRED_MASTER_KEY:}   # M-06：缺失则拒绝启动
     strict: ${FLOWOPS_CRYPTO_STRICT:true}
+  operator:
+    # 算子包落盘根目录（相对路径按进程工作目录解析）。
+    # 入库只存相对路径：将来换盘/迁到对象存储时，DB 记录不用跟着改。
+    storage-root: ${FLOWOPS_OPERATOR_STORAGE_ROOT:data/operators}
+    # 与 docs/07 §6.3 的"大小上限（默认 500MB）"一致，须与上面的 multipart 上限配套改
+    max-file-size-mb: ${FLOWOPS_OPERATOR_MAX_FILE_MB:500}

@@ -170,9 +170,17 @@
           <version>${jacoco.version}</version>
           <configuration>
             <excludes>
+              <!--
+                末尾的 * 不能省：同一份 excludes 会喂给两个**不同匹配域**——
+                  · prepare-agent：按 VM 类名匹配（com/flowops/.../FooConverterImpl，无 .class）
+                  · report       ：按 class 文件路径匹配（.../FooConverterImpl.class）
+                只写 **/*ConverterImpl 时前者命中、后者落空，现象是"生成物明明排除了，
+                却照样出现在覆盖率报告里压着分母"（2026-10-07 实测发现）。
+                补一个尾 * 同时覆盖两种形态，而不是给两个 goal 各写一套。
+              -->
               <exclude>**/FlowopsApplication*</exclude>
-              <exclude>**/*ConverterImpl</exclude>
-              <exclude>**/*MapperImpl</exclude>
+              <exclude>**/*ConverterImpl*</exclude>
+              <exclude>**/*MapperImpl*</exclude>
             </excludes>
           </configuration>
           <executions>

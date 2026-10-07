@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 算子自定义 SQL（docs/05 §3.3 operator）。 -->
+<mapper namespace="com.flowops.domain.mapper.asset.OperatorMapper">
+
+    <!--
+      42211 删除闸门：该算子的任一版本是否已被工作流步骤引用。
+      · count(distinct ws.id)：workflow_step ⨝ workflow_version 是 N:1，
+        不去重会把同一步骤按版本行重复计数，闸门提示的数字会虚高
+      · 两侧都判 deleted：软删的工作流/版本不该再阻止算子删除
+      · workflow_step 本身没有 deleted 列（从属快照，见 05 §3.4 DDL），故只能靠版本侧过滤
+    -->
+    <select id="countVersionReferences" resultType="long">
+        SELECT count(DISTINCT ws.id)
+          FROM workflow_step ws
+          JOIN operator_version ov ON ov.id = ws.operator_version_id
+          JOIN workflow_version wv ON wv.id = ws.workflow_version_id AND wv.deleted = false
+          JOIN workflow w ON w.id = wv.workflow_id AND w.deleted = false
+         WHERE ov.operator_id = #{operatorId}
+           AND ov.deleted = false
+    </select>
+
+    <!--
+      被引用明细：返回"工作流 + 版本 + 步骤"，供前端渲染成可跳转的定位信息。
+      只出业务编号不出内部主键（D-27）。
+    -->
+    <select id="findReferences" resultType="com.flowops.domain.dto.query.OperatorReferenceRow">
+        SELECT w.workflow_id   AS workflow_id,
+               w.workflow_name AS workflow_name,
+               wv.version_no   AS version_no,
+               wv.publish_status AS publish_status,
+               ws.step_name    AS step_name
+          FROM workflow_step ws
+          JOIN workflow_version wv ON wv.id = ws.workflow_version_id AND wv.deleted = false
+          JOIN workflow w ON w.id = wv.workflow_id AND w.deleted = false
+         WHERE ws.operator_version_id = #{versionId}
+         ORDER BY w.workflow_id, wv.version_no, ws.step_name
+    </select>
+
+    <!--
+      软删除。⚠️ 不能用 BaseMapper.updateById：MP 会把逻辑删除列从 SET 子句剔除
+      （README-M2「已知修复记录」的字节码实测），且本语句要同时做 CAS（version+1）
+      与 updated_at（XML 更新绕过 MetaObjectHandler，必须自己补）。
+    -->
+    <update id="softDelete">
+        UPDATE operator
+           SET deleted = true,
+               version = version + 1,
+               updated_at = now()
+         WHERE id = #{id}
+           AND deleted = false
+    </update>
+
+</mapper>
