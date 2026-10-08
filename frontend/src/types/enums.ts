@@ -189,3 +189,148 @@ export const CREDENTIAL_TYPE_LABEL: Record<CredentialType, string> = {
   WINRM: 'WinRM',
   TOKEN: 'Token',
 }
+
+// ═════════════════════════════════════════════════════════════
+// 算子域（docs/05 §3.4；M3）
+// ═════════════════════════════════════════════════════════════
+
+/** 算子启停状态（operator.status）。 */
+export type OperatorStatus = 'ENABLED' | 'DISABLED'
+
+export const OPERATOR_STATUS_LABEL: Record<OperatorStatus, string> = {
+  ENABLED: '启用',
+  DISABLED: '停用',
+}
+
+export const OPERATOR_STATUS_TONE: Record<OperatorStatus, Tone> = {
+  ENABLED: 'ok',
+  DISABLED: 'idle',
+}
+
+/** 算子类型（与后端 @Pattern 白名单、DDL CHECK 一致）。 */
+export type OperatorType = 'JAR' | 'PYTHON' | 'SHELL' | 'BAT' | 'EXE' | 'CUSTOM'
+
+export const OPERATOR_TYPE_LABEL: Record<OperatorType, string> = {
+  JAR: 'JAR',
+  PYTHON: 'Python',
+  SHELL: 'Shell',
+  BAT: 'Bat',
+  EXE: 'Exe',
+  CUSTOM: '自定义',
+}
+
+/**
+ * 版本发布状态（operator_version.publish_status）。
+ *
+ * 注意与工作流版本的差别：这里有 `OFFLINE`，因为算子版本可以"主动下线"
+ * （下线后新步骤不能再引用它，但已引用它的历史步骤不受影响）。
+ */
+export type VersionPublishStatus = 'DRAFT' | 'PUBLISHED' | 'OFFLINE'
+
+export const VERSION_PUBLISH_STATUS_LABEL: Record<VersionPublishStatus, string> = {
+  DRAFT: '草稿',
+  PUBLISHED: '已发布',
+  OFFLINE: '已下线',
+}
+
+export const VERSION_PUBLISH_STATUS_TONE: Record<VersionPublishStatus, Tone> = {
+  DRAFT: 'idle',
+  PUBLISHED: 'ok',
+  OFFLINE: 'mut',
+}
+
+/** 参数类型（operator_param_def.param_type）。 */
+export type ParamType = 'TEXT' | 'NUMBER' | 'BOOLEAN' | 'SINGLE' | 'DATETIME'
+
+export const PARAM_TYPE_LABEL: Record<ParamType, string> = {
+  TEXT: '文本',
+  NUMBER: '数字',
+  BOOLEAN: '布尔',
+  SINGLE: '单选',
+  DATETIME: '日期时间',
+}
+
+/** 输出提取方式（operator_output_decl.extract_mode）。 */
+export type ExtractMode = 'REGEX' | 'FILE'
+
+export const EXTRACT_MODE_LABEL: Record<ExtractMode, string> = {
+  REGEX: '正则提取',
+  FILE: '文件读取',
+}
+
+/** 操作系统（Q-02：一期 Windows 仅登记展示，试运行只支持 LINUX）。 */
+export type OsType = 'LINUX' | 'WINDOWS'
+
+export const OS_TYPE_LABEL: Record<OsType, string> = {
+  LINUX: 'Linux',
+  WINDOWS: 'Windows',
+}
+
+// ═════════════════════════════════════════════════════════════
+// 工作流域（docs/05 §3.4；M3）
+// ═════════════════════════════════════════════════════════════
+
+/** 工作流状态（workflow.status）。 */
+export type WorkflowStatus = 'DRAFT' | 'PUBLISHED' | 'DISABLED' | 'ARCHIVED'
+
+export const WORKFLOW_STATUS_LABEL: Record<WorkflowStatus, string> = {
+  DRAFT: '草稿',
+  PUBLISHED: '已发布',
+  DISABLED: '已停用',
+  ARCHIVED: '已归档',
+}
+
+export const WORKFLOW_STATUS_TONE: Record<WorkflowStatus, Tone> = {
+  DRAFT: 'idle',
+  PUBLISHED: 'ok',
+  DISABLED: 'warn',
+  ARCHIVED: 'mut',
+}
+
+/** 工作流版本状态（workflow_version.publish_status）—— 比算子少一个 OFFLINE。 */
+export type WorkflowVersionStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
+
+export const WORKFLOW_VERSION_STATUS_LABEL: Record<WorkflowVersionStatus, string> = {
+  DRAFT: '草稿',
+  PUBLISHED: '已发布',
+  ARCHIVED: '已归档',
+}
+
+export const WORKFLOW_VERSION_STATUS_TONE: Record<WorkflowVersionStatus, Tone> = {
+  DRAFT: 'idle',
+  PUBLISHED: 'ok',
+  ARCHIVED: 'mut',
+}
+
+/** 并发策略（workflow.concurrency_policy，PRD §10.4）。 */
+export type ConcurrencyPolicy = 'FORBID' | 'ALLOW' | 'QUEUE'
+
+export const CONCURRENCY_POLICY_LABEL: Record<ConcurrencyPolicy, string> = {
+  FORBID: '禁止并发',
+  ALLOW: '允许并发',
+  QUEUE: '排队等待',
+}
+
+/** 画布节点类型（workflow_step.step_type，PRD §10.8 规则 1"备注除外"）。 */
+export type StepType = 'TASK' | 'NOTE'
+
+export const STEP_TYPE_LABEL: Record<StepType, string> = {
+  TASK: '任务',
+  NOTE: '备注',
+}
+
+/** 失败策略（workflow_step.failure_strategy）。 */
+export type FailureStrategy = 'TERMINATE' | 'RETRY'
+
+export const FAILURE_STRATEGY_LABEL: Record<FailureStrategy, string> = {
+  TERMINATE: '终止',
+  RETRY: '重试',
+}
+
+/** 触发器类型（一期只放 CRON，MANUAL 由"手动执行"入口承担）。 */
+export type TriggerType = 'MANUAL' | 'CRON'
+
+export const TRIGGER_TYPE_LABEL: Record<TriggerType, string> = {
+  MANUAL: '手动',
+  CRON: '定时（Cron）',
+}
