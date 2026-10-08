@@ -30,6 +30,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -206,6 +207,57 @@ public class OperatorVersionService {
         replaceParams(version.getId(), meta.getParamTemplate());
         replaceOutputs(version.getId(), meta.getOutputDeclarations());
         log.info("算子版本草稿已更新 version={}", versionId);
+        return assemble(version, null, true);
+    }
+
+    /**
+     * 把本次试运行的参数另存为该版本的默认值（PRD §10.6 的"后续动作"）。
+     *
+     * <p><b>为什么不违反版本不可变（D-11）</b>：冻结保护的是<b>文件与结构</b>
+     * （参数 key/类型/必填/是否敏感、输出声明）—— 工作流步骤按
+     * {@code operator_version_id} 绑定，改结构会让"历史任务当时执行的是哪份代码"
+     * 不可追溯。而默认值只是<b>新建步骤时的预填值</b>：它不进任何已保存步骤的参数快照，
+     * 也不改变命令模板，因此更新它不会让任何一条历史记录的含义发生变化。
+     * 这也是 PRD 与原型都把它放在<b>已发布版本</b>详情页上的原因。</p>
+     *
+     * <p><b>敏感参数一律拒绝</b>：默认值会随 {@code GET /operator-versions/{id}} 的
+     * {@code param_template[].default_value} 明文返回（工作流编辑器要预填它），
+     * 让敏感参数走这条路等于把 M-07 的全链路脱敏开了一个后门。一期先<b>不允许写入</b>，
+     * 而不是"写进去再在出参处打码"—— 后者会让"编辑草稿时回填的参数模板"变成
+     * 一堆 {@code ***}，用户一提交就把真实默认值覆盖成了星号。彻底方案（读写两种口径：
+     * 出参只给 {@code has_default} 布尔 + 独立的高权限读接口）已登记 README-M3 O-34。</p>
+     *
+     * <p>失败返回 <b>42210 + errors[]</b>（与上传同口径，逐字段回填到试运行表单）。</p>
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public OperatorVersionVO saveDefaultParams(String versionId, Map<String, String> params) {
+        OperatorVersion version = requireVisible(versionId);
+        Map<String, String> requested = params == null ? Map.of() : params;
+        List<FieldError> errors = new ArrayList<>();
+
+        Map<String, OperatorParamDef> declared = new LinkedHashMap<>();
+        for (OperatorParamDef def : paramDefMapper.listByVersionId(version.getId())) {
+            declared.put(def.getParamKey(), def);
+        }
+        for (Map.Entry<String, String> entry : requested.entrySet()) {
+            OperatorParamDef def = declared.get(entry.getKey());
+            if (def == null) {
+                errors.add(FieldError.of("params." + entry.getKey(),
+                        "参数模板中没有该参数: " + entry.getKey()));
+            } else if (Boolean.TRUE.equals(def.getSensitive())) {
+                errors.add(FieldError.of("params." + entry.getKey(),
+                        "敏感参数不支持另存默认值（默认值会随版本详情明文返回）"));
+            }
+        }
+        if (!errors.isEmpty()) {
+            throw uploadInvalid(errors);
+        }
+
+        for (Map.Entry<String, String> entry : requested.entrySet()) {
+            // updateDefaultValue 只动 default_value 一列；结构字段照旧冻结
+            paramDefMapper.updateDefaultValue(version.getId(), entry.getKey(), entry.getValue());
+        }
+        log.info("试运行参数已另存为默认值 version={} 共 {} 项", versionId, requested.size());
         return assemble(version, null, true);
     }
 

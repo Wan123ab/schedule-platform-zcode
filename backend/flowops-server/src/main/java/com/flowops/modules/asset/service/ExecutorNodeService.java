@@ -223,7 +223,15 @@ public class ExecutorNodeService {
         node.setEnabled(request.getEnabled() == null || request.getEnabled());
     }
 
-    private ExecutorNode requireVisible(String nodeId) {
+    /**
+     * 节点可见性：取不到时由 {@link ScopeGuard} 区分 40400（真不存在）与 40301（越权）。
+     *
+     * <p>公开而非私有：算子试运行（{@code OperatorDryRunService}）要挑一台节点执行，
+     * 与连通性测试走的是同一条"这台机器我能不能用"的判定 —— 复制一份到试运行里，
+     * 迟早出现"节点管理页进得去、试运行选不到"这类看起来像 bug 的权限差异
+     * （与 {@code WorkflowAccessGuard} 独立成类的理由同源）。</p>
+     */
+    public ExecutorNode requireVisible(String nodeId) {
         ExecutorNode visible = findByBusinessId(nodeId);
         if (visible != null) {
             return visible;

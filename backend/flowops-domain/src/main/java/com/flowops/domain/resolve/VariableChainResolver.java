@@ -1,5 +1,7 @@
 package com.flowops.domain.resolve;
 
+import com.flowops.common.util.OrderedCollections;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -148,7 +150,11 @@ public final class VariableChainResolver {
                 sources.put(key, new Source(r.layer, r.ref, masked));
             }
         }
-        return new Result(Map.copyOf(resolved), Map.copyOf(snapshot), Map.copyOf(sources), List.copyOf(errors));
+        // 三张 map 都用保序副本而不是 Map.copyOf：snapshotParams 要落 task.variable_snapshot
+        // 并回显给参数面板、Sources 要拼"这个值来自哪一层"的溯源展示 —— 都是"会被遍历"的
+        // 结果，不能接受 JDK 不可变容器那个每次 JVM 启动都变的随机迭代顺序（见 OrderedCollections）
+        return new Result(OrderedCollections.orderedMap(resolved), OrderedCollections.orderedMap(snapshot),
+                OrderedCollections.orderedMap(sources), List.copyOf(errors));
     }
 
     /**
@@ -359,7 +365,9 @@ public final class VariableChainResolver {
                 layers.put(k, Layer.STEP_PARAM);
             });
         }
-        return new Flat(Map.copyOf(values), Map.copyOf(layers));
+        // 只有 get 查询，但 Flat 是会被上层拿去做"合并顺序"排查的对象，
+        // 保序副本让"哪一层先放"这件事在调试与日志里读得出来
+        return new Flat(OrderedCollections.orderedMap(values), OrderedCollections.orderedMap(layers));
     }
 
     /** 供测试与调用方枚举：链的层次名（按优先级低 → 高）。 */

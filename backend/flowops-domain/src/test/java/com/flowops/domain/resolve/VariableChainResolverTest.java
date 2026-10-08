@@ -5,6 +5,7 @@ import com.flowops.domain.resolve.VariableChainResolver.Layer;
 import com.flowops.domain.resolve.VariableChainResolver.Result;
 import org.junit.jupiter.api.Test;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -283,5 +284,53 @@ class VariableChainResolverTest {
         assertThat(r.resolvedParams()).containsEntry("in", "/data/x");
         assertThat(r.sources().get("in").ref()).isEqualTo("${step.清洗.output.file_path}");
         assertThat(r.errors()).isEmpty();
+    }
+
+    // ── 输出顺序（跨 JVM 必须可复现） ─────────────────────────
+
+    /**
+     * 三份映射的键顺序 = 传入参数的迭代顺序。
+     *
+     * <p>{@code snapshotParams} 要落 {@code task.variable_snapshot} 并回显给参数面板、
+     * {@code sources} 要拼溯源展示 —— 顺序必须是"模板顺序"，不能是 JDK 不可变容器
+     * （{@code Map.copyOf}）那个<b>每次 JVM 启动都重新随机</b>的迭代顺序。本用例的前身
+     * 就是那条"在 {@code mvn test} 的 JVM 里绿、在 {@code clean verify} 的新 JVM 里红"的
+     * 断言；八个键是为了让随机打散藏不住（元素少时随机也可能碰巧对上）。</p>
+     */
+    @Test
+    void 三份映射的键顺序_等于传入参数的迭代顺序() {
+        LinkedHashMap<String, Object> params = new LinkedHashMap<>();
+        params.put("input_path", "/data/in");
+        params.put("partitions", 8);
+        params.put("engine", "spark");
+        params.put("api_key", "sk-live-9f3a");
+        params.put("queue", "root.etl");
+        params.put("priority", 3);
+        params.put("owner", "wan");
+        params.put("retry", 2);
+
+        Result r = VariableChainResolver.resolve(Chain.empty(), params, Set.of("api_key"));
+
+        assertThat(r.resolvedParams().keySet()).containsExactly(
+                "input_path", "partitions", "engine", "api_key", "queue", "priority", "owner", "retry");
+        assertThat(r.snapshotParams().keySet()).containsExactly(
+                "input_path", "partitions", "engine", "api_key", "queue", "priority", "owner", "retry");
+        assertThat(r.sources().keySet()).containsExactly(
+                "input_path", "partitions", "engine", "api_key", "queue", "priority", "owner", "retry");
+    }
+
+    @Test
+    void 敏感项被替换成占位符_它在快照里的位置不变() {
+        LinkedHashMap<String, Object> params = new LinkedHashMap<>();
+        params.put("before", "1");
+        params.put("api_key", "sk-live-9f3a");
+        params.put("after", "2");
+
+        Result r = VariableChainResolver.resolve(Chain.empty(), params, Set.of("api_key"));
+
+        assertThat(r.snapshotParams().keySet()).containsExactly("before", "api_key", "after");
+        assertThat(r.snapshotParams()).containsEntry("api_key", VariableChainResolver.MASKED_VALUE);
+        assertThat(r.resolvedParams()).containsEntry("api_key", "sk-live-9f3a");
+        assertThat(r.sources().get("api_key").masked()).isTrue();
     }
 }

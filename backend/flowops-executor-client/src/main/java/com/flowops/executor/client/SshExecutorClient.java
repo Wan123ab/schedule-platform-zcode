@@ -36,7 +36,24 @@ public class SshExecutorClient implements ExecutorClient {
 
     private static final int CONNECT_TIMEOUT_MS = 10_000;
 
-    private final JSch jsch = new JSch();
+    private final JSch jsch;
+
+    /** 生产装配入口（{@code ExecutorClientConfig} / {@code SchedulerWiringConfig}）。 */
+    public SshExecutorClient() {
+        this(new JSch());
+    }
+
+    /**
+     * 测试可注入替身。
+     *
+     * <p>{@code JSch} 是具体类且握手全在它内部发生，没有它就无法在不连真机的前提下
+     * 驱动 {@code execute} 的每条分支（超时、流泵、连接失败）。之所以做成包内可见的
+     * 构造器而不是把字段改成非 final + 反射注入：注入点写在构造函数里，"这个类依赖
+     * JSch"就是编译期事实，而不是测试代码里的约定。</p>
+     */
+    SshExecutorClient(JSch jsch) {
+        this.jsch = jsch;
+    }
 
     @Override
     public boolean testConnection(String machineIp, String username, String secretMaterial) {

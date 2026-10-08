@@ -5,6 +5,7 @@ import com.flowops.common.annotation.RequiresPermission;
 import com.flowops.common.api.ApiResult;
 import com.flowops.modules.asset.dto.OperatorReferenceVO;
 import com.flowops.modules.asset.dto.OperatorVersionVO;
+import com.flowops.modules.asset.dto.SaveDefaultParamsRequest;
 import com.flowops.modules.asset.service.OperatorVersionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -28,7 +30,8 @@ import java.util.List;
  * 嵌套集合无法用扁平 multipart 字段优雅表达。</p>
  *
  * <p><b>必审动作</b>：UPLOAD_VERSION / PUBLISH_VERSION / OFFLINE_VERSION 三个
- * （docs/07 §7.3 算子域清单）。DRYRUN_OPERATOR 属试运行接口，M3 后半程落地。</p>
+ * （docs/07 §7.3 算子域清单）。第四个动作 {@code DRYRUN_OPERATOR} 落在
+ * {@link OperatorDryRunController}（试运行返回 SSE 流，与本文的 JSON 端点不同族）。</p>
  */
 @RestController
 @RequiredArgsConstructor
@@ -93,5 +96,20 @@ public class OperatorVersionController {
     @RequiresPermission("schedule:operator:read")
     public ApiResult<List<OperatorReferenceVO>> references(@PathVariable String versionId) {
         return ApiResult.ok(versionService.references(versionId));
+    }
+
+    /**
+     * 将本次试运行的参数另存为该版本的默认值（PRD §10.6 的"后续动作"）。
+     *
+     * <p>权限点取 {@code schedule:operator:param}（docs/07 §5.2 第 22 条"参数模板配置"）——
+     * 原型上这个按钮挂的也是它。刻意不加 {@code @Audited}：docs/07 §7.3 的算子必审动作
+     * 清单里没有对应动作码，而"不凭空造 action 码"是本仓库的硬纪律（见
+     * {@code OperatorService#update} 的同款说明）。</p>
+     */
+    @PutMapping("/operator-versions/{versionId}/param-defaults")
+    @RequiresPermission("schedule:operator:param")
+    public ApiResult<OperatorVersionVO> saveParamDefaults(@PathVariable String versionId,
+                                                          @RequestBody SaveDefaultParamsRequest request) {
+        return ApiResult.ok(versionService.saveDefaultParams(versionId, request.getParams()));
     }
 }

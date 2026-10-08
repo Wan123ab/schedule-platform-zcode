@@ -1,6 +1,7 @@
 package com.flowops.scheduler.dag;
 
 import com.flowops.common.enums.StepStatus;
+import com.flowops.common.util.OrderedCollections;
 
 import java.util.ArrayList;
 import java.util.Deque;
@@ -188,8 +189,15 @@ public final class DagGraph {
         return consumed.contains(stepId);
     }
 
+    /**
+     * 可执行（非 NOTE）步骤集合。
+     *
+     * <p>返回保序副本：当前的唯一调用方只做 stream 求值，顺序无关；但这是把内部键集
+     * 交给外部的公共出口，一旦有人拿它去渲染/落库/拼诊断消息，{@code Set.copyOf}
+     * 那种随机迭代顺序会让结果不可复现（见 {@code OrderedCollections}）。</p>
+     */
     public Set<Long> executableStepIds() {
-        return Set.copyOf(stepNames.keySet());
+        return OrderedCollections.orderedSet(stepNames.keySet());
     }
 
     // ── 运行时推进（仅 DagAdvancer 调用）────────────────────────

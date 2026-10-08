@@ -2,6 +2,7 @@ package com.flowops.executor.protocol;
 
 import lombok.Builder;
 import lombok.Data;
+import lombok.ToString;
 
 /**
  * 执行指令（D-23：下发语义 at-least-once，
@@ -28,6 +29,7 @@ public class ExecuteCommand {
     private String username;
 
     /** 解密后的凭据材料，仅内存持有、用完即弃（docs/03 §4.1） */
+    @ToString.Exclude
     private transient String secretMaterial;
 
     /** 解析后的完整命令（M1 直传 start_command，变量 6 层解析随 M3） */

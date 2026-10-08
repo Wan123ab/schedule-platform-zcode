@@ -76,6 +76,26 @@ class MapperXmlSchemaConsistencyTest {
             "left", "right", "inner", "full", "cross", "outer", "join", "from", "as", "using",
             "having", "union", "all", "distinct", "select", "with", "returning");
 
+    /** 无别名语句的目标表：{@code UPDATE t ...} / {@code INSERT INTO t (...)}。 */
+    private static final Pattern UPDATE_TARGET =
+            Pattern.compile("(?is)^\\s*update\\s+\"?([a-z_][a-z0-9_]*)\"?");
+    private static final Pattern INSERT_TARGET =
+            Pattern.compile("(?is)\\binsert\\s+into\\s+\"?([a-z_][a-z0-9_]*)\"?\\s*\\(([^)]*)\\)");
+    /** SET 子句（到 WHERE / RETURNING / 结尾为止）。 */
+    private static final Pattern SET_CLAUSE =
+            Pattern.compile("(?is)\\bset\\b(.*?)(?:\\bwhere\\b|\\breturning\\b|$)");
+    /**
+     * 赋值左侧的列名（{@code col = ...}）；带别名的 {@code a.col = ...} 由上面那条测试负责。
+     *
+     * <p>{@code (?i)} 不能省：IDENT 用 {@code [a-z_]} 写就只认小写，于是
+     * {@code SET default_value_TYPO = ...} 这种"列名带大写"的写法会因为
+     * "标识符取不到完整长度、后面接不上 ="而**整段匹配失败**—— 表现成"这列没被检查过"，
+     * 而不是"这列不存在"。这正是本测试最忌讳的失败模式（少测而不报错），
+     * 扰动验证时当场踩到过。</p>
+     */
+    private static final Pattern ASSIGNED_COLUMN =
+            Pattern.compile("(?im)^\\s*([a-z_][a-z0-9_]*)\\s*=");
+
     /** 建表语句里以这些词开头的行是表级约束，不是列定义。 */
     private static final Set<String> NOT_A_COLUMN = Set.of(
             "constraint", "primary", "unique", "check", "foreign", "key", "exclude");
@@ -136,8 +156,107 @@ class MapperXmlSchemaConsistencyTest {
                 .isEmpty();
     }
 
-    // ── DDL 侧 ──────────────────────────────────────────────
+    /**
+     * 无别名语句（{@code UPDATE t SET col = ...} / {@code INSERT INTO t (col, ...)}）的列同样要对回 DDL。
+     *
+     * <p><b>为什么补这一条</b>：上一条测试只查"别名限定列"，而本仓库里大量 SQL 是
+     * 单表无别名的写法（{@code softDelete} / {@code clearDefaultFlag} /
+     * {@code updateDefaultValue} / 批量 INSERT 的列清单）—— 那些语句里写错列名，
+     * 与 §5-9 的 {@code ws.start_command} 是同一类缺陷：**单测把 Mapper 整个 mock 掉**，
+     * 于是只有真实打库才会炸，而打库的路径往往是低频动作（软删、刷默认标记）。</p>
+     *
+     * <p><b>边界（刻意留的两处）</b>：① 动态标签（{@code <if>} / {@code <trim>}）里的
+     * 列名不参与判定 —— 它们要靠运行时拼装，静态解析只能给误报；② 只认"紧跟表名之后的
+     * 括号列清单"，动态列清单（{@code <trim prefix="(">}）整体跳过。两处都是"少测"而非
+     * "误报"，与上一条测试的分工一致。</p>
+     */
+    @Test
+    void 无别名语句的列名也必须真实存在于DDL() {
+        Map<String, Set<String>> schema = tableColumns(readAllMigrations());
 
+        Map<String, String> problems = new LinkedHashMap<>();
+        Set<String> tablesChecked = new LinkedHashSet<>();
+        int checked = 0;
+        for (Map.Entry<String, String> file : mapperXmlFiles().entrySet()) {
+            String xml = stripComments(file.getValue());
+            Matcher statements = STATEMENT.matcher(xml);
+            while (statements.find()) {
+                String tag = statements.group(1).toLowerCase();
+                String body = statements.group(2);
+                if ("update".equals(tag)) {
+                    Matcher target = UPDATE_TARGET.matcher(body);
+                    if (!target.find()) {
+                        continue;
+                    }
+                    checked += checkUpdate(file.getKey(), target.group(1).toLowerCase(),
+                            body, schema, tablesChecked, problems);
+                } else if ("insert".equals(tag)) {
+                    Matcher target = INSERT_TARGET.matcher(body);
+                    if (!target.find()) {
+                        continue;
+                    }
+                    String table = target.group(1).toLowerCase();
+                    if (!schema.containsKey(table)) {
+                        continue;
+                    }
+                    for (String column : target.group(2).toLowerCase().split(",")) {
+                        String name = column.trim();
+                        if (name.isEmpty()) {
+                            continue;
+                        }
+                        checked++;
+                        tablesChecked.add(table);
+                        check(file.getKey(), tag, table, name, schema, problems);
+                    }
+                }
+            }
+        }
+
+        // 自检：解析不到任何列时下面的断言恒真。点名"本轮新增的无别名 UPDATE 所在的表"，
+        // 否则正则失效只会表现成"测得更少"，而不是失败（§5-9 的教训）
+        assertThat(tablesChecked)
+                .as("无别名语句没被解析到（共扫到 %d 列）", checked)
+                .contains("operator_param_def", "operator_version", "workflow_version");
+        assertThat(problems)
+                .as("无别名 SQL 里引用了不存在的列：一打库就是 column ... does not exist")
+                .isEmpty();
+    }
+
+    /** 取 UPDATE 的 SET 左值列逐个比对。 */
+    private int checkUpdate(String file, String table, String body, Map<String, Set<String>> schema,
+                            Set<String> tablesChecked, Map<String, String> problems) {
+        if (!schema.containsKey(table)) {
+            return 0;
+        }
+        Matcher set = SET_CLAUSE.matcher(body);
+        if (!set.find()) {
+            return 0;
+        }
+        int checked = 0;
+        for (String segment : splitTopLevel(set.group(1))) {
+            Matcher column = ASSIGNED_COLUMN.matcher(segment);
+            if (!column.find()) {
+                continue;   // 动态标签片段等：见方法注释的边界①
+            }
+            checked++;
+            tablesChecked.add(table);
+            check(file, "update", table, column.group(1).toLowerCase(), schema, problems);
+        }
+        return checked;
+    }
+
+    private void check(String file, String tag, String table, String column,
+                       Map<String, Set<String>> schema, Map<String, String> problems) {
+        Set<String> columns = schema.get(table);
+        String where = file + " 里的 <" + tag + ">：" + table + "." + column;
+        if (columns == null) {
+            problems.putIfAbsent(where, "表 " + table + " 在迁移脚本里找不到");
+        } else if (!columns.contains(column)) {
+            problems.putIfAbsent(where, "表 " + table + " 没有列 " + column);
+        }
+    }
+
+    // ── DDL 侧 ──────────────────────────────────────────────
     private Map<String, Set<String>> tableColumns(String ddl) {
         Map<String, Set<String>> tables = new LinkedHashMap<>();
         Matcher create = CREATE_TABLE.matcher(ddl);

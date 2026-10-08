@@ -30,5 +30,56 @@
       <artifactId>lombok</artifactId>
       <scope>provided</scope>
     </dependency>
+
+    <!--
+      单测（O-17）：本模块原先零测试 —— 后果不只是"没测"，而是**覆盖率门禁根本装不上**：
+      没有测试 → 没有 jacoco.exec → `jacoco:report` 直接 skip（日志
+      "Skipping JaCoCo execution due to missing execution data file"）
+      → 依赖 report 数据的 jacoco:check 连数据源都没有。
+      而这里恰恰是 176 行真实 SSH 逻辑（连接/流泵/超时/退出码判定），
+      且已被节点连通性测试与调度侧派发两条链路实际使用。
+    -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
+
+  <build>
+    <plugins>
+      <!--
+        JaCoCo 门禁（O-17 的后半句：补完测试这门禁才装得上）。
+        阈值 0.90：本模块可测面只有 SshExecutorClient 一个类（Lombok 生成的
+        ExecuteCommand/ExecuteResult 被 jacoco 按 @lombok.Generated 过滤掉），
+        实测 87/89 行 = 97.8% —— 留约 8pt 余量，不是"定个好看的数"。
+        触线时的正确处理：先看看是不是新加的路径没测，而不是先来改这个数字。
+      -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>jacoco-check</id>
+            <phase>verify</phase>
+            <goals><goal>check</goal></goals>
+            <configuration>
+              <rules>
+                <rule>
+                  <element>BUNDLE</element>
+                  <limits>
+                    <limit>
+                      <counter>LINE</counter>
+                      <value>COVEREDRATIO</value>
+                      <minimum>0.90</minimum>
+                    </limit>
+                  </limits>
+                </rule>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
 </project>

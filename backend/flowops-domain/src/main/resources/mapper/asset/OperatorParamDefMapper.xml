@@ -26,4 +26,16 @@
          ORDER BY operator_version_id, seq, id
     </select>
 
+    <!-- 只改默认值一列：试运行「另存为默认值」。
+         刻意不写 UPDATE operator_param_def SET ... 的整行更新 —— 版本发布后
+         key/类型/必填/敏感 这些结构字段必须原样冻结（D-11），一个"顺手带上的整行更新"
+         就是冻结失效的入口。驼峰列名由 mybatis 的 map-underscore-to-camel-case 负责读侧，
+         写侧一律显式写列名。 -->
+    <update id="updateDefaultValue">
+        UPDATE operator_param_def
+           SET default_value = #{defaultValue}
+         WHERE operator_version_id = #{operatorVersionId}
+           AND param_key = #{paramKey}
+    </update>
+
 </mapper>

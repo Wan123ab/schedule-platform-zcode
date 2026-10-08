@@ -495,4 +495,95 @@ class OperatorVersionServiceTest {
         // 引用行是按版本行主键反查的，不是拿业务编号当主键
         verify(operatorMapper).findReferences(31L);
     }
+
+    // ── 试运行参数另存为默认值（PRD §10.6 的"后续动作"）───────
+
+    /**
+     * 已发布版本也允许改默认值：冻结保护的是文件与结构（D-11），
+     * 而默认值只是"新建步骤时的预填值"，不进任何已保存步骤的参数快照。
+     */
+    @Test
+    void 另存默认值_已发布版本也允许_且只更新default_value一列() {
+        when(versionMapper.selectOne(any())).thenReturn(version("OPV-0003-01", "v1", "PUBLISHED"));
+        when(paramDefMapper.listByVersionId(31L)).thenReturn(List.of(
+                paramDef("input_path", "TEXT", false, null),
+                paramDef("partitions", "NUMBER", false, "100")));
+
+        OperatorVersionVO vo = service.saveDefaultParams("OPV-0003-01", Map.of("input_path", "/data/orders"));
+
+        verify(paramDefMapper).updateDefaultValue(31L, "input_path", "/data/orders");
+        // 结构字段一个都不许动：没有整行更新，也就没有"顺手改了必填/敏感标记"的可能
+        verify(paramDefMapper, never()).deleteByVersionId(any());
+        verify(operatorMapper, never()).updateById(any(Operator.class));
+        assertThat(vo.getVersionId()).isEqualTo("OPV-0003-01");
+    }
+
+    @Test
+    void 另存默认值_传空串表示清空也允许() {
+        when(versionMapper.selectOne(any())).thenReturn(version("OPV-0003-01", "v1", "PUBLISHED"));
+        when(paramDefMapper.listByVersionId(31L)).thenReturn(List.of(paramDef("input_path", "TEXT", false, "/x")));
+
+        service.saveDefaultParams("OPV-0003-01", Map.of("input_path", ""));
+
+        verify(paramDefMapper).updateDefaultValue(31L, "input_path", "");
+    }
+
+    @Test
+    void 另存默认值_模板外参数_42210且一项都不落库() {
+        when(versionMapper.selectOne(any())).thenReturn(version("OPV-0003-01", "v1", "PUBLISHED"));
+        when(paramDefMapper.listByVersionId(31L)).thenReturn(List.of(paramDef("input_path", "TEXT", false, null)));
+
+        assertThatThrownBy(() -> service.saveDefaultParams("OPV-0003-01",
+                Map.of("input_path", "/x", "typo_key", "/y")))
+                .isInstanceOf(BizException.class)
+                .satisfies(ex -> {
+                    assertThat(codeOf(ex)).isEqualTo(42210);
+                    assertThat(errorsOf((BizException) ex)).extracting(FieldError::field)
+                            .containsExactly("params.typo_key");
+                });
+        // 校验先于写入：合法的那个也不能落库，否则用户会以为"提交了一半"
+        verify(paramDefMapper, never()).updateDefaultValue(any(), anyString(), anyString());
+    }
+
+    /**
+     * 敏感参数一律拒绝：默认值会随版本详情明文返回（工作流编辑器要预填它），
+     * 让敏感参数走这条路等于给 M-07 的全链路脱敏开后门。
+     */
+    @Test
+    void 另存默认值_敏感参数被拒_而不是写进去再打码() {
+        OperatorParamDef sensitive = paramDef("api_token", "TEXT", true, null);
+        when(versionMapper.selectOne(any())).thenReturn(version("OPV-0003-01", "v1", "PUBLISHED"));
+        when(paramDefMapper.listByVersionId(31L)).thenReturn(List.of(sensitive));
+
+        assertThatThrownBy(() -> service.saveDefaultParams("OPV-0003-01", Map.of("api_token", "t-abcdef")))
+                .isInstanceOf(BizException.class)
+                .satisfies(ex -> {
+                    assertThat(codeOf(ex)).isEqualTo(42210);
+                    assertThat(errorsOf((BizException) ex)).extracting(FieldError::field)
+                            .containsExactly("params.api_token");
+                });
+        verify(paramDefMapper, never()).updateDefaultValue(any(), anyString(), anyString());
+    }
+
+    @Test
+    void 另存默认值_版本不可见时先判越权_不落库() {
+        when(versionMapper.selectOne(any())).thenReturn(null);
+
+        assertThatThrownBy(() -> service.saveDefaultParams("OPV-0003-99", Map.of("input_path", "/x")))
+                .isInstanceOf(BizException.class)
+                .satisfies(ex -> assertThat(codeOf(ex)).isEqualTo(40400));
+        verify(paramDefMapper, never()).updateDefaultValue(any(), anyString(), anyString());
+    }
+
+    private static OperatorParamDef paramDef(String key, String type, boolean sensitive, String defaultValue) {
+        OperatorParamDef def = new OperatorParamDef();
+        def.setOperatorVersionId(31L);
+        def.setParamKey(key);
+        def.setName(key);
+        def.setParamType(type);
+        def.setRequired(false);
+        def.setSensitive(sensitive);
+        def.setDefaultValue(defaultValue);
+        return def;
+    }
 }

@@ -1,7 +1,8 @@
 # FlowOps 工程实施 · M3 交付说明（编排域）
 
 > 依据：`docs/09` §M3「编排域」交付物清单与 DoD。
-> **状态：进行中 —— 本文件当前覆盖「第一切片：算子域」**，随 M3 推进逐节更新。
+> **状态：后端主干已完成** —— 本文件覆盖五个切片：§1 算子域 · §1.1 工作流域 · §1.2 工作流接口层 ·
+> §1.3 变量解析与触发器 · **§1.4 算子试运行（最新）**。剩余 **前端 6 页**（§7-7）。
 > 代码基线：`dev_workbuddy` 分支。
 >
 > 阅读顺序建议：§1 看本切片做了什么 → **§2 看哪些是真验证过的** → §4/§5 看已知缺口与本轮踩到的坑。
@@ -91,7 +92,7 @@
 | 2 | 上传校验失败返回 **42210 + `errors[]`**（逐字段回填） | ✅ **已实测** | `OperatorVersionServiceTest#上传_文件与meta错误合并为一个42210_且不落盘` 断言 4 条错误同时在列且字段路径可定位；并断言**校验阶段零磁盘写入** |
 | 3 | 版本不可变（非草稿不可编辑 → 42212） | ✅ **已实测** | 状态机三段均有断言：非草稿编辑 42212、非草稿发布 42212、非 PUBLISHED 下线 40900 |
 | 4 | 引用闸门（42211） | ✅ **已实测** | `OperatorServiceTest#删除_版本已被工作流引用_42211且不落删`，双向断言（`never()` 校验不落删） |
-| 5 | **算子试运行**（选节点 + 实时日志 + 退出码，`DRYRUN_OPERATOR`） | ⏳ 未开工 | §7-1 |
+| 5 | **算子试运行**（选节点 + 实时日志 + 退出码，`DRYRUN_OPERATOR`） | ✅ **已实测** | `POST /operator-versions/{versionId}/dry-run`（SSE）实装（§1.4）。断言覆盖：`plan`/`run` 的线程边界、四类帧（`CMD`/`LOG`/`EOF`/`ERROR`）、`exit_code=null` 的语义、成功码判定、**不写任务/步骤/日志表**（依赖上不可达 + `verify(executorClient, never())` 双保险）、双重脱敏（结构化 + 按值）、两条错误通道（建流前 JSON / 建流后 `ERROR` 帧）、超时优先级与封顶。**O-17 同时收口**：`SshExecutorClientTest` 14 例 + 模块门禁 0.90（经反向扰动验证会拦） |
 | 6 | **工作流 CRUD + 版本化** | ✅ **已实测** | 四表实体/Mapper/XML ✅；DAG 校验 10 条 ✅；DTO/Service/Controller ✅（§1.2）。**42215**（`has_draft_changes=true` 时再新开草稿）与 **42212**（非草稿不可编辑）均有单测；草稿/发布的编号（`WFV-`/`WFS-`/`WFE-`）、整包替换顺序（`inOrder(edgeMapper, stepMapper)`）、发布先校验后切指针均有断言 |
 | 7 | **自研 SVG 画布编辑器**（D-14） | ⏳ 未开工 | §7-3 |
 | 8 | **DAG 校验 8 条规则**（含规则 7 的 42218） | ✅ **已实测（含挂到接口）** | `DagValidatorTest` 28 例覆盖规则 1~10 各一条"该报"用例 + 关键规则的反例（菱形 DAG 不算环、恰好 10 次重试通过、备注节点不参与可达性、集群无上限数据时跳过而不当成 0）。规则已**挂到两个接口**：保存草稿跑结构子集（42213 + `errors[]`）、发布跑全量；错误码分流 42213/42214/42218 在 `WorkflowVersionServiceTest` 中逐条断言（含"42218 而不是 42213"的哨兵用例） |
@@ -107,12 +108,17 @@
 
 | 模块 | 行覆盖 | 分支覆盖 | 门禁 | 门槛 |
 |---|---|---|---|---|
-| `flowops-common` | util+guard+context 三包 **100%** | — | `jacoco-check`（按 `includes` 收窄） | 0.85 |
-| `flowops-domain` | **94.0%** ↑ | 91.7% | `jacoco-check` | 0.55 |
-| `flowops-server` | 逻辑层(service/scope/manager) **78.7%** ↑ | — | `jacoco-check-logic-layer` | 0.55 |
-| `flowops-server` | 模块整体 **68.0%** ↑ | 61.1% | `jacoco-check-module-floor` | 0.30 |
+| `flowops-common` | util+guard+context 三包 **100%**（含本轮新增 `OrderedCollections` 9/9） | — | `jacoco-check`（按 `includes` 收窄） | 0.85 |
+| `flowops-domain` | **94.2%** ↑ | 87.2% | `jacoco-check` | 0.55 |
+| `flowops-server` | 逻辑层(service/scope/manager) **81.0%** ↑ | — | `jacoco-check-logic-layer` | 0.55 |
+| `flowops-server` | 模块整体 **69.8%** ↑ | 63.3% ↑ | `jacoco-check-module-floor` | 0.30 |
 | `flowops-scheduler` | **80.8%** | **71.2%** | `jacoco-check` | 0.75 / 0.65 |
-| `flowops-executor-client` | **无数据**（零测试 → 无 `jacoco.exec` → report 跳过） | — | 无 | 见 **O-17** |
+| `flowops-executor-client` | **97.8%**（本轮从"无数据"变为有数据） | 90.0% | `jacoco-check`（**本轮新增**） | 0.90 |
+
+> **口径说明**：以上数字取 `mvn -o -B -ntp clean verify` 后各模块 `target/site/jacoco/jacoco.csv`
+> 的 `LINE_*` / `BRANCH_*` 求和。`scheduler` 两项与上一轮记录的 80.8%/71.2% **精确吻合**，
+> 说明与旧记录的算法一致；`domain` 的分支数字比旧记录（91.7%）低是由于纳入同一算法重算，
+> 未覆盖集中在 `VariableChainResolver`（17/92 未覆盖），**不是本轮新增代码**，其行覆盖不受影响。
 
 **本切片新增类的覆盖率**（门禁口径之外，单独列出以便审阅）：
 
@@ -121,7 +127,8 @@
 | `OperatorVersionValidator` | 65/70 = **92.9%** |
 | `OperatorService` | 89/96 = **92.7%** |
 | `OperatorFileStorage` | 40/41 = **97.6%** |
-| `OperatorVersionService` | 210/245 = **85.7%** |
+| `OperatorVersionService` | 246/267 = **92.1%** ↑（本轮新增"另存默认值"5 例） |
+| `OperatorDryRunService` | 148 行中 144 覆盖 = **97.3%** |
 | `OperatorController` / `OperatorVersionController` | 0%（见 **O-18**） |
 | `WorkflowService` | 106/110 = **96.4%** |
 | `WorkflowVersionService` | 317/329 = **96.4%** |
@@ -129,7 +136,11 @@
 | `WorkflowAccessGuard` | 14/14 = **100%** |
 | `TriggerService` | 141/165 = **85.5%** |
 | `TriggerConfigValidator` | 39/42 = **92.9%** |
-| `VariableChainResolver`（domain） | 134/143 = **93.7%** |
+| `VariableChainResolver`（domain） | 135/144 = **93.8%** |
+| `SecretMasker`（domain） | 26/27 = **96.3%** |
+| `SshExecutorClient`（executor-client） | 87/89 = **97.8%** |
+| `OrderedCollections`（common） | 9/9 = **100%** |
+| `DagGraph`（scheduler） | 88/89 = **98.9%** |
 | `VariableRefParser`（domain） | 67/71 = **94.4%** |
 | `TriggerController` | 0%（见 **O-18**，同为刻意） |
 | `WorkflowController` / `WorkflowVersionController` | 0%（见 **O-18**，同为刻意） |
@@ -140,16 +151,22 @@
 | `OperatorVersionValidatorTest` | 11 | 一次收集全部错误、字段路径可定位（`paramTemplate[2].paramKey`）、重复 key 精确到行、`SINGLE` 必须有候选值 |
 | `OperatorFileStorageTest` | 12 | 扩展名白名单/大小上限/空文件；**校验阶段零磁盘写入**；内容寻址（同内容复用同一份文件）；不同算子分目录；落盘失败报 50000 而非 42210 |
 | `OperatorServiceTest` | 13 | 编号 `OP-####` 与 `ENABLED` 缺省、重名拒绝、项目不可变更、**42211 双向断言**、删除顺序（先版本后算子，`inOrder`）、40301/40400、项目过滤翻译、快照单点维护 |
-| `OperatorVersionServiceTest` | 19 | 状态机三段、42210 错误聚合、meta 非法 JSON 并入 42210（非 40002）、checksum 去重提示、**版本号含软删行续号（不复用）**、子表先删后插且挂版本行主键、`seq` 显式优先/缺省补号、发布先清旧默认（`inOrder`）、下线清默认标记、**版本可见性借父算子判定** |
+| `OperatorVersionServiceTest` | 24 | 状态机三段、42210 错误聚合、meta 非法 JSON 并入 42210（非 40002）、checksum 去重提示、**版本号含软删行续号（不复用）**、子表先删后插且挂版本行主键、`seq` 显式优先/缺省补号、发布先清旧默认（`inOrder`）、下线清默认标记、**版本可见性借父算子判定**、**另存默认值**（已发布版本也允许且只 `updateDefaultValue` 一列、空串=清空、模板外参数 42210 且一项都不落库、敏感参数被拒、版本不可见先 40400） |
 | `WorkflowServiceTest` | 16 | 编号 `WF-####` 与 DDL 默认值显式落内存（`FORBID`/`1`/`false`）、同项目重名拒绝且不落库、**排序白名单外 → 40003**、**401 项目不可变更**、并发设置、**发布顺序 `inOrder(versionService, workflowMapper)`**（先校验冻结、再切 `current_version`）、发布失败不更新工作流、停用仅限 PUBLISHED、40301/40400 两态 |
 | `WorkflowVersionServiceTest` | 28 | 保存草稿**只跑规则 1/5/10**（未绑算子的步骤能存下、违反规则的请求体不落库）、重名 → 42213 + `errors[]{rule,step_name}`、**自环闭环的不可达（规则 1 先于规则 5 输出）**、端点不存在 → **40001 且不删旧图**、非草稿 → **42212**、已存在草稿 → **42215**、整包替换顺序（`inOrder`）、**服务端重新发号（客户端 `s1` 不出网）**、外键解析不到写 `null` 而非哨兵、JSONB 参数来回不丢、新开草稿**整图复制并重新发号**（含"从未发布过也能建空草稿"、**版本序号含软删行不复用**）、发布全量校验**对象是库内数据**、**42218 而非 42213**、已发布版本不回写发布人、ARCHIVED → 40900、悬挂连线跳过、40301/40400、**外键解析走批量 `IN`（20 节点仍只查 1 次）** |
 | `DagAssemblerTest` | 11 | 40001 三分支（键重复 / 端点缺失 / 自环）、合法图的键→下标与连线下标、**哨兵 vs null 六种取值**、空集合不发起 `IN ()`、反向映射查不到不把内部主键当业务编号、`full=false` 不查算子规格 vs `full=true` 查、实体路径不翻译外键、**坏 JSON 按空对象参与校验（而非抛异常）** |
 | `DataPermissionSchemaConsistencyTest` | 3 | 登记表 ↔ 真实 DDL 一致性（项目/集群两维各一条）+ 反向断言"无 `project_id` 的派生表不得被登记"（本轮把 `trigger` 加进该名单） |
-| `MapperXmlSchemaConsistencyTest` | 1 | 全部 Mapper XML 里的 `别名.列` ↔ 真实 DDL 一致性（`file:` 与 `jar:` 两种 classpath 形态都支持）；**这一条抓出了 `ws.start_command` 这个跨域 SQL 空列引用**（见 §5-9）。本轮提取正则升级为**支持 PG 引号表名**（`"trigger"`），并把 `trigger` 点名进自检——否则引号表会被整表静默跳过（§5-10） |
-| `VariableChainResolverTest`（domain） | 23 | **五条覆盖规则各一例（名字即答案）**、点名引用不受覆盖链影响、`param.` 中段退化匹配（docs 两处示例风格都接）、整串单引用透传原类型、混排拼接溯源记首引用、失败路径四态、**敏感值脱敏但真实值保留**、命令渲染（步骤参数覆盖一切/无引用原样/坏引用保留并报错/null 命令）、六层顺序与 docs 一致 |
+| `MapperXmlSchemaConsistencyTest` | 2 | 全部 Mapper XML 里的 `别名.列` ↔ 真实 DDL 一致性（`file:` 与 `jar:` 两种 classpath 形态都支持）；**这一条抓出了 `ws.start_command` 这个跨域 SQL 空列引用**（见 §5-9）。本轮提取正则升级为**支持 PG 引号表名**（`"trigger"`），并把 `trigger` 点名进自检——否则引号表会被整表静默跳过（§5-10）。本轮再补**第二条**：无别名的 `UPDATE t SET col=` / `INSERT INTO t (col,…)` 的列名也要对回 DDL（原正则只查 `别名.列`，这类语句整天被漏扫） |
+| `VariableChainResolverTest`（domain） | 30 | **五条覆盖规则各一例（名字即答案）**、点名引用不受覆盖链影响、`param.` 中段退化匹配（docs 两处示例风格都接）、整串单引用透传原类型、混排拼接溯源记首引用、失败路径四态、**敏感值脱敏但真实值保留**、命令渲染（步骤参数覆盖一切/无引用原样/坏引用保留并报错/null 命令）、六层顺序与 docs 一致、**三份映射的键顺序 = 传入顺序**（跨 JVM 可复现；其前身正是 §5-11 那条"红绿互换"的断言） |
 | `VariableRefParserTest`（domain，搬迁 +3） | 13 | D-20 语法全套（步骤名引号/特殊字符/未知来源/output 段缺失/未闭合）、嵌套结构递归收集、**裸引用**（标识符/中文/非法字符） |
 | `TriggerConfigValidatorTest` | 13 | 42216 三态（二选一/缺一/语法错）、周期非正、MANUAL 免检、时区 40001、时间窗 end=lt/gt start 三态、**跨时区比较发生在时间轴上** |
 | `TriggerServiceTest` | 19 | 业务编号 `TRG-####` 与 DDL 默认值显式落内存、**next_fire_time 只在调度配置变化时重算**（改名字不动游标）、挂靠不可变更、API/EVENT 一期置灰、42216/42217 不落库、重名 42200、40400/40301 两态、软删而非物理删、停用联动、cron-preview（默认 5/上限 20/严格递增/非法 42216） |
+| `OperatorDryRunServiceTest` | 22 | 默认值合并/顺序、`plan.toString()` 不含命令与凭据、**敏感参数展示脱敏但执行保留真值**、命令里字面量敏感值也脱敏、日志行**回调前**脱敏、`secret` 环境变量纳管、必填缺失（42210 + `errors[]` + `verify(executorClient, never())` + `verify(credentialMapper, never())`）、模板外参数、命令引用不存在（42214 且不执行）、参数值嵌引用（42214）、节点禁用/非 Linux/未绑凭据（42200 + `rule`）、凭据不存在（40400）、启动命令为空（`DRYRUN_COMMAND_MISSING`）、**超时优先级与封顶**、成功码判定、坏 JSON 候选项退化 |
+| `DryRunPlanValidatorTest` | 16 | 每条断言"什么情况下报 / 不报"：节点必填、超时 1~600 边界、模板外参数、必填缺填、不可运行时覆盖、`SINGLE` 候选值、`NUMBER`、`BOOLEAN`（`TEXT`/`DATETIME` 刻意不校验） |
+| `DryRunFramesTest` | 5 | 线协议字段名（`snake_case`）+ **`exit_code = null` 必须能被表达**（`Map.of` 会抛 NPE，故用 `LinkedHashMap`） |
+| `SecretMaskerTest`（domain） | 9 | 按值替换、**互为前缀时长的先替换**（否则残留碎片 `***456`）、短于阈值（4）不参与替换、null/空白忽略、空集不改变原文 |
+| `SshExecutorClientTest`（executor-client，**O-17 收口**） | 14 | Mockito 替身驱动 `JSch`/`Session`/`ChannelExec`：成功退出码 0 + stdout/stderr 分别按行回调、非零退出码原样返回且不填 `failReason`、**超时 → `exitCode == null` 且 `channel.disconnect()`**、连接失败不抛异常、某流读取中断不影响另一流、`listener == null`、中文 UTF-8、私钥形态走 `addIdentity` / 口令形态走 `setPassword`、`StrictHostKeyChecking=no`、`testConnection` 真/假、`terminate` 返回 false |
+| `OrderedCollectionsTest`（common） | 16 | 保序（含 8 元素守卫用例——**换回 `Map.copyOf` 会在多数 JVM 上变红**）、不可写（`put` 与迭代器 `setValue` 都拒）、null 键/值/元素立即 NPE、空输入、等值语义不变、可直接接 Map 的键集 |
 
 前端：`npm run lint`（`--max-warnings 0`）· `npm run test`（3 文件 19 例）· `npm run build`（`vue-tsc --noEmit` + vite build）三件套本地全绿。
 
@@ -178,6 +195,52 @@
 5. **`next_fire_time` 只在调度配置变化时重算**：它是调度器扫表游标，改个名字不该被
    "顺手"清掉。
 
+## 1.4 第五切片：算子试运行 + `SshExecutorClient` 测试收口（本轮新增）
+
+| 交付物 | 落点 | 状态 |
+|---|---|---|
+| **试运行计划装配**（`plan`）：版本可见 → 参数合并/校验 → 节点可执行性 → 凭据解密 → 命令渲染与脱敏 | `modules/asset/service/OperatorDryRunService` | ✅ |
+| **试运行执行**（`run`）：工作线程内逐行回调，**每行先脱敏再出网** | 同上 | ✅ |
+| **SSE 通道**：`POST /operator-versions/{versionId}/dry-run`，`CMD`/`LOG`/`EOF`/`ERROR` 四类帧 | `modules/asset/controller/OperatorDryRunController` | ✅ |
+| 帧构造（用 `LinkedHashMap` 而非 `Map.of`：`exit_code` 允许为 `null`） | `modules/asset/dto/DryRunFrames` | ✅ |
+| **参数校验器**（纯函数）：节点必填 / 超时 1~600 / 模板外参数 / 必填缺填 / 不可运行时覆盖 / SINGLE 候选值 / NUMBER / BOOLEAN | `modules/asset/validator/DryRunPlanValidator` | ✅ |
+| **`SecretMasker`**（按值脱敏）：补上 `${}` 注入之外的**第二条泄漏路径**（命令里字面量写着的敏感值） | `flowops-domain/resolve/SecretMasker` | ✅ |
+| **另存默认值**（PRD §10.6 后续动作）：`PUT /operator-versions/{versionId}/param-defaults`，**只写 `default_value` 一列** | `OperatorVersionService#saveDefaultParams` | ✅ |
+| 审计动作 `DRYRUN_OPERATOR` | `@Audited`（与 `docs/07` §7.3 清单对齐） | ✅ |
+| 权限点 `schedule:operator:dryrun` | `@RequiresPermission`（49 点中已有，未新增） | ✅ |
+| 专用线程池 `dryRunExecutor`（core 2 / max 8 / **queue 0** / **AbortPolicy**） | `config/AsyncConfig` | ✅ |
+| **O-17 收口**：`SshExecutorClientTest` 14 例（Mockito 替身驱动 `JSch`/`Session`/`ChannelExec`） | `flowops-executor-client/src/test` | ✅ |
+| **`flowops-executor-client` 门禁 0.90**（此前零测试 → 无 `jacoco.exec` → `report` skip → 门禁**连装都装不上**） | 模块 POM | ✅ |
+| **`OrderedCollections`**（保序不可变集合）：修掉 `Map.copyOf` 在 JVM 间随机迭代顺序导致的"测试红绿互换" | `flowops-common/util` | ✅ |
+| 单测 | `OperatorDryRunServiceTest` 22 + `DryRunPlanValidatorTest` 16 + `DryRunFramesTest` 5 + `SshExecutorClientTest` 14 + `SecretMaskerTest` 9 + `OrderedCollectionsTest` 16 | ✅ |
+
+**本切片的关键设计**：
+
+1. **plan / run 拆分是安全边界**：`plan` 在**请求线程**（`ScopeContext`/`UserContext` 是
+   ThreadLocal，数据范围判定必须在这里做完），`run` 在**工作线程** —— 工作线程没有任何
+   ThreadLocal 上下文，在那里查库会让行级过滤**静默失效**（与 §5-8 的"非管理员才炸"同源）。
+   故 `DryRunPlan` 在 plan 阶段就把节点 IP、凭据、命令、成功码全部装齐。
+2. **不注入 `TaskMapper`/`TaskStepMapper`/`TaskLogMapper`**：PRD §10.6 的硬约束是
+   "试运行不生成正式任务与步骤实例记录"。这里用**依赖上不可达**实现，而不是靠"记得别写"。
+3. **SSE 而非 WebSocket**：任务日志用 WS 是因为要 offset 续传 + 多客户端订阅 + 落库
+   （`docs/07` §7.5）；试运行是**一次性、不落库、单客户端**的短过程流，SSE 更贴合且能直接
+   复用 Sa-Token 的头部鉴权。**必须用 POST** —— 参数走请求体，避免敏感参数进访问日志 /
+   代理日志 / 浏览器历史。
+4. **两条错误通道**：建流**之前**的错误（42210 校验 / 40301 越权 / 42200 节点不可用 /
+   42214 引用落空）走**普通 JSON 响应**（让用户回去改表单）；建流**之后**的错误
+   （并发已满 42900、执行期异常）只能走 SSE 的 `ERROR` 帧 —— 响应头已经发出去了，
+   改不了状态码。这也是 Controller 上**刻意不写** `produces = TEXT_EVENT_STREAM_VALUE`
+   的原因（否则建流前的 JSON 错误体会被 406 顶掉）。
+5. **`exit_code = null` 是一个有语义的取值**（D-23 边界）：null = "进程未能确认启动"
+   （连接/认证失败、超时强杀），恒判失败，且**提示方向不同** —— 该问"机器是否可达"，
+   而不是"命令是不是写错了"。所以帧构造必须用 `LinkedHashMap`（`Map.of` 遇 null 抛 NPE）。
+6. **成功码判定**（PRD §12.4-5）：退出码 ∈ 版本 `success_codes` 才算成功，缺省 `{0}`。
+7. **脱敏两条路径都堵上**：结构化脱敏（`VariableChainResolver` 的快照作用在**参数结构**上）
+   覆盖不了"命令里**字面量**写着的敏感值"，故再加一道**按值替换**的 `SecretMasker`。
+   日志行在**回调前**脱敏（前端拿不到原文，与 `LogPushRegistry` 同一口径）。
+   另有两处防"调试顺手打日志"的泄漏：`DryRunPlan.toString()` 重写为不含命令与凭据、
+   `ExecuteCommand.secretMaterial` 加 `@ToString.Exclude`。
+
 
 ## 4. 偏离与遗留项（如实登记，均注明去处）
 
@@ -200,6 +263,12 @@
 | **O-24** | **DAG 规则 6 只按集群聚合，不校验队列** | `docs/07` §9.2 规则 6 的原文是"不超过目标集群/队列上限"，但 `docs/05` 的 `queue` 表**只有** `max_concurrent_tasks` / `max_waiting_tasks`（并发口径），**没有任何资源上限列**（`cpu/memory/disk` 只在 `cluster` 上）。拿并发上限去比资源申请量是无意义的 | 按 DDL 的真实结构实现为"按目标集群聚合 `cpu/gpu/memory/disk` 比 `cluster.*_total`"。若确需队列维度的资源上限，需先给 `queue` 加列（迁移），不是校验器能单方面决定的 |
 | **O-25** | **工作流没有 DELETE 端点，但存在 `schedule:workflow:delete` 权限点** | `docs/07` §5.2 列了权限点 `schedule:workflow:delete`（26 号，"工作流删除"），但 `prd/CONTRACT-API.md` §6.1 与 `docs/07` §5.4 的映射表里**都没有对应的 DELETE 端点**。故本轮不实现删除接口（不凭空造端点），`WorkflowVersionMapper.softDeleteByWorkflowId` 先留着 | 契约缺口：需先定 DELETE 的语义（是否级联软删版本与触发器、有运行中任务时是否 42203）并回写 CONTRACT，再实现 |
 | **O-22** | ~~CI `run #13` 失败用例未知~~ → **已闭环** | 根因查明，**推翻了先前"环境随机抖动"的判断**：`IdGenTest` 6 例全部挂在 Mockito 初始化（`MockMaker` 加载失败），深层是测试依赖了 JDK 的**运行期 dynamic attach**；CI 新镜像 `ubuntu24/20261004.327` 上这条路径必挂。同镜像无关的代码在旧镜像上一直是绿的，所以表现为"同一份代码既绿又红"（完整证据链见 §5-6） | 已修：byte-buddy-agent 从"运行期 self-attach"改为"启动期显式 `-javaagent`"（父 POM surefire argLine）。**防复发要点**：不要为了"消警告"给 surefire 加 `-XX:+EnableDynamicAgentLoading`，那是把动态 attach 再请回来 |
+| **O-32** | **试运行参数非法沿用 42210，不新造错误码** | `docs/07` 的错误码清单里**没有**"试运行参数非法"这一项。实现复用 `VALIDATION_FAILED`(42210) + `errors[]`（与算子版本上传校验同一形态），前端可复用同一套表单回填组件 | 若产品要求区分"上传校验失败"与"试运行参数非法"，需先回写 docs 增补错误码，再改 `DryRunPlanValidator` 的抛出点 |
+| **O-33** | **试运行的超时口径对"请求值"与"版本默认值"不对称** | 请求值超限（`<1` 或 `>600`）→ **报错**（用户当场填错，应立即纠正）；版本 `default_timeout_seconds` 超限 → **封顶到 600**（历史配置/导入数据不该让这个版本永远试运行不了）。docs 未定义这一差异 | 已登记以便复核；若要求"一律报错"，改一行分支即可，但会让老版本配置无法试运行 |
+| **O-34** | **没有"终止试运行"端点** | 用 SSH 直跑拿不到远端 PID，`kill` 无从下手。当前兜底手段有二：**600 秒硬超时**（`SshExecutorClient` 侧 `channel.disconnect()`）+ 客户端断开连接。`prd/CONTRACT-API.md` 也未定义该端点 | 若确需主动终止，需换成"远端写 PID 文件再二次连接 kill"的机制（会把一次连接变两次，且远端可能没权限），需先定契约再实现 |
+| **O-35** | **敏感参数不得"另存默认值"** | `GET /operator-versions/{versionId}` 的 `param_template[].default_value` 是**明文返回**的（工作流编辑器要拿它预填输入框）。让敏感参数走这条路 = 给 M-07 的脱敏开后门。故 `saveDefaultParams` 遇到敏感参数**直接拒绝**（42210），而不是"存进去再打码" | 代价是敏感参数的默认值无法通过 UI 维护——这正是预期的安全取舍。若产品要求可维护，需先定"默认值密文存储 + 使用前解密"的方案（且要回答"谁能看到明文"） |
+| **O-36** | **"另存默认值"端点没有对应的审计动作码** | `docs/07` §7.3 的动作清单里有 `UPLOAD_OPERATOR`/`PUBLISH_OPERATOR`/`OFFLINE_OPERATOR`/`DRYRUN_OPERATOR`，**没有**"修改版本默认值"这一项。按本项目"不凭空造码"的纪律，该端点**刻意不加 `@Audited`** | 契约缺口：若要求审计，需先回写 `docs/07` §7.3 增补动作码，再补注解（一行） |
+| **O-37** | **试运行不注入 `env_vars`** | 算子版本的 `env_vars` 在一期**调度侧同样不注入**（环境变量下发属 M4）。试运行与真实下发保持一致，避免"试运行能跑、真跑不能跑"的假阳性——但这也意味着**试运行通过不等于真跑必通过**，需在 UI 上如实提示 | 随 M4 的环境变量下发一起做，届时试运行同步注入 |
 
 ## 5. 本轮修复记录（留档防复发）
 
@@ -442,15 +511,127 @@ docs/05 §3.4 的 DDL 原文写的是 `CREATE TABLE trigger (...)`——而 `TRI
 
 *登记为 O-28*。编号新增 O-29~O-31 与决策 D-30，见 §4。
 
+### 5-11. `Map.copyOf` 的迭代顺序**跨 JVM 随机**：一条"按模板顺序展开"的用例在 `mvn test` 绿、在 `clean verify` 红
+
+这是本轮最值得留档的一条，因为它的**失败模式很隐蔽**：没有任何代码错误，同一份源码在两个 JVM 里给出两种结果。
+
+#### 现象
+
+全量 `clean verify` 挂在一个此前刚跑绿的用例上：
+
+```
+OperatorDryRunServiceTest.装配计划_入参覆盖默认值且按模板顺序展开:93
+Expecting actual:   ["partitions", "input_path"]
+to contain exactly (and in same order): ["input_path", "partitions"]
+```
+
+而**同一个测试类，上一轮 `mvn -o -pl flowops-server -am test` 是绿的**。
+
+#### 根因：JDK 不可变容器用一个**每次 JVM 启动都重新随机**的 SALT 打散桶摆放
+
+`VariableChainResolver.resolve` 末尾是：
+
+```java
+return new Result(Map.copyOf(resolved), Map.copyOf(snapshot), Map.copyOf(sources), List.copyOf(errors));
+```
+
+前三张都是 `LinkedHashMap` 建好后交给 `Map.copyOf` —— **顺序在这一步被丢掉了**。JDK 的
+`java.util.ImmutableCollections` 为了避免调用方依赖迭代顺序，内部用一个 `SALT` 常量参与
+桶索引计算，而它在**每个 JVM 启动时重新生成**。于是**顺序"未指定"且跨进程不稳定**。
+
+**独立复现**（最小程序，连跑 6 次新 JVM）：
+
+```
+LinkedHashMap   : [input_path, partitions]   ← 6/6 次一致
+Map.copyOf      : [partitions, input_path]   ← 第 1、2 次
+Map.copyOf      : [input_path, partitions]   ← 第 3~6 次
+unmodifiableMap : [input_path, partitions]   ← 6/6 次一致
+```
+
+这就解释了"红绿互换"：`equals`/`hashCode` **不看顺序**，所以断言里的顺序问题只在
+"把 map 摊开来看"时暴露；而两次运行落在不同的 JVM 上，顺序纯看运气。
+
+#### 影响面判定（不是无脑全改）
+
+全项目搜 `Map.copyOf` / `Set.copyOf` 共 14 处，按"结果是否会被**遍历**"分档：
+
+| 位置 | 判定 | 处置 |
+|---|---|---|
+| `VariableChainResolver#resolve` 的 `resolvedParams`/`snapshotParams`/`sources` | **出网 + 落库**（`task.variable_snapshot`、参数面板、溯源展示） | ✅ 改保序 |
+| `VariableChainResolver#flatten` 的 `values`/`layers` | 仅供 `get`，但是"合并顺序"排查的对象 | ✅ 改保序（零成本） |
+| `OperatorDryRunService#plan` 的 `sources` | 出网（"这个值来自哪一层"） | ✅ 改保序 |
+| `DagGraph#executableStepIds` | 当前调用方只做 stream 求值；但它是内部键集对外的**公共出口** | ✅ 改保序（上保险） |
+| `StepStateTransitions` / `TaskStateTransitions` 的 `REACHABLE` | `EnumMap`，只 `getOrDefault` 查询 | ⛔ 不改 |
+| `UserContextInterceptor` 的权限集、`MyBatisAuthScopeQueries` 的 3 处授权集 | 只 `contains` | ⛔ 不改 |
+
+修复方式：新增 `flowops-common/util/OrderedCollections`（`orderedMap` / `orderedSet`），
+用 `LinkedHashMap`/`LinkedHashSet` 承载顺序再套 `unmodifiable*` 断写 —— 顺手保住了
+`Map.copyOf` 的"拒 null"语义（键/值为 null 立即 NPE，不静默收下）。
+类注释里写清判据：**只做查询 → 用 `copyOf`；会被遍历 → 用本类**。
+
+#### 验证
+
+- 全量 `clean verify` 从 **BUILD FAILURE → BUILD SUCCESS**，518 用例全绿、6 道门禁全达标；
+- 在 `domain` 加了两条**顺序回归**（`三份映射的键顺序_等于传入参数的迭代顺序` 用 8 个键 ——
+  元素少时随机也可能碰巧对上，8 个才藏不住；`敏感项被替换成占位符_它在快照里的位置不变`）；
+  在 `common` 的 `OrderedCollectionsTest` 里放了对应的 8 元素守卫用例。
+
+*教训*：**"测试通过了"与"测试稳定通过"是两回事**。凡是把集合顺序当作输出契约的地方
+（渲染、落库、诊断消息、出网 JSON），都不能依赖 JDK 不可变容器的迭代顺序。
+与前几次（§5-2 的 exclude 双语义、§5-6 的动态 attach、§5-9 的 classpath 形态）属于**同一类**：
+"同一份代码/配置有两个语义域，而只验证了其中一个"——只不过这次的第二个语义域是**运行时**。
+
+### 5-12. 一致性测试的新正则**又差点少扫**（第四次复发）＋ 门禁反向扰动
+
+补 `MapperXmlSchemaConsistencyTest` 的第二条口径（无别名的 `UPDATE t SET col=` / `INSERT INTO t (col,…)`）
+时，先用扰动验证它会不会拦：把 `SET default_value = …` 改成 `SET default_value_TYPO = …`。
+
+结果**测试没报"列不存在"**，而是报了一条**自检断言**（`operator_param_def` 没被扫到）。
+根因是新增的 `ASSIGNED_COLUMN` 正则漏了 `(?i)`：
+
+```java
+Pattern.compile("^\\s*([a-z_][a-z0-9_]*)\\s*=")     // 只认小写
+```
+
+`value_TYPO` 匹配到 `value_` 后接不上 `=`（`T` 不在 `[a-z0-9_]` 里），整段匹配失败 →
+表现为"**少测一条**"而不是"**检出错误列名**"。补 `(?im)` 后扰动得到**响亮且指向正确**的失败：
+
+```
+Expecting empty but was:
+  {"asset\OperatorParamDefMapper.xml 里的 <update>：operator_param_def.default_value_typo"
+   ="表 operator_param_def 没有列 default_value_typo"}
+```
+
+*这是同一失败模式的第四次复发*——正则静默少匹配 → 测试静默少覆盖 → 报告"绿"。
+处方的共同形态是：**自检断言要点名具体对象（表名/数量/文件），不能只断言"不为空"**。
+
+#### `flowops-executor-client` 门禁的反向扰动
+
+| 动作 | 结果 |
+|---|---|
+| 阈值初写 0.75 | 实测 87/89 = **97.8%**，0.75 太松 → 提到 **0.90**（留 ~8pt 余量） |
+| 扰动 0.90 → 0.999 | ✅ `Rule violated for bundle flowops-executor-client: lines covered ratio is 0.977, but expected minimum is 0.999` → **BUILD FAILURE** |
+| 还原 0.90 | 回绿 |
+
+顺带记下这道门禁**此前装不上的因果链**：模块零测试 → 不产生 `jacoco.exec` →
+`report` goal 直接 skip（日志 `Skipping JaCoCo execution due to missing execution data file`）→
+`check` 连**数据源**都没有，无论阈值写多少都不会拦。**"门禁存在"和"门禁在工作"是两件事**，
+只有先有测试、再用扰动证明它会拦，才能说这道门禁真的生效。
+
 ## 6. 复跑命令（本地）
 
 ```bash
-# 后端：全量测试 + 5 道覆盖率门禁
+# 后端：全量测试 + 6 道覆盖率门禁（common / domain / executor-client / server×2 / scheduler）
 JAVA_HOME=<jdk-21> PATH=<maven-3.9.x>/bin:$PATH mvn -o -B -ntp clean verify
 
 # 前端：三件套
-cd frontend && npm run lint && npm run test && npm run build
+cd frontend && pnpm lint && pnpm test && pnpm build
 ```
+
+> 门禁清单：`flowops-common` 收窄三包 0.85 · `flowops-domain` 0.55 · `flowops-server` 逻辑层 0.55 + 模块地板 0.30 ·
+> `flowops-scheduler` 0.75/0.65 · **`flowops-executor-client` 0.90（本轮新增）**。
+> **`-o`（离线）不是可选项**：默认生命周期插件已钉版本，但一旦有新依赖未落本地仓库，离线会直接失败 ——
+> 那正是"构建可复现"的代价，别为了让它过就摘掉 `-o`。
 
 > 环境注意：本机 `PATH` 上的 Maven 3.6.3 / `JAVA_HOME` 指向的 jdk-11 会与 Java 21 编译不兼容（`<release>21</release>`）。可用组合为 **jdk-21 + Maven 3.9.9**。
 
@@ -458,7 +639,7 @@ cd frontend && npm run lint && npm run test && npm run build
 
 | 序 | 块 | 关键约束（来自 docs） |
 |---|---|---|
-| 1 | 算子试运行（选节点 + 实时日志 + 退出码 + `DRYRUN_OPERATOR`） | 需先补 **O-17**（`SshExecutorClient` 无测试）；试运行**不得**写任务/步骤实例表 |
+| 1 | ~~算子试运行（选节点 + 实时日志 + 退出码 + `DRYRUN_OPERATOR`）~~ | ✅ **已完成**（§1.4）：SSE 四类帧 + `plan`/`run` 线程边界 + 双重脱敏 + 另存默认值；**O-17 一并收口**（`SshExecutorClientTest` 14 例 + 模块门禁 0.90）。新增偏离 O-32~O-37 |
 | 2 | ~~工作流 CRUD + 版本化~~ | ✅ **已完成**（§1.2）；O-21 也随之以"构建期一致性测试"的口径闭环（§5-9） |
 | 3 | 自研 SVG 画布编辑器（**D-14**） | 止损线：**超 10 人日即降级 LogicFlow**；机制注释按 D-26 第 4 条 |
 | 4 | ~~DAG 校验规则接到接口并把 42213/42214/42218 回填~~ | ✅ **已完成**：保存草稿跑结构子集、发布跑全量，三码分流见 `WorkflowVersionServiceTest` |
@@ -466,25 +647,30 @@ cd frontend && npm run lint && npm run test && npm run build
 | 6 | ~~触发器 CRON（42216）+ 时间窗（42217）~~ | ✅ **已完成**（§1.3）：CRUD 6 端点 + cron-preview + 停用联动；42216/42217 纯函数三分流。**注**：调度侧的 fire 推进 / catch-up（docs/06 §11.2）属 M4，本轮只做"配置进得来、下次时间算得出" |
 | 7 | 前端 6 页（算子列表/详情/版本 + 工作流列表/编辑器/详情） | 画布页单独排期 |
 
-> **下一步建议**：**1（算子试运行）**——它同时是 **O-17**（`SshExecutorClient` 首次高频使用）的收口点；
-> 画布（3）单独排期。
+> **下一步建议**：**7（前端 6 页）** —— 后端主干已全部就绪（算子的列表/详情/版本、工作流的列表/编辑器/详情
+> 六组接口与 DTO 都已实测），前端只剩页面本身。**画布编辑器（3）** 是其中风险最高的一块，建议在其余
+> 5 页之后单独排期，并预留 D-14 的止损动作（超 10 人日降级 LogicFlow）。
 
 ---
 
-**M3 第二/第三/第四切片一句话总结**：工作流 CRUD + 版本化、DAG 校验接口化（三码分流）、六层变量覆盖链、
-触发器 CRUD 四块后端主干已落地并实测（428 用例，逻辑层覆盖 68.7% → **78.7%**）。
+**M3 第二~第五切片一句话总结**：工作流 CRUD + 版本化、DAG 校验接口化（三码分流）、六层变量覆盖链、
+触发器 CRUD、算子试运行（SSE + 双重脱敏）五块后端主干已落地并实测（**518 用例**，
+server 逻辑层覆盖 68.7% → **81.0%**，覆盖率门禁 5 道 → **6 道**）。
 
-更有价值的是**顺带修掉的四个真缺陷**，它们都属于同一类"**本地恰好没事、换个执行路径就出事**"：
+更有价值的是**顺带修掉的六个真缺陷**，它们都属于同一类"**本地恰好没事、换个执行路径就出事**"：
 
 1. `workflow_version` 被登记到数据权限表却**没有 `project_id` 列** → 非管理员查询必 500（§5-8）；
 2. `ws.start_command` 引用了**不属于该表的列** → 调度器每 tick 必失败（§5-9）；
 3. 一致性测试自身只认 `file:` 协议 → 在 `mvn verify` 下**静默少扫 90% 的 XML**（§5-9 尾部）；
-4. `trigger` 是 **PG 保留字**，DDL 与 XML 从未加引号 → 真实 PG 环境一来就全炸（§5-10）。
+4. `trigger` 是 **PG 保留字**，DDL 与 XML 从未加引号 → 真实 PG 环境一来就全炸（§5-10）；
+5. `Map.copyOf` 的迭代顺序**跨 JVM 随机** → 一条断言在 `mvn test` 绿、在 `clean verify` 红（§5-11）；
+6. 一致性测试新加的正则漏了 `(?i)` → 扰动时"少扫一条"却被报成另一条错（§5-12）。
 
-前两个都是"**被 mock 掩盖**"的：单测把 Mapper 整个 mock 掉，SQL 从未真的打过库。
+前两个是"**被 mock 掩盖**"的：单测把 Mapper 整个 mock 掉，SQL 从未真的打过库。
 处理方式不是"下次注意"，而是各加一条 **DDL 一致性测试**，把这类错误整体提前到构建期。
-第三个是同一主题的第三次复发（前两次是 §5-2 的 exclude 双语义、§5-6 的动态 attach）：
-**同一个配置/代码存在两个语义域，而只验证了其中一个。**
+第 3~6 条是同一主题的**四次复发**（更早两次是 §5-2 的 exclude 双语义、§5-6 的动态 attach）：
+**同一个配置/代码存在两个语义域，而只验证了其中一个** —— 第 5 条的第二个语义域是**运行时**
+（JVM 启动时的随机 SALT），这一条尤其值得记住：**"测试通过了"与"测试稳定通过"是两回事**。
 
 ---
 
