@@ -101,7 +101,7 @@
 | 10 | **触发器 CRON**（42216）+ 时间窗（42217） | ✅ **已实测** | `TriggerConfigValidator` 纯函数三分流（42216 含"二选一"约束与方言提示 / 42217 / 40001）；CRUD 6 端点含 `/triggers/cron-preview`（默认 5 个、上限 20、严格递增断言）；可见性借父 workflow（40301/40400）；`next_fire_time` 只在调度配置变化时重算；**工作流停用联动停触发器**；软删走显式 XML（MP `updateById` 剔除逻辑删除列的坑不再踩） |
 | 11 | **前端 6 页**（算子 3 + 工作流 3） | 🚧 **3/6 已完成** | 算子三页已实装（§1.5）：列表 / 详情（版本列表 + 上传 + 发布下线）/ 版本详情（**含试运行面板**：SSE 实时日志、退出码、命令回显与溯源、按模板动态渲染的参数表单、另存默认值）。工作流三页（列表 / 详情 / 编辑器+画布）见 §7-7 |
 | — | 单测覆盖门禁（O-14） | ✅ **已实测** | 4 个模块 5 道门禁全绿，且经**反向扰动验证会拦**（见 §5-3） |
-| — | **CI 全绿** | ✅ **已实测（最新 run #23）** | **run #23（`dev_workbuddy` @ `0aa8aec`，本轮）conclusion = success**，落在 **`ubuntu24/20261004.327`** —— 正是 `run #13` 挂掉的那个镜像版本。取回 job 日志核实：**518 用例全绿**（43/73/14/300/88，**与本地逐一吻合**）、**6 道 JaCoCo 门禁全跑**、动态 attach 警告 **0** 次、本轮 8 个相关测试类（`OrderedCollectionsTest`/`SshExecutorClientTest`/`OperatorDryRunServiceTest`/`DryRunPlanValidatorTest`/`DryRunFramesTest`/`SecretMaskerTest`/`MapperXmlSchemaConsistencyTest`/`VariableChainResolverTest`）**全部真实执行**。更早 **run #19（`8f13ac5`）**、**#17（`df97558`）**、**#16（`51915ac`）** 亦 success。历史失败 `run #13` 的根因已查明并修复（§5-6） |
+| — | **CI 全绿** | ✅ **已实测（run #23 后端 / #24 前端）** | **run #23（`0aa8aec`，后端切片）conclusion = success**，落在 **`ubuntu24/20261004.327`** —— 正是 `run #13` 挂掉的那个镜像版本。取回 job 日志核实：**518 用例全绿**（43/73/14/300/88，**与本地逐一吻合**）、**6 道 JaCoCo 门禁全跑**、动态 attach 警告 **0** 次、8 个相关测试类全部真实执行。<br>**run #24（`b79b0a0`，前端切片）conclusion = success**：前端 job 核实 **4 文件 32 例全过**（含新增 `casename.spec.ts` 13 例）、build 产物含 `OperatorListView`/`OperatorDetailView`/`OperatorVersionView` 三页。更早 **run #19（`8f13ac5`）**、**#17**、**#16** 亦 success。历史失败 `run #13` 的根因已查明并修复（§5-6） |
 
 ## 3. 测试资产与覆盖率基线
 
