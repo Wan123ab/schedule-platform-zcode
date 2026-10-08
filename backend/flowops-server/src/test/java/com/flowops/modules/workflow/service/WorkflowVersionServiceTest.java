@@ -24,6 +24,7 @@ import com.flowops.modules.workflow.converter.WorkflowVersionConverterImpl;
 import com.flowops.modules.workflow.dto.DagEdgeDef;
 import com.flowops.modules.workflow.dto.DagStepDef;
 import com.flowops.modules.workflow.dto.SaveWorkflowVersionRequest;
+import com.flowops.modules.workflow.dto.WorkflowVersionBrief;
 import com.flowops.modules.workflow.dto.WorkflowVersionVO;
 import com.flowops.modules.workflow.validator.DagViolation;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,7 +35,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -114,6 +117,16 @@ class WorkflowVersionServiceTest {
             return 1;
         }).when(versionMapper).updateById(any(WorkflowVersion.class));
         when(versionMapper.selectById(any())).thenAnswer(inv -> versionRows.get((Long) inv.getArgument(0)));
+        // 版本列表：按 workflow_id 过滤后**按 id 倒序**（新→旧）—— 与 XML 的 ORDER BY id DESC 同口径。
+        // 这里刻意把"排序"也实现出来：排序是列表接口语义的一半，桩若原样返回插入序，
+        // "新版本排在最前"这条断言就永远测不到。
+        when(versionMapper.listByWorkflowId(any())).thenAnswer(inv -> {
+            Long workflowId = inv.getArgument(0);
+            return versionRows.values().stream()
+                    .filter(v -> workflowId.equals(v.getWorkflowId()) && !Boolean.TRUE.equals(v.getDeleted()))
+                    .sorted((a, b) -> Long.compare(b.getId(), a.getId()))
+                    .toList();
+        });
 
         doAnswer(inv -> {
             WorkflowStep s = inv.getArgument(0);
@@ -581,6 +594,78 @@ class WorkflowVersionServiceTest {
         assertThatThrownBy(() -> service.get("WFV-9999-01"))
                 .isInstanceOf(BizException.class)
                 .satisfies(e -> assertThat(codeOf(e)).isEqualTo(40400));
+    }
+
+    // ── 版本列表（GET /workflows/{id}/versions）──────────────
+    //
+    // 这个端点的存在理由本身就是"草稿找回"：`has_draft_changes` 只说有草稿、
+    // 不带版本号，而新开草稿又会 42215 —— 没有它，用户离开编辑器后草稿就失联了。
+    // 所以下面第一条断言的重点不是"能列出几行"，而是**最新那行是草稿**。
+
+    @Test
+    void 版本列表_新的在前_且草稿能被找回来() {
+        versionRows.put(31L, version(31L, "WFV-0001-01", "v1", "PUBLISHED"));
+        versionRows.put(32L, version(32L, "WFV-0001-02", "v2", "PUBLISHED"));
+        versionRows.put(33L, version(33L, "WFV-0001-03", "v3", "DRAFT"));
+        when(workflowMapper.selectOne(any())).thenReturn(workflow());
+
+        var list = service.listByWorkflow("WF-0001");
+
+        assertThat(list).extracting("versionId")
+                .containsExactly("WFV-0001-03", "WFV-0001-02", "WFV-0001-01");
+        // 草稿必须排在第一位：前端点「继续编辑草稿」取的就是第一行
+        assertThat(list.get(0).getPublishStatus()).isEqualTo("DRAFT");
+        assertThat(list.get(0).getVersionNo()).isEqualTo("v3");
+        assertThat(list.get(1).getPublishStatus()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void 版本列表_只出概要_不带步骤与画布尺寸() {
+        versionRows.put(31L, version(31L, "WFV-0001-01", "v1", "PUBLISHED"));
+        when(workflowMapper.selectOne(any())).thenReturn(workflow());
+
+        var brief = service.listByWorkflow("WF-0001").get(0);
+
+        // WorkflowVersionBrief 是"第一屏摘要"：字段少是刻意的（整图走 /workflow-versions/{id}）。
+        // 直接锁字段集合，而不是锁"能读到某个值" —— 前者能挡住"有人往 brief 里加 steps"，
+        // 后者挡不住（加了字段也不影响旧断言的通过）。
+        assertThat(brief.getVersionId()).isEqualTo("WFV-0001-01");
+        assertThat(brief.getVersionNo()).isEqualTo("v1");
+        assertThat(Arrays.stream(WorkflowVersionBrief.class.getDeclaredFields())
+                .map(Field::getName))
+                .containsExactlyInAnyOrder("versionId", "versionNo", "publishStatus",
+                        "stepCount", "publisher", "publishedAt");
+    }
+
+    @Test
+    void 版本列表_软删的草稿不出现() {
+        versionRows.put(31L, version(31L, "WFV-0001-01", "v1", "PUBLISHED"));
+        WorkflowVersion discarded = version(32L, "WFV-0001-02", "v2", "DRAFT");
+        discarded.setDeleted(true);
+        versionRows.put(32L, discarded);
+        when(workflowMapper.selectOne(any())).thenReturn(workflow());
+
+        assertThat(service.listByWorkflow("WF-0001")).extracting("versionId")
+                .containsExactly("WFV-0001-01");
+    }
+
+    @Test
+    void 版本列表_从未发布过的工作流_返回空列表而不是报错() {
+        when(workflowMapper.selectOne(any())).thenReturn(workflow());
+
+        assertThat(service.listByWorkflow("WF-0001")).isEmpty();
+    }
+
+    @Test
+    void 版本列表_跨项目_40301而非空列表() {
+        // "越权"必须是显式错误，不能悄悄返回空列表 —— 空列表会让前端显示"没有版本"，
+        // 用户以为数据丢了，实际是被数据范围挡住了
+        when(workflowMapper.selectOne(any())).thenReturn(null, workflow());
+
+        assertThatThrownBy(() -> service.listByWorkflow("WF-0001"))
+                .isInstanceOf(BizException.class)
+                .satisfies(e -> assertThat(codeOf(e)).isEqualTo(40301));
+        verify(versionMapper, never()).listByWorkflowId(any());
     }
 
     // ── 发布 ────────────────────────────────────────────────

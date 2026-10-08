@@ -11,6 +11,7 @@ import com.flowops.modules.workflow.dto.PublishWorkflowRequest;
 import com.flowops.modules.workflow.dto.SaveConcurrencyRequest;
 import com.flowops.modules.workflow.dto.SaveWorkflowRequest;
 import com.flowops.modules.workflow.dto.WorkflowVO;
+import com.flowops.modules.workflow.dto.WorkflowVersionBrief;
 import com.flowops.modules.workflow.dto.WorkflowVersionVO;
 import com.flowops.modules.workflow.service.WorkflowService;
 import com.flowops.modules.workflow.service.WorkflowVersionService;
@@ -26,6 +27,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 /**
  * 工作流接口（docs/07 §5.4 / CONTRACT §6.1；PRD §10.7）。
@@ -127,5 +130,25 @@ public class WorkflowController {
     @Audited(action = "SAVE_DRAFT", targetType = "WORKFLOW_VERSION")
     public ApiResult<WorkflowVersionVO> createDraft(@PathVariable String workflowId) {
         return ApiResult.ok(versionService.createDraft(workflowId));
+    }
+
+    /**
+     * 版本列表（新→旧），只读。
+     *
+     * <p><b>本端点的来由（README-M3 偏离项）</b>：docs/07 §5.4 的权限映射表已把
+     * {@code GET /workflows/{id}/versions} 明确归到 {@code workflow:read} / PROJECT 范围，
+     * 但 CONTRACT §6.2 只定义了同路径的 POST。缺了它，{@code has_draft_changes=true}
+     * 的工作流会变成死锁：草稿的版本号没有任何读接口能拿到，用户既回不到那份草稿、
+     * 也无法发布它。故按 docs/07 §5.4 补齐这个**只读**端点 —— 不新增权限点、
+     * 不新增审计动作（查询类本就不审计，与 {@code /triggers/cron-preview} 同口径）。</p>
+     *
+     * <p>不加 {@code @DataScope}：{@code workflow_version} 没有 {@code project_id} 列
+     * （docs/05 §3.4），行级过滤覆盖不到它；可见性在 Service 层"借父工作流判定"
+     * （{@code guard.requireVisible}）。加了反而会因为查不到注册的过滤规则而报错。</p>
+     */
+    @GetMapping("/{workflowId}/versions")
+    @RequiresPermission("schedule:workflow:read")
+    public ApiResult<List<WorkflowVersionBrief>> versions(@PathVariable String workflowId) {
+        return ApiResult.ok(versionService.listByWorkflow(workflowId));
     }
 }

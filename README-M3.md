@@ -1,9 +1,10 @@
 # FlowOps 工程实施 · M3 交付说明（编排域）
 
 > 依据：`docs/09` §M3「编排域」交付物清单与 DoD。
-> **状态：后端主干 + 前端算子三页已完成** —— 本文件覆盖六个切片：§1 算子域 · §1.1 工作流域 ·
-> §1.2 工作流接口层 · §1.3 变量解析与触发器 · §1.4 算子试运行 · **§1.5 前端算子三页（最新）**。
-> 剩余 **工作流三页**（§7-7）。
+> **状态：后端主干 + 前端五页已完成** —— 本文件覆盖七个切片：§1 算子域 · §1.1 工作流域 ·
+> §1.2 工作流接口层 · §1.3 变量解析与触发器 · §1.4 算子试运行 · §1.5 前端算子三页 ·
+> **§1.6 工作流列表/详情 + 版本列表端点（最新）**。
+> 剩余 **工作流编辑器 + 自研 SVG 画布（§7-3）**。
 > 代码基线：`dev_workbuddy` 分支。
 >
 > 阅读顺序建议：§1 看本切片做了什么 → **§2 看哪些是真验证过的** → §4/§5 看已知缺口与本轮踩到的坑。
@@ -31,8 +32,10 @@
 | 权限点 `schedule:operator:read/write/delete/publish` | `@RequiresPermission`（49 点中已有的 4 个，未新增） | ✅ |
 | 上传体积上限（默认 500MB） | `application.yml` `spring.servlet.multipart.*` | ✅ |
 | 单测 | 4 个测试类 64 例（见 §3） | ✅ |
-| **前端算子三页（列表/详情/版本）** | —— | ⏳ 未开工 |
-| **算子试运行 / 工作流 CRUD / 画布编辑器 / DAG 8 规则 / 六层变量解析 / CRON 触发器** | —— | ⏳ 未开工（见 §7） |
+| **前端算子三页（列表/详情/版本）** | `frontend/src/views/operator/*` | ✅（§1.5） |
+| **算子试运行 / 工作流 CRUD / DAG 8 规则 / 六层变量解析 / CRON 触发器** | 见 §1.2~§1.4 | ✅ |
+| **前端工作流列表/详情 + `GET /workflows/{id}/versions`（版本列表）** | `frontend/src/views/workflow/*` · `WorkflowController#versions` | ✅（§1.6） |
+| **自研 SVG 画布编辑器（D-14）+ 工作流编辑器页** | —— | ⏳ 未开工（见 §7-3） |
 
 **本切片新增文件（后端）**：`domain` 侧 4 实体 + 1 type handler + 4 Mapper(+4 XML) + `OperatorReferenceRow`；`server` 侧 6 DTO + 2 Converter + 1 Validator + 3 Service(`OperatorService`/`OperatorVersionService`/`OperatorFileStorage`) + 2 Controller；`common` 侧 `FieldError`。
 
@@ -99,13 +102,13 @@
 | 8 | **DAG 校验 8 条规则**（含规则 7 的 42218） | ✅ **已实测（含挂到接口）** | `DagValidatorTest` 28 例覆盖规则 1~10 各一条"该报"用例 + 关键规则的反例（菱形 DAG 不算环、恰好 10 次重试通过、备注节点不参与可达性、集群无上限数据时跳过而不当成 0）。规则已**挂到两个接口**：保存草稿跑结构子集（42213 + `errors[]`）、发布跑全量；错误码分流 42213/42214/42218 在 `WorkflowVersionServiceTest` 中逐条断言（含"42218 而不是 42213"的哨兵用例） |
 | 9 | **六层变量覆盖链解析器** | ✅ **已实测** | `VariableChainResolver`（domain，纯函数）：五条覆盖规则各一个**名字即答案**的用例（`项目参数覆盖平台变量`…`步骤参数覆盖一切`）、点名引用不受覆盖链影响、整串单引用透传原类型（数字不拍平）、混排拼接、失败路径（不存在的步骤/未产出的变量/格式非法/未闭合）、**敏感值快照脱敏但真实值保留**（M-07）、溯源记录实际胜出的层（PRD §10.0.4）。启动命令渲染走六层扁平上下文（步骤参数最后 put = 第 6 层最高） |
 | 10 | **触发器 CRON**（42216）+ 时间窗（42217） | ✅ **已实测** | `TriggerConfigValidator` 纯函数三分流（42216 含"二选一"约束与方言提示 / 42217 / 40001）；CRUD 6 端点含 `/triggers/cron-preview`（默认 5 个、上限 20、严格递增断言）；可见性借父 workflow（40301/40400）；`next_fire_time` 只在调度配置变化时重算；**工作流停用联动停触发器**；软删走显式 XML（MP `updateById` 剔除逻辑删除列的坑不再踩） |
-| 11 | **前端 6 页**（算子 3 + 工作流 3） | 🚧 **3/6 已完成** | 算子三页已实装（§1.5）：列表 / 详情（版本列表 + 上传 + 发布下线）/ 版本详情（**含试运行面板**：SSE 实时日志、退出码、命令回显与溯源、按模板动态渲染的参数表单、另存默认值）。工作流三页（列表 / 详情 / 编辑器+画布）见 §7-7 |
+| 11 | **前端 6 页**（算子 3 + 工作流 3） | 🚧 **5/6 已完成** | 算子三页（§1.5）：列表 / 详情（版本列表 + 上传 + 发布下线）/ 版本详情（**含试运行面板**：SSE 实时日志、退出码、命令回显与溯源、按模板动态渲染的参数表单、另存默认值）。工作流**列表 + 详情**（§1.6）：列表含项目/状态/关键词筛选与**排序**（全项目唯一支持排序的端点）、"点发布到底发哪一版"显式确认；详情含概览（工作流级默认值只读）、并发配置（独立端点）、**版本列表**（新开/继续编辑草稿 + 发布）、**触发器 CRUD + cron 服务端试算**。剩余**编辑器 + 画布**见 §7-3 |
 | — | 单测覆盖门禁（O-14） | ✅ **已实测** | 4 个模块 5 道门禁全绿，且经**反向扰动验证会拦**（见 §5-3） |
 | — | **CI 全绿** | ✅ **已实测（run #23 后端 / #24 前端）** | **run #23（`0aa8aec`，后端切片）conclusion = success**，落在 **`ubuntu24/20261004.327`** —— 正是 `run #13` 挂掉的那个镜像版本。取回 job 日志核实：**518 用例全绿**（43/73/14/300/88，**与本地逐一吻合**）、**6 道 JaCoCo 门禁全跑**、动态 attach 警告 **0** 次、8 个相关测试类全部真实执行。<br>**run #24（`b79b0a0`，前端切片）conclusion = success**：前端 job 核实 **4 文件 32 例全过**（含新增 `casename.spec.ts` 13 例）、build 产物含 `OperatorListView`/`OperatorDetailView`/`OperatorVersionView` 三页。更早 **run #19（`8f13ac5`）**、**#17**、**#16** 亦 success。历史失败 `run #13` 的根因已查明并修复（§5-6） |
 
 ## 3. 测试资产与覆盖率基线
 
-后端 `mvn -o -B -ntp clean verify` **428 用例全绿**（common 27 / domain 62 / server 251 / scheduler 88），**5 个代码模块 + 父 POM 聚合器** 全 `BUILD SUCCESS`，5 道 JaCoCo 门禁全跑（`flowops-executor-client` 无门禁，见 O-17）。
+后端 `mvn -o -B -ntp clean verify` **523 用例全绿**（common 43 / domain 73 / executor-client 14 / server 305 / scheduler 88），**5 个代码模块 + 父 POM 聚合器** 全 `BUILD SUCCESS`，**6 道** JaCoCo 门禁全跑（清单见 §6）。
 
 | 模块 | 行覆盖 | 分支覆盖 | 门禁 | 门槛 |
 |---|---|---|---|---|
@@ -131,8 +134,8 @@
 | `OperatorVersionService` | 246/267 = **92.1%** ↑（本轮新增"另存默认值"5 例） |
 | `OperatorDryRunService` | 148 行中 144 覆盖 = **97.3%** |
 | `OperatorController` / `OperatorVersionController` | 0%（见 **O-18**） |
-| `WorkflowService` | 106/110 = **96.4%** |
-| `WorkflowVersionService` | 317/329 = **96.4%** |
+| `WorkflowService` | 107/111 = **96.4%** |
+| `WorkflowVersionService` | 321/333 = **96.4%** ↑（本轮新增版本列表 5 例） |
 | `DagAssembler` | 137/157 = **87.3%** |
 | `WorkflowAccessGuard` | 14/14 = **100%** |
 | `TriggerService` | 141/165 = **85.5%** |
@@ -154,10 +157,10 @@
 | `OperatorServiceTest` | 13 | 编号 `OP-####` 与 `ENABLED` 缺省、重名拒绝、项目不可变更、**42211 双向断言**、删除顺序（先版本后算子，`inOrder`）、40301/40400、项目过滤翻译、快照单点维护 |
 | `OperatorVersionServiceTest` | 24 | 状态机三段、42210 错误聚合、meta 非法 JSON 并入 42210（非 40002）、checksum 去重提示、**版本号含软删行续号（不复用）**、子表先删后插且挂版本行主键、`seq` 显式优先/缺省补号、发布先清旧默认（`inOrder`）、下线清默认标记、**版本可见性借父算子判定**、**另存默认值**（已发布版本也允许且只 `updateDefaultValue` 一列、空串=清空、模板外参数 42210 且一项都不落库、敏感参数被拒、版本不可见先 40400） |
 | `WorkflowServiceTest` | 16 | 编号 `WF-####` 与 DDL 默认值显式落内存（`FORBID`/`1`/`false`）、同项目重名拒绝且不落库、**排序白名单外 → 40003**、**401 项目不可变更**、并发设置、**发布顺序 `inOrder(versionService, workflowMapper)`**（先校验冻结、再切 `current_version`）、发布失败不更新工作流、停用仅限 PUBLISHED、40301/40400 两态 |
-| `WorkflowVersionServiceTest` | 28 | 保存草稿**只跑规则 1/5/10**（未绑算子的步骤能存下、违反规则的请求体不落库）、重名 → 42213 + `errors[]{rule,step_name}`、**自环闭环的不可达（规则 1 先于规则 5 输出）**、端点不存在 → **40001 且不删旧图**、非草稿 → **42212**、已存在草稿 → **42215**、整包替换顺序（`inOrder`）、**服务端重新发号（客户端 `s1` 不出网）**、外键解析不到写 `null` 而非哨兵、JSONB 参数来回不丢、新开草稿**整图复制并重新发号**（含"从未发布过也能建空草稿"、**版本序号含软删行不复用**）、发布全量校验**对象是库内数据**、**42218 而非 42213**、已发布版本不回写发布人、ARCHIVED → 40900、悬挂连线跳过、40301/40400、**外键解析走批量 `IN`（20 节点仍只查 1 次）** |
+| `WorkflowVersionServiceTest` | 33 | 保存草稿**只跑规则 1/5/10**（未绑算子的步骤能存下、违反规则的请求体不落库）、重名 → 42213 + `errors[]{rule,step_name}`、**自环闭环的不可达（规则 1 先于规则 5 输出）**、端点不存在 → **40001 且不删旧图**、非草稿 → **42212**、已存在草稿 → **42215**、整包替换顺序（`inOrder`）、**服务端重新发号（客户端 `s1` 不出网）**、外键解析不到写 `null` 而非哨兵、JSONB 参数来回不丢、新开草稿**整图复制并重新发号**（含"从未发布过也能建空草稿"、**版本序号含软删行不复用**）、发布全量校验**对象是库内数据**、**42218 而非 42213**、已发布版本不回写发布人、ARCHIVED → 40900、悬挂连线跳过、40301/40400、**外键解析走批量 `IN`（20 节点仍只查 1 次）**、**版本列表**（新在前 / 草稿能被找回来 / 软删草稿不出现 / 空列表不报错 / **跨项目 40301 而不是空列表**，且 `WorkflowVersionBrief` 的字段集合被反射钉死以防"往 brief 里加 steps"） |
 | `DagAssemblerTest` | 11 | 40001 三分支（键重复 / 端点缺失 / 自环）、合法图的键→下标与连线下标、**哨兵 vs null 六种取值**、空集合不发起 `IN ()`、反向映射查不到不把内部主键当业务编号、`full=false` 不查算子规格 vs `full=true` 查、实体路径不翻译外键、**坏 JSON 按空对象参与校验（而非抛异常）** |
 | `DataPermissionSchemaConsistencyTest` | 3 | 登记表 ↔ 真实 DDL 一致性（项目/集群两维各一条）+ 反向断言"无 `project_id` 的派生表不得被登记"（本轮把 `trigger` 加进该名单） |
-| `MapperXmlSchemaConsistencyTest` | 2 | 全部 Mapper XML 里的 `别名.列` ↔ 真实 DDL 一致性（`file:` 与 `jar:` 两种 classpath 形态都支持）；**这一条抓出了 `ws.start_command` 这个跨域 SQL 空列引用**（见 §5-9）。本轮提取正则升级为**支持 PG 引号表名**（`"trigger"`），并把 `trigger` 点名进自检——否则引号表会被整表静默跳过（§5-10）。本轮再补**第二条**：无别名的 `UPDATE t SET col=` / `INSERT INTO t (col,…)` 的列名也要对回 DDL（原正则只查 `别名.列`，这类语句整天被漏扫） |
+| `MapperXmlSchemaConsistencyTest` | 2 | 全部 Mapper XML 里的 `别名.列` ↔ 真实 DDL 一致性（`file:` 与 `jar:` 两种 classpath 形态都支持）；**这一条抓出了 `ws.start_command` 这个跨域 SQL 空列引用**（见 §5-9）。本轮提取正则升级为**支持 PG 引号表名**（`"trigger"`），并把 `trigger` 点名进自检——否则引号表会被整表静默跳过（§5-10）。本轮再补**第二条**：无别名的 `UPDATE t SET col=` / `INSERT INTO t (col,…)` 的列名也要对回 DDL（原正则只查 `别名.列`，这类语句整天被漏扫）。**本轮发现并记录了一个盲区**：无别名的 `SELECT` 列清单两类都不管 —— 新写多列 `SELECT` 时给表起别名即可纳入保护（见 §5-14） |
 | `VariableChainResolverTest`（domain） | 30 | **五条覆盖规则各一例（名字即答案）**、点名引用不受覆盖链影响、`param.` 中段退化匹配（docs 两处示例风格都接）、整串单引用透传原类型、混排拼接溯源记首引用、失败路径四态、**敏感值脱敏但真实值保留**、命令渲染（步骤参数覆盖一切/无引用原样/坏引用保留并报错/null 命令）、六层顺序与 docs 一致、**三份映射的键顺序 = 传入顺序**（跨 JVM 可复现；其前身正是 §5-11 那条"红绿互换"的断言） |
 | `VariableRefParserTest`（domain，搬迁 +3） | 13 | D-20 语法全套（步骤名引号/特殊字符/未知来源/output 段缺失/未闭合）、嵌套结构递归收集、**裸引用**（标识符/中文/非法字符） |
 | `TriggerConfigValidatorTest` | 13 | 42216 三态（二选一/缺一/语法错）、周期非正、MANUAL 免检、时区 40001、时间窗 end=lt/gt start 三态、**跨时区比较发生在时间轴上** |
@@ -169,8 +172,15 @@
 | `SshExecutorClientTest`（executor-client，**O-17 收口**） | 14 | Mockito 替身驱动 `JSch`/`Session`/`ChannelExec`：成功退出码 0 + stdout/stderr 分别按行回调、非零退出码原样返回且不填 `failReason`、**超时 → `exitCode == null` 且 `channel.disconnect()`**、连接失败不抛异常、某流读取中断不影响另一流、`listener == null`、中文 UTF-8、私钥形态走 `addIdentity` / 口令形态走 `setPassword`、`StrictHostKeyChecking=no`、`testConnection` 真/假、`terminate` 返回 false |
 | `OrderedCollectionsTest`（common） | 16 | 保序（含 8 元素守卫用例——**换回 `Map.copyOf` 会在多数 JVM 上变红**）、不可写（`put` 与迭代器 `setValue` 都拒）、null 键/值/元素立即 NPE、空输入、等值语义不变、可直接接 Map 的键集 |
 
-前端：`pnpm lint`（`--max-warnings 0`）· `pnpm test`（**4 文件 32 例**）· `pnpm build`（`vue-tsc --noEmit` + vite build）三件套本地全绿。
-本轮新增 `tests/casename.spec.ts` **13 例** —— 它锁的是 D-15 键转换的**边界**（哪些键是协议字段、哪些是用户数据），来历见 §5-13。
+前端：`pnpm lint`（`--max-warnings 0`）· `pnpm test`（**5 文件 46 例**）· `pnpm build`（`vue-tsc --noEmit` + vite build）三件套本地全绿。
+- `tests/casename.spec.ts` **13 例** —— 锁的是 D-15 键转换的**边界**（哪些键是协议字段、哪些是用户数据），来历见 §5-13。
+- `tests/workflowContract.spec.ts` **14 例**（本轮新增）—— 三件事：① M3 九个错误码 42210~42218 的中文文案覆盖与"文案互不相同"；
+  ② **排序白名单的两端一致性**（取值集合逐字相同 + 每个都是 snake_case + 默认值在表内 + 每个都有选项名）；
+  ③ **查询串命名风格**（`cron_expression` 必须蛇形、`orderBy/orderDir` 必须驼峰）——
+  前两组靠断言"运行期取值"，第三组靠 **`import.meta.glob(..., { query: '?raw' })` 把源码当文本读进来**
+  再断言字面量。理由同后端 `MapperXmlSchemaConsistencyTest`：**这类错误不会编译失败、不会 lint 失败，
+  只会以 40001/40003 的形式在真调后端时出现**，而那条报错不会提示"是命名风格的问题"。
+  （不用 `node:fs` 是因为 `vue-tsc --noEmit` 会连 `tests/` 一起检查，而项目未装 `@types/node`。）
 
 ## 1.3 第四切片：变量覆盖链解析器 + 触发器（本轮新增）
 
@@ -256,7 +266,7 @@
 | **算子版本详情**：配置信息 + **试运行面板** + 参数模板/输出声明/引用三个页签 + 草稿态参数模板编辑 | `views/operator/OperatorVersionView.vue` | ✅ |
 | 算子/工作流域枚举映射表（状态、类型、参数类型、发布状态、并发策略…） | `types/enums.ts` | ✅ |
 | **修键转换把用户数据当协议字段**（D-15 边界，见 §5-13） | `utils/casename.ts` | ✅ |
-| 测试 | `tests/casename.spec.ts` 13 例（前端合计 **32 例**） | ✅ |
+| 测试 | `tests/casename.spec.ts` 13 例（**该切片结束时**前端合计 **32 例**） | ✅ |
 
 **本切片的关键设计**：
 
@@ -277,6 +287,50 @@
 6. **草稿态才允许编辑参数模板**，且保存时**必须带上整包 meta**：`PUT /operator-versions/{id}`
    收的是整包，只发 `paramTemplate` 会把启动命令抹掉（这一点写进了代码注释）。
 
+## 1.6 第七切片：前端工作流列表/详情 + 版本列表端点（本轮新增）
+
+| 交付物 | 落点 | 状态 |
+|---|---|---|
+| 工作流域请求（CRUD + 并发 + 发布/停用 + **版本列表** + 版本详情/保存草稿 + 触发器 6 端点） | `api/modules/workflow.ts` | ✅ |
+| **排序白名单取值集合**（与后端 `WorkflowService.SORTABLE` 逐字对应，下拉选项由它生成） | 同上 `WORKFLOW_SORTABLE` / `WORKFLOW_SORT_LABEL` | ✅ |
+| **工作流列表**：项目/状态/关键词筛选 + **排序**（唯一支持排序的端点）+ 新建/编辑 + 发布 + 停用 | `views/workflow/WorkflowListView.vue` | ✅ |
+| **工作流详情**：概览（工作流级默认值只读）+ 并发配置（独立端点）+ **版本列表**（新开/继续编辑草稿 + 发布）+ **触发器 CRUD**（含 cron 服务端试算） | `views/workflow/WorkflowDetailView.vue` | ✅ |
+| **后端补**：`GET /workflows/{workflowId}/versions`（只读版本列表，新→旧） | `WorkflowVersionMapper#listByWorkflowId(+XML)` · `WorkflowVersionService#listByWorkflow` · `WorkflowController#versions` | ✅ |
+| M3 错误码文案 42210~42218 + 契约防漂移测试 14 例 | `utils/errorMessage.ts` · `tests/workflowContract.spec.ts` | ✅ |
+
+**为什么必须补那个版本列表端点**（登记为 O-39 —— 它不是"顺手加的功能"）：
+
+`workflow.has_draft_changes = true` 只说明**有一份未发布的草稿**，**不带它的版本号**；
+而 `current_version` 指向的是已发布版本、`POST /workflows/{id}/versions` 又会因为草稿已存在而 **42215**。
+缺了这个读接口就是一个**功能性死锁**：用户在编辑器里存完草稿、离开页面之后
+**既回不到那份草稿、也无法发布它**，工作流永久停在"有草稿变更"状态。
+`docs/07` §5.4 的权限映射表其实**已经**给 `GET /workflows/{id}/versions` 分配了
+`workflow:read` / PROJECT 范围，只是 `prd/CONTRACT-API.md` §6.2 漏了它的定义 —— 故按 docs 补齐，
+**不新增权限点、不新增审计动作**（查询类本就不审计，与 `/triggers/cron-preview` 同口径）。
+
+**本切片的关键设计**：
+
+1. **"点发布"到底发哪一版，是一个必须显式回答的问题**。后端要求传 `versionId`
+   （"发布最新的"在并发编辑下不可解释），而列表页手上只有一个 `hasDraftChanges` 布尔。
+   所以前端在它为真时**先取一次版本列表把草稿找出来**，并在确认框里写明要发的是
+   "草稿 v3"还是"当前版本"——而不是让前端替用户猜。
+2. **排序是只属于本端点的能力**：`GET /workflows` 是全项目唯一支持 `orderBy/orderDir` 的列表端点
+   （docs/07 §7.4「每端点显式声明」）。白名单取值集合被复制到前端做下拉选项，
+   于是 **40003 在 UI 上不可达**；这份复制由 `workflowContract.spec.ts` 把两端钉死。
+3. **`orderBy` 是"名字驼峰、值蛇形"的组合**：请求拦截器只对 `data` 做 `deepSnake`，
+   **不动 `params`** —— 所以名字必须写 `orderBy`、值必须写 `updated_at`。
+   两种写反都不会编译失败，只会 40001/40003。
+4. **cron 预览一定走服务端**（`GET /triggers/cron-preview`，查询名是蛇形 `cron_expression`）。
+   前端自己算下次触发时间，等于把方言、时区、夏令时三件事各实现一遍，
+   任何一处不一致都是"预览说 10:00、实际 11:00"的不可复现 bug；服务端试算用真解析器算，
+   因此它同时充当表达式的即时校验（非法 → 42216，报错里带 Spring 6 段的方言提示）。
+5. **工作流级默认值只读展示**（见 O-40）：`WorkflowVO` 出超时/重试/重试间隔/失败策略四个字段，
+   但 `PUT /workflows/{id}` 只收名称/项目/描述、`/concurrency` 只收策略与并行数 ——
+   **没有任何端点能改它们**。页面上把它们显示出来（让"继承链第 3 层到底有没有值"可查）
+   并明确标注"只读"，不摆一个假装能改的输入框。
+6. **触发器配置摘要必须一眼可辨**（`triggerConfigText`）：CRON 下要能立刻看出是"表达式"
+   还是"固定周期"，否则排查"为什么没按时跑"时第一眼看到的是个空列。
+
 ## 4. 偏离与遗留项（如实登记，均注明去处）
 
 | # | 项 | 现状 | 去处 |
@@ -290,7 +344,7 @@
 | **O-17** | `flowops-executor-client` **零测试、无覆盖率数据** | 模块含 `SshExecutorClient`（176 行真实 SSH 逻辑：连接/流泵/T超时/退出码判定），且已被 `ExecutorNodeService` 的连通性测试与 scheduler 接线**实际使用**。因无测试 → 无 `jacoco.exec` → `report` 直接 skip（日志 `Skipping JaCoCo execution due to missing execution data file`）→ **门禁连装都装不上** | 补 `SshExecutorClientTest`（Mockito 代理 JSch 的 `Session`/`ChannelExec` + 假 `LineListener`，断言成功码匹配、超时、流泵、`terminate` 幂等），随后模块才能加门禁。建议随「算子试运行」（§7-1）一并做——那正是它第一次被高频使用的地方 |
 | **O-18** | 门禁的"逻辑层"口径**不含 controller/aspect/ws** | `OperatorController`/`OperatorVersionController` 覆盖率 0%。这是**刻意的**：对 controller 写单测只能得到"调一遍方法、断言返回对象非空"的假覆盖率，真正要验的是鉴权/参数绑定/错误码映射/Swagger 契约，那是集成测试的活 | 随 O-9 的 `@SpringBootTest` 一起补（同一个环境前提） |
 | **O-19** | `flowops-common` 的 `api`/`enums`/`exception`/`web` 四包无门禁 | 该模块整体 10.8%，但未覆盖部分主要是枚举常量、`ErrorCode`、`ApiResult` 这类"常量 + 几行 getter"；给它们设行覆盖下限只会逼人写凑数测试。其中 `GlobalExceptionHandler`(0/26)、`TraceIdFilter`(0/16) 是**真有逻辑**的 | 门禁已按 `includes` 收窄到 `util`/`guard`/`context` 三包（100%）。前两者需 MockMvc，随 O-9 补 |
-| **O-20** | M3 剩余 6 大块（试运行/工作流/画布/DAG 规则/变量解析/CRON + 前端 6 页） | 未开工 | §7 给出建议顺序 |
+| **O-20** | ~~M3 剩余 6 大块（试运行/工作流/画布/DAG 规则/变量解析/CRON + 前端 6 页）~~ → **只剩 1 块** | 前 5 块后端（§1.2~§1.4）+ 前端 5/6 页（§1.5/§1.6）已完成并实测；**唯一剩余：工作流编辑器 + 自研 SVG 画布（D-14）**，见 §7-3 | 画布单独排期，止损线超 10 人日降级 LogicFlow |
 | **O-21** | ~~跨域 SQL 的列名与实体/DDL 不一致，改动靠人记~~ → **已闭环（口径改进）** | 原先的缓解只是"两张表建了实体 + 人工核对过一遍"，仍留着一条**靠人记**的约束（"改动这两张表的列名必须回头改 `OperatorMapper.xml`"）。本轮改为**构建期强制**：`MapperXmlSchemaConsistencyTest` 把全部 27 个 Mapper XML 里的 `别名.列` 逐个对回 Flyway DDL 解析出的真实列，不一致即 `BUILD FAILURE`。**不需要 PG**（故不必挂在 O-9 后面），随每次 `mvn test` 跑 | 已闭环。原先设想的 `@SpringBootTest` 正例**不再必需**——它验的是"SQL 能跑通"，而一致性测试验的是"列存在"，后者覆盖面更大且无环境依赖。真正的 SQL 语义（`count(distinct)`、`deleted` 过滤口径）仍需 O-9 的集成环境 |
 | **O-26** | **没有独立的"校验"端点** | 编辑器画布上通常会有个「校验」按钮，但 `prd/CONTRACT-API.md` §6.2 只定了 `GET`/`PUT /workflow-versions/{versionId}`，**没有** `POST /workflow-versions/{id}/validate`。故一期不实现：结构校验挂在保存路径上（保存即校验），全量校验挂在发布路径上 | 契约缺口：如需"不落库先验一遍"，需先回写 CONTRACT 再实现。当前前端可用"保存草稿"代替（它跑结构子集，且失败不落库） |
 | **O-27** | **`WORKFLOW_PROJECT_IMMUTABLE`：归属项目创建后不可变更** | 这是**实现自加的规则**（回 `40001` + `rule=WORKFLOW_PROJECT_IMMUTABLE`），docs 未明文。理由是照搬算子的同一条口径：换项目等于把一份可能正被引用的编排搬出原项目边界，而数据范围的判定依据就是 `project_id` | 若产品要求允许迁移，需先定语义（迁移时版本/触发器/运行中任务怎么办）再放开。已登记以便复核 |
@@ -304,6 +358,9 @@
 | **O-35** | **敏感参数不得"另存默认值"** | `GET /operator-versions/{versionId}` 的 `param_template[].default_value` 是**明文返回**的（工作流编辑器要拿它预填输入框）。让敏感参数走这条路 = 给 M-07 的脱敏开后门。故 `saveDefaultParams` 遇到敏感参数**直接拒绝**（42210），而不是"存进去再打码" | 代价是敏感参数的默认值无法通过 UI 维护——这正是预期的安全取舍。若产品要求可维护，需先定"默认值密文存储 + 使用前解密"的方案（且要回答"谁能看到明文"） |
 | **O-36** | **"另存默认值"端点没有对应的审计动作码** | `docs/07` §7.3 的动作清单里有 `UPLOAD_OPERATOR`/`PUBLISH_OPERATOR`/`OFFLINE_OPERATOR`/`DRYRUN_OPERATOR`，**没有**"修改版本默认值"这一项。按本项目"不凭空造码"的纪律，该端点**刻意不加 `@Audited`** | 契约缺口：若要求审计，需先回写 `docs/07` §7.3 增补动作码，再补注解（一行） |
 | **O-37** | **试运行不注入 `env_vars`** | 算子版本的 `env_vars` 在一期**调度侧同样不注入**（环境变量下发属 M4）。试运行与真实下发保持一致，避免"试运行能跑、真跑不能跑"的假阳性——但这也意味着**试运行通过不等于真跑必通过**，需在 UI 上如实提示 | 随 M4 的环境变量下发一起做，届时试运行同步注入 |
+| **O-39** | **`prd/CONTRACT-API.md` §6.2 缺 `GET /workflows/{id}/versions`，而 `docs/07` §5.4 已给它分配了权限** | 不是"没实现功能"，而是**功能性死锁**：`has_draft_changes=true` 不带草稿版本号，`current_version` 指向已发布版本，`POST /workflows/{id}/versions` 遇已有草稿又会 42215 —— 三者合起来意味着**草稿一旦离开编辑器就再也拿不到**（既回不去也无法发布）。本轮按 `docs/07` §5.4 补齐这个**只读**端点：`GET /workflows/{workflowId}/versions` → `List<WorkflowVersionBrief>`（新→旧），可见性借父工作流判定，**不新增权限点、不新增审计动作** | 需回写 CONTRACT §6.2 补这一行（docs 与 CONTRACT 的这条冲突以 docs 为准，理由见 §1.6）。另：`WorkflowVersionBrief` 刻意只出 6 个概要字段、不选三个 JSONB 大列 —— 列表不该顺带拉几十份完整 DAG |
+| **O-40** | **工作流级默认值（`default_timeout_seconds` / `default_retry_count` / `default_retry_interval_seconds` / `default_failure_strategy`）有读无写** | `WorkflowVO` 出这四个字段，`docs/05` §3.4 的 `workflow` 表有对应列，PRD §12.5 的继承链也把它们当作第 3 层 —— 但**没有任何端点能写它们**：`PUT /workflows/{id}` 只收名称/项目/描述，`PUT /workflows/{id}/concurrency` 只收策略与并行数。详情页因此只做**只读展示**（并标注清楚），不提供假装能改的输入框 | 契约缺口：若要开放编辑，需先定"四个字段是否与其他基础信息同端点"（同端点会与"基础信息编辑不审计"的现状冲突 —— 改超时是会改变发布判定的，多半需要独立端点 + 独立审计动作） |
+| **O-41** | **工作流详情页缺「执行历史」与「版本对比」两块（原型 `workflow-detail.html` 有）** | 「执行历史」需要任务列表端点（`GET /tasks?workflowId=`），属 M4；「版本对比」CONTRACT 未定义 diff 端点 —— 前端自己 diff 会与审计日志里 `PUBLISH_WORKFLOW` 的 diff 口径分叉，而这两处口径不一致会让"审计记录说改了 3 项、对比页说改了 5 项"变成永久争议 | 执行历史随 M4 任务域一并做；版本对比需先定 diff 的字段范围与展示口径（且明确"以审计日志的 diff 为准"）再实现 |
 | **O-38** | **既有页面的删除确认未接住「取消」** | `ElMessageBox.confirm` 在用户点取消时是 `reject('cancel')`，不是错误。M2 的四个列表页（集群/凭据/项目/…）直接 `await` 它，而 `@click` 的 async 处理器会把 rejection 交给 Vue —— 本项目**未配置** `app.config.errorHandler`，于是控制台会出现一条与用户操作无关的报错（功能不受影响，故一直没被发现）。本轮新写的算子三页用 `try/catch` 包住确认框（并抽了 `askConfirm`） | 既有页面待统一（纯前端、无行为风险）；也可选择在 `main.ts` 里补一个 `app.config.errorHandler` 兜底 |
 
 ## 5. 本轮修复记录（留档防复发）
@@ -714,6 +771,29 @@ expected { params: { input_path: 'x' } }   to deeply equal { params: { inputPath
 本次的第二个语义域是**「同一个 JSON 对象里，有的键是协议、有的是用户数据」**。
 与 §5-11 的区别在于它不随时间漂移，而是**随用户输入**漂移 —— 用小写参数名的用户永远碰不到。
 
+### 5-14. 一致性测试的保护范围有一个**盲区**：无别名的 `SELECT` 列清单不在它的判定内
+
+新加版本列表 SQL 时按直觉写了一版 16 列的 `SELECT`（不带表别名），随后按纪律做反向扰动 ——
+把 `created_by` 改成 `created_by_typo`，**`mvn test` 与 `mvn verify` 全绿**，构建期没有任何人报警。
+
+原因在 `MapperXmlSchemaConsistencyTest` 已有的边界里：它只校验
+① `别名.列`（`QUALIFIED_REF`）与 ② 无别名 `UPDATE t SET col=` / `INSERT INTO t (col,…)` 的列清单。
+`SELECT a, b, c FROM t`（无别名、单表）落在这两类**之外** —— 而一条 16 列的清单恰恰是最容易写错的地方。
+
+处理方式不是放宽判定（那会引入误报），而是**把这条 SQL 放进保护范围**：
+给表起别名 `FROM workflow_version v`、每列都写成 `v.xxx`，扰动立刻给出精确报错：
+
+```
+workflow\WorkflowVersionMapper.xml 里的 <select>：v.created_by_typo = 表 workflow_version 没有列 created_by_typo
+```
+
+同时把这条推论写进测试类的 javadoc：**写了多列的 `SELECT` 就给表起别名**。
+`UPDATE`/`INSERT` 那边有第二条测试兜底，`SELECT` 这边没有 —— 靠写别名，别靠运气。
+
+这是同一主题的**第 6 次复发**：**同一个工具存在两个语义域，而只验证了其中一个**
+（前 5 次见 §5-2 / §5-6 / §5-11 / §5-12 / §5-13）。这次的两个语义域是"语句形态"：
+列清单在 `UPDATE`/`INSERT` 上被查，在 `SELECT` 上不被查。
+
 ## 6. 复跑命令（本地）
 
 ```bash
@@ -741,17 +821,28 @@ cd frontend && pnpm lint && pnpm test && pnpm build
 | 4 | ~~DAG 校验规则接到接口并把 42213/42214/42218 回填~~ | ✅ **已完成**：保存草稿跑结构子集、发布跑全量，三码分流见 `WorkflowVersionServiceTest` |
 | 5 | ~~六层变量覆盖链解析器~~ | ✅ **已完成**（§1.3）：值侧六层覆盖链 + 溯源 + 脱敏；规则 4（可达性）此前已在 `DagValidator` 落地 |
 | 6 | ~~触发器 CRON（42216）+ 时间窗（42217）~~ | ✅ **已完成**（§1.3）：CRUD 6 端点 + cron-preview + 停用联动；42216/42217 纯函数三分流。**注**：调度侧的 fire 推进 / catch-up（docs/06 §11.2）属 M4，本轮只做"配置进得来、下次时间算得出" |
-| 7 | 前端 6 页（算子列表/详情/版本 + 工作流列表/编辑器/详情） | 🚧 **算子 3 页已完成**（§1.5）；剩工作流列表/详情/**编辑器（含画布）** —— 画布单独排期，且已有 `SaveWorkflowVersionRequest` 的整包契约（steps/edges/canvasWidth/canvasHeight）可直接对接 |
+| 7 | 前端 6 页（算子列表/详情/版本 + 工作流列表/编辑器/详情） | 🚧 **5/6 已完成**：算子 3 页（§1.5）+ 工作流**列表/详情**（§1.6，含补的版本列表端点）；剩**编辑器（含画布）** —— 画布单独排期，且已有 `SaveWorkflowVersionRequest` 的整包契约（steps/edges/workflowParams/canvasWidth/canvasHeight）可直接对接，`GET /workflow-versions/{versionId}` 是画布读取入口。编辑器路由已约定带 `?version=WFV-xxxx-xx`（由详情页决定"该编哪一版"，编辑器只管"按号取图"） |
 
-> **下一步建议**：**7（前端剩余 3 页）** —— 后端主干已全部就绪，算子 3 页已落地；接下来是
-> 工作流**列表**与**详情**（可直接复用算子页的列表/详情范式），最后才是**编辑器 + 画布（D-14）**。
-> 画布是风险最高的一块，建议单独排期并预留止损动作（超 10 人日降级 LogicFlow）。
+> **下一步建议**：**只剩「工作流编辑器 + 自研 SVG 画布（D-14）」**（§7-3 与 §7-7 的最后一格）。
+> 后端契约已全部就绪：画布读取入口 `GET /workflow-versions/{versionId}`、整包保存
+> `PUT /workflow-versions/{versionId}`（42213/42214/42218 + `errors[]{rule, step_name}` 逐节点回填）、
+> 校验时机已定（保存跑结构子集、发布跑全量）。
+> 画布是风险最高的一块：建议**单独排期**、按 D-26 第 4 条写机制注释，
+> 并预留止损动作（**超 10 人日即降级 LogicFlow**）。
+> 编辑器页的两条已定约束：① 路由必须带 `?version=`（"该编哪一版"由详情页决定，编辑器不猜）；
+> ② 保存是**整包替换**，必须先取完整 DAG 再在其上改，绝不能只发改动的那一部分。
 
 ---
 
-**M3 第二~第六切片一句话总结**：工作流 CRUD + 版本化、DAG 校验接口化（三码分流）、六层变量覆盖链、
-触发器 CRUD、算子试运行（SSE + 双重脱敏）五块后端主干，加**前端算子三页（含试运行面板）**已落地并实测
-（后端 **518 用例**、server 逻辑层覆盖 68.7% → **81.0%**、覆盖率门禁 5 道 → **6 道**；前端 **32 例**三件套全绿）。
+**M3 第二~第七切片一句话总结**：工作流 CRUD + 版本化、DAG 校验接口化（三码分流）、六层变量覆盖链、
+触发器 CRUD、算子试运行（SSE + 双重脱敏）五块后端主干，加**前端五页**（算子三页含试运行面板 +
+工作流列表/详情含触发器与并发配置）、以及为解开"草稿死锁"补的**工作流版本列表端点**，均已落地并实测
+（后端 **523 用例**、server 逻辑层覆盖 68.7% → **81.0%**、覆盖率门禁 5 道 → **6 道**；前端 **46 例**三件套全绿）。
+
+最后一块**前端工作流列表/详情**带来一个值得单独记住的判断：**"缺一个读接口"和"缺一个功能"不是同一件事**。
+`has_draft_changes` 这个布尔在 UI 上看起来只是少了个版本列表，但它加上"`POST /versions` 会 42215"
+就构成了一个**用户无法自救的状态**（草稿从此失联）。发现这类问题的判据不是"这个页面少了个 tab"，
+而是**顺着用户的操作路径问一句"他下一步点哪儿"** —— 点不下去的那一步就是缺陷，不是待办。
 
 更有价值的是**顺带修掉的七个真缺陷**，它们都属于同一类"**本地恰好没事、换个执行路径就出事**"：
 
@@ -765,7 +856,8 @@ cd frontend && pnpm lint && pnpm test && pnpm build
 
 前两个是"**被 mock 掩盖**"的：单测把 Mapper 整个 mock 掉，SQL 从未真的打过库。
 处理方式不是"下次注意"，而是各加一条 **DDL 一致性测试**，把这类错误整体提前到构建期。
-第 3~7 条是同一主题的**五次复发**（更早两次是 §5-2 的 exclude 双语义、§5-6 的动态 attach）：
+第 3~7 条是同一主题的**五次复发**（更早两次是 §5-2 的 exclude 双语义、§5-6 的动态 attach；
+本轮再加 §5-14 的"无别名 `SELECT` 列清单不在一致性测试范围内"，合计**六次**）：
 **同一个配置/代码存在两个语义域，而只验证了其中一个** ——
 第 5 条的第二个语义域是**运行时**（JVM 启动时的随机 SALT），第 7 条的第二个语义域是**用户输入**
 （同一个 JSON 对象里，有的键是协议、有的是用户数据）。

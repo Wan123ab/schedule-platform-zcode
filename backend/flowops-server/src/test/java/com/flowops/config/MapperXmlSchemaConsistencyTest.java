@@ -50,6 +50,17 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p><b>刻意只查"别名限定的列"</b>：不带别名的列名（{@code UPDATE operator SET deleted=...}）
  * 风险低得多（改列名时那段 SQL 就在眼前），而把它们也纳入判定需要区分
  * {@code SET} 左值与右值，误报成本高于收益。</p>
+ *
+ * <p><b>⚠️ 这条边界有一个必须知道的推论</b>：<b>不带别名的 {@code SELECT} 列清单
+ * 完全不在保护范围内</b>。{@code SELECT a, b, c FROM t} 里写错 {@code b} 不会被这里的
+ * 任何一条测试发现 —— 只有真打库才报 {@code column ... does not exist}。
+ * 而"列数一多就容易写错"恰恰是长列清单的常态（实测：新加一条 16 列的无别名
+ * session {@code SELECT}，把 {@code created_by} 写成 {@code created_by_typo}，
+ * 无论 {@code mvn test} 还是 {@code mvn verify} 全绿）。
+ * <b>所以：只要写了多列的 {@code SELECT}，就给表起个别名并把每列都限定上</b>
+ * （{@code FROM workflow_version v} + {@code SELECT v.created_by}），
+ * 这一步就把该语句纳入了本测试的保护范围。上面第二条测试是无别名 {@code UPDATE}
+ * 的补救，{@code SELECT} 这边没有对应机制 —— 靠写别名，别靠运气。</p>
  */
 class MapperXmlSchemaConsistencyTest {
 

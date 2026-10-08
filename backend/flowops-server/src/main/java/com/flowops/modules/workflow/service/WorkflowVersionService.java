@@ -18,6 +18,7 @@ import com.flowops.modules.workflow.converter.WorkflowVersionConverter;
 import com.flowops.modules.workflow.dto.DagEdgeDef;
 import com.flowops.modules.workflow.dto.DagStepDef;
 import com.flowops.modules.workflow.dto.SaveWorkflowVersionRequest;
+import com.flowops.modules.workflow.dto.WorkflowVersionBrief;
 import com.flowops.modules.workflow.dto.WorkflowVersionVO;
 import com.flowops.modules.workflow.validator.DagValidationContext;
 import com.flowops.modules.workflow.validator.DagValidator;
@@ -84,6 +85,26 @@ public class WorkflowVersionService {
     public WorkflowVersionVO get(String versionId) {
         WorkflowVersion version = requireVisible(versionId);
         return assemble(version, guard.requireVisibleById(version.getWorkflowId()));
+    }
+
+    /**
+     * 某工作流下的版本列表（新→旧），供工作流详情页的「版本」页签与草稿找回。
+     *
+     * <p><b>为什么这个方法必须存在</b>：{@code workflow.has_draft_changes = true} 只说明
+     * "有一份未发布的草稿"，<b>不带它的版本号</b>；而 {@code current_version} 指向的是
+     * 已发布版本、{@code POST /workflows/{id}/versions} 又会因草稿已存在而 42215。
+     * 缺了这个读接口，用户在编辑器里保存完草稿、离开页面之后就<b>再也回不到那份草稿、
+     * 也无法发布它</b> —— 工作流会永久停在"有草稿变更"状态，这是功能性死锁，不是缺个列表。</p>
+     *
+     * <p>可见性走 {@code guard.requireVisible(workflowId)}：与
+     * {@link #requireVisible(String)} 同一个理由 —— 版本表没有 {@code project_id} 列，
+     * 行级过滤覆盖不到它，必须先判父工作流的可见性再取子行。</p>
+     */
+    public List<WorkflowVersionBrief> listByWorkflow(String workflowId) {
+        Workflow workflow = guard.requireVisible(workflowId);
+        return versionMapper.listByWorkflowId(workflow.getId()).stream()
+                .map(converter::toBrief)
+                .toList();
     }
 
     // ── 新开草稿 ────────────────────────────────────────────

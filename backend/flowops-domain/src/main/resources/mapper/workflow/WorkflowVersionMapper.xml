@@ -18,6 +18,42 @@
          WHERE workflow_id = #{workflowId}
     </select>
 
+    <!--
+      版本列表（新→旧）。
+      · 只选列表要用的列：三个 JSONB 大列（dag_definition / workflow_params /
+        trigger_config）刻意不选 —— 它们是整图原样快照，历史版本一多会把
+        "拉一个版本列表"变成"拉几十份完整 DAG"
+      · 排序用 id 而不是 version_no：version_no 是 varchar（v1/v2/v10），
+        按字符串排会把 v10 排在 v2 前面；id 是单调递增的插入序，等价于版本序号
+      · ⚠️ 表别名 `v` 不是装饰：`MapperXmlSchemaConsistencyTest` 只校验
+        **别名限定**的列（`v.created_by`），不带别名的列名一律不在它的判定范围内。
+        这里 16 个列名本就更易写错，一旦去掉别名，写错列名将没有任何构建期检查，
+        只有真打库时才以 "column xxx does not exist" 的形式炸出来 —— 等于把这条
+        SQL 从一致性测试的保护范围里移出去（扰动验证时当场踩到过）。
+    -->
+    <select id="listByWorkflowId" resultType="com.flowops.domain.entity.workflow.WorkflowVersion">
+        SELECT v.id,
+               v.version_id,
+               v.workflow_id,
+               v.version_no,
+               v.step_count,
+               v.publish_status,
+               v.publisher,
+               v.published_at,
+               v.canvas_width,
+               v.canvas_height,
+               v.created_at,
+               v.created_by,
+               v.updated_at,
+               v.updated_by,
+               v.version,
+               v.deleted
+          FROM workflow_version v
+         WHERE v.workflow_id = #{workflowId}
+           AND v.deleted = false
+         ORDER BY v.id DESC
+    </select>
+
     <!-- 软删单个版本（同 WorkflowMapper.softDelete 的理由，不能用 updateById）。 -->
     <update id="softDelete">
         UPDATE workflow_version
