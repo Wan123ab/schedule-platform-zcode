@@ -100,7 +100,7 @@
 | 10 | **触发器 CRON**（42216）+ 时间窗（42217） | ✅ **已实测** | `TriggerConfigValidator` 纯函数三分流（42216 含"二选一"约束与方言提示 / 42217 / 40001）；CRUD 6 端点含 `/triggers/cron-preview`（默认 5 个、上限 20、严格递增断言）；可见性借父 workflow（40301/40400）；`next_fire_time` 只在调度配置变化时重算；**工作流停用联动停触发器**；软删走显式 XML（MP `updateById` 剔除逻辑删除列的坑不再踩） |
 | 11 | **前端 6 页**（算子 3 + 工作流 3） | ⏳ 未开工 | §7-7 |
 | — | 单测覆盖门禁（O-14） | ✅ **已实测** | 4 个模块 5 道门禁全绿，且经**反向扰动验证会拦**（见 §5-3） |
-| — | **CI 全绿** | ✅ **已实测（含新镜像）** | **run #19（`dev_workbuddy` @ `8f13ac5`）conclusion = success**，落在 **`ubuntu24/20261004.327.1`** —— 正是 run #13 挂掉的那个镜像版本。用 API 取回日志核实：动态 attach 警告 **0** 次、365 用例全绿（含本轮 5 个新测试类）、5 道 JaCoCo 门禁全跑。更早 **run #17（`df97558`）**、**run #16（`51915ac`）** 亦 success（后两者落在旧镜像 `20260927.320`）。历史失败 `run #13` 的根因已查明并修复（§5-6）。**先前"尚未在新镜像上实测"的诚实保留已由 run #19 关闭** |
+| — | **CI 全绿** | ✅ **已实测（最新 run #23）** | **run #23（`dev_workbuddy` @ `0aa8aec`，本轮）conclusion = success**，落在 **`ubuntu24/20261004.327`** —— 正是 `run #13` 挂掉的那个镜像版本。取回 job 日志核实：**518 用例全绿**（43/73/14/300/88，**与本地逐一吻合**）、**6 道 JaCoCo 门禁全跑**、动态 attach 警告 **0** 次、本轮 8 个相关测试类（`OrderedCollectionsTest`/`SshExecutorClientTest`/`OperatorDryRunServiceTest`/`DryRunPlanValidatorTest`/`DryRunFramesTest`/`SecretMaskerTest`/`MapperXmlSchemaConsistencyTest`/`VariableChainResolverTest`）**全部真实执行**。更早 **run #19（`8f13ac5`）**、**#17（`df97558`）**、**#16（`51915ac`）** 亦 success。历史失败 `run #13` 的根因已查明并修复（§5-6） |
 
 ## 3. 测试资产与覆盖率基线
 
