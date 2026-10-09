@@ -1,10 +1,11 @@
 # FlowOps 工程实施 · M3 交付说明（编排域）
 
 > 依据：`docs/09` §M3「编排域」交付物清单与 DoD。
-> **状态：后端主干 + 前端五页已完成** —— 本文件覆盖七个切片：§1 算子域 · §1.1 工作流域 ·
+> **状态：M3 收官 —— 后端主干 + 前端六页全部完成**。本文件覆盖八个切片：§1 算子域 · §1.1 工作流域 ·
 > §1.2 工作流接口层 · §1.3 变量解析与触发器 · §1.4 算子试运行 · §1.5 前端算子三页 ·
-> **§1.6 工作流列表/详情 + 版本列表端点（最新）**。
-> 剩余 **工作流编辑器 + 自研 SVG 画布（§7-3）**。
+> §1.6 工作流列表/详情 + 版本列表端点 · **§1.7 工作流编辑器 + 自研 SVG 画布（D-14，最新）**。
+> **§7-3 的止损线未触发**：画布自研完成（组件 ~770 行 + 纯函数层 ~470 行 + 编辑器 ~1400 行），
+> 未降级 LogicFlow。M3 已无剩余块。
 > 代码基线：`dev_workbuddy` 分支。
 >
 > 阅读顺序建议：§1 看本切片做了什么 → **§2 看哪些是真验证过的** → §4/§5 看已知缺口与本轮踩到的坑。
@@ -35,7 +36,7 @@
 | **前端算子三页（列表/详情/版本）** | `frontend/src/views/operator/*` | ✅（§1.5） |
 | **算子试运行 / 工作流 CRUD / DAG 8 规则 / 六层变量解析 / CRON 触发器** | 见 §1.2~§1.4 | ✅ |
 | **前端工作流列表/详情 + `GET /workflows/{id}/versions`（版本列表）** | `frontend/src/views/workflow/*` · `WorkflowController#versions` | ✅（§1.6） |
-| **自研 SVG 画布编辑器（D-14）+ 工作流编辑器页** | —— | ⏳ 未开工（见 §7-3） |
+| **自研 SVG 画布编辑器（D-14）+ 工作流编辑器页** | `frontend/src/components/biz/dag/DagCanvas.vue` · `frontend/src/utils/dag.ts` · `frontend/src/views/workflow/WorkflowEditorView.vue` | ✅（§1.7） |
 
 **本切片新增文件（后端）**：`domain` 侧 4 实体 + 1 type handler + 4 Mapper(+4 XML) + `OperatorReferenceRow`；`server` 侧 6 DTO + 2 Converter + 1 Validator + 3 Service(`OperatorService`/`OperatorVersionService`/`OperatorFileStorage`) + 2 Controller；`common` 侧 `FieldError`。
 
@@ -98,11 +99,11 @@
 | 4 | 引用闸门（42211） | ✅ **已实测** | `OperatorServiceTest#删除_版本已被工作流引用_42211且不落删`，双向断言（`never()` 校验不落删） |
 | 5 | **算子试运行**（选节点 + 实时日志 + 退出码，`DRYRUN_OPERATOR`） | ✅ **已实测** | `POST /operator-versions/{versionId}/dry-run`（SSE）实装（§1.4）。断言覆盖：`plan`/`run` 的线程边界、四类帧（`CMD`/`LOG`/`EOF`/`ERROR`）、`exit_code=null` 的语义、成功码判定、**不写任务/步骤/日志表**（依赖上不可达 + `verify(executorClient, never())` 双保险）、双重脱敏（结构化 + 按值）、两条错误通道（建流前 JSON / 建流后 `ERROR` 帧）、超时优先级与封顶。**O-17 同时收口**：`SshExecutorClientTest` 14 例 + 模块门禁 0.90（经反向扰动验证会拦） |
 | 6 | **工作流 CRUD + 版本化** | ✅ **已实测** | 四表实体/Mapper/XML ✅；DAG 校验 10 条 ✅；DTO/Service/Controller ✅（§1.2）。**42215**（`has_draft_changes=true` 时再新开草稿）与 **42212**（非草稿不可编辑）均有单测；草稿/发布的编号（`WFV-`/`WFS-`/`WFE-`）、整包替换顺序（`inOrder(edgeMapper, stepMapper)`）、发布先校验后切指针均有断言 |
-| 7 | **自研 SVG 画布编辑器**（D-14） | ⏳ 未开工 | §7-3 |
+| 7 | **自研 SVG 画布编辑器**（D-14） | ✅ **已实测** | 自研完成，**未触发 10 人日止损线**（未降级 LogicFlow）。三层切分：**纯函数** `utils/dag.ts`（规则 1/5/10 镜像 + 连线守卫 + 可达上游 + 自动布局 + 节点尺寸 + 编辑模型深拷贝，无 Vue/无 DOM/无请求）· **渲染** `DagCanvas.vue`（SVG + `<foreignObject>` 内嵌 Vue 节点，滚轮缩放/拖拽/端口连线/自动布局，只读态不画端口）· **页面** `WorkflowEditorView.vue`（整包读入 → 本地编辑 → 整包保存；脏状态本地比对；服务端 `errors[]` 按**步骤名**回填节点角标）。测试 **43 + 14 例**（§1.7 / §3），其中"`<foreignObject>` 命名空间"一条经**反向扰动**证明会拦（§5-15） |
 | 8 | **DAG 校验 8 条规则**（含规则 7 的 42218） | ✅ **已实测（含挂到接口）** | `DagValidatorTest` 28 例覆盖规则 1~10 各一条"该报"用例 + 关键规则的反例（菱形 DAG 不算环、恰好 10 次重试通过、备注节点不参与可达性、集群无上限数据时跳过而不当成 0）。规则已**挂到两个接口**：保存草稿跑结构子集（42213 + `errors[]`）、发布跑全量；错误码分流 42213/42214/42218 在 `WorkflowVersionServiceTest` 中逐条断言（含"42218 而不是 42213"的哨兵用例） |
 | 9 | **六层变量覆盖链解析器** | ✅ **已实测** | `VariableChainResolver`（domain，纯函数）：五条覆盖规则各一个**名字即答案**的用例（`项目参数覆盖平台变量`…`步骤参数覆盖一切`）、点名引用不受覆盖链影响、整串单引用透传原类型（数字不拍平）、混排拼接、失败路径（不存在的步骤/未产出的变量/格式非法/未闭合）、**敏感值快照脱敏但真实值保留**（M-07）、溯源记录实际胜出的层（PRD §10.0.4）。启动命令渲染走六层扁平上下文（步骤参数最后 put = 第 6 层最高） |
 | 10 | **触发器 CRON**（42216）+ 时间窗（42217） | ✅ **已实测** | `TriggerConfigValidator` 纯函数三分流（42216 含"二选一"约束与方言提示 / 42217 / 40001）；CRUD 6 端点含 `/triggers/cron-preview`（默认 5 个、上限 20、严格递增断言）；可见性借父 workflow（40301/40400）；`next_fire_time` 只在调度配置变化时重算；**工作流停用联动停触发器**；软删走显式 XML（MP `updateById` 剔除逻辑删除列的坑不再踩） |
-| 11 | **前端 6 页**（算子 3 + 工作流 3） | 🚧 **5/6 已完成** | 算子三页（§1.5）：列表 / 详情（版本列表 + 上传 + 发布下线）/ 版本详情（**含试运行面板**：SSE 实时日志、退出码、命令回显与溯源、按模板动态渲染的参数表单、另存默认值）。工作流**列表 + 详情**（§1.6）：列表含项目/状态/关键词筛选与**排序**（全项目唯一支持排序的端点）、"点发布到底发哪一版"显式确认；详情含概览（工作流级默认值只读）、并发配置（独立端点）、**版本列表**（新开/继续编辑草稿 + 发布）、**触发器 CRUD + cron 服务端试算**。剩余**编辑器 + 画布**见 §7-3 |
+| 11 | **前端 6 页**（算子 3 + 工作流 3） | ✅ **6/6 已完成** | 算子三页（§1.5）：列表 / 详情（版本列表 + 上传 + 发布下线）/ 版本详情（**含试运行面板**：SSE 实时日志、退出码、命令回显与溯源、按模板动态渲染的参数表单、另存默认值）。工作流三页：**列表**（§1.6，项目/状态/关键词筛选与**排序**——全项目唯一支持排序的端点、"点发布到底发哪一版"显式确认）/ **详情**（§1.6，概览+并发配置+版本列表+触发器 CRUD 与 cron 服务端试算）/ **编辑器**（§1.7，**自研 SVG 画布 + 属性面板 + 变量引用插入器**，含缺版本号的可执行引导、只读态、406/403 等失败兜底）。编辑器路由带 `?version=WFV-xxxx-xx`，由详情页决定"该编哪一版" |
 | — | 单测覆盖门禁（O-14） | ✅ **已实测** | **5 个模块 6 道门禁**全绿（common / domain / executor-client / server×2 / scheduler），且经**反向扰动验证会拦**（见 §5-3）；本轮再把 executor-client 的阈值从初写的 0.75 提到 **0.90**（§5-13 附近的扰动记录见 §5-3） |
 | — | **CI 全绿** | ✅ **已实测（最新 run #27）** | **run #27（`536b909`，本切片）两个 job 均 success**。取回日志核实：后端 **523 用例全绿**（43 / 73 / 14 / **305** / 88，与本地逐一吻合）、**6 道 JaCoCo 门禁全跑**（common / domain / executor-client / server×2 / scheduler）、动态 attach 警告 **0** 次；前端 **5 文件 46 例全过**、build 产物含 `WorkflowListView`(9.37 kB) 与 `WorkflowDetailView`(21.25 kB)。更早 run #23/#24/#26 亦 success —— 明细见下方「CI 历史 run 证据」 |
 
@@ -188,12 +189,17 @@
 | `SshExecutorClientTest`（executor-client，**O-17 收口**） | 14 | Mockito 替身驱动 `JSch`/`Session`/`ChannelExec`：成功退出码 0 + stdout/stderr 分别按行回调、非零退出码原样返回且不填 `failReason`、**超时 → `exitCode == null` 且 `channel.disconnect()`**、连接失败不抛异常、某流读取中断不影响另一流、`listener == null`、中文 UTF-8、私钥形态走 `addIdentity` / 口令形态走 `setPassword`、`StrictHostKeyChecking=no`、`testConnection` 真/假、`terminate` 返回 false |
 | `OrderedCollectionsTest`（common） | 16 | 保序（含 8 元素守卫用例——**换回 `Map.copyOf` 会在多数 JVM 上变红**）、不可写（`put` 与迭代器 `setValue` 都拒）、null 键/值/元素立即 NPE、空输入、等值语义不变、可直接接 Map 的键集 |
 
-前端：`pnpm lint`（`--max-warnings 0`）· `pnpm test`（**5 文件 46 例**）· `pnpm build`（`vue-tsc --noEmit` + vite build）三件套本地全绿。
+前端：`pnpm lint`（`--max-warnings 0`）· `pnpm test`（**7 文件 111 例**）· `pnpm build`（`vue-tsc --noEmit` + vite build）三件套本地全绿。
+
 - `tests/casename.spec.ts` **13 例** —— 锁的是 D-15 键转换的**边界**（哪些键是协议字段、哪些是用户数据），来历见 §5-13。
-- `tests/workflowContract.spec.ts` **14 例**（本轮新增）—— 三件事：① M3 九个错误码 42210~42218 的中文文案覆盖与"文案互不相同"；
+- `tests/dag.spec.ts` **43 例**（本轮新增）—— 纯函数层 `utils/dag.ts`：规则 1/5/10 各自的命中与不命中（含**"入度 0 的孤立节点不是不可达"**、**"被环拖住的一串节点才报不可达"**、**"空图不报错"**、错误顺序固定 `1→5→10`）、`canConnect` 七条守卫（自环/重复/成环/备注节点/端点缺失）、可达上游与 `hasPath`、节点尺寸与画布下限、自动布局（最长路径定层）、变量引用的引号规则与候选值、`groupIssues`/`extractIssues` 的降级行为、`toEditorModel` 深拷贝。
+- `tests/dagCanvas.spec.ts` **14 例**（本轮新增，用 `// @vitest-environment jsdom` 单文件声明）—— 挂载真实组件断言渲染结果：**`<foreignObject>` 内节点元素的 `namespaceURI` 必须是 XHTML 而非 SVG**（这条是本轮最有价值的用例，见 §5-15）、节点数与显示内容、未选算子标红、连线数、悬挂线不画、环上线带 `bad` 标记、选中样式、错误/警告角标**按步骤名**匹配、只读态不画端口、备注节点无端口、缩放条、空图可渲染。
+- `tests/workflowContract.spec.ts` **22 例**（本轮 14 → 22，新增"工作流编辑器与自研 SVG 画布（D-14）"一组）—— 前三件事见下；新增一组把画布链路的**防漂移断言**钉死：依赖里不得出现 X6/LogicFlow/ReactFlow/jsplumb/@antv（D-14 的部署前提：内网无 CDN）、画布**不得引 `@/api/http` 与 `@/api/modules`**（渲染层不许有请求副作用）、`<foreignObject>` 必须 camelCase、编辑器必须读 `route.query.version`、缺版本号有引导、保存载荷四类字段齐全、路径族是 `/workflow-versions/{versionId}`。
+- **`vitest.config.ts` 本轮补了 `plugins: [vue()]`**：原先没有它，一旦 `*.spec.ts` import 了 `.vue`，vitest 直接 `Failed to parse source ... invalid JS syntax`。默认 `environment` **仍保持 `node`** —— 只有真正需要 DOM 的文件在头部用注释单独声明 jsdom，而不是让 43 例纯函数测试白白多背一个 DOM 实现。
+- `tests/workflowContract.spec.ts`（前 14 例，续上）三件事：① M3 九个错误码 42210~42218 的中文文案覆盖与"文案互不相同"；
   ② **排序白名单的两端一致性**（取值集合逐字相同 + 每个都是 snake_case + 默认值在表内 + 每个都有选项名）；
   ③ **查询串命名风格**（`cron_expression` 必须蛇形、`orderBy/orderDir` 必须驼峰）——
-  前两组靠断言"运行期取值"，第三组靠 **`import.meta.glob(..., { query: '?raw' })` 把源码当文本读进来**
+  前两组靠断言"运行期取值"，第三组（及新增那组）靠 **`import.meta.glob(..., { query: '?raw' })` 把源码当文本读进来**
   再断言字面量。理由同后端 `MapperXmlSchemaConsistencyTest`：**这类错误不会编译失败、不会 lint 失败，
   只会以 40001/40003 的形式在真调后端时出现**，而那条报错不会提示"是命名风格的问题"。
   （不用 `node:fs` 是因为 `vue-tsc --noEmit` 会连 `tests/` 一起检查，而项目未装 `@types/node`。）
@@ -347,6 +353,36 @@
 6. **触发器配置摘要必须一眼可辨**（`triggerConfigText`）：CRON 下要能立刻看出是"表达式"
    还是"固定周期"，否则排查"为什么没按时跑"时第一眼看到的是个空列。
 
+## 1.7 第八切片：工作流编辑器 + 自研 SVG 画布（D-14，本轮新增）
+
+| 交付物 | 落点 | 状态 |
+|---|---|---|
+| **纯函数层**：规则 1/5/10 客户端镜像 · 连线守卫 · 可达上游 · 自动布局 · 节点尺寸 · 编辑模型深拷贝 | `frontend/src/utils/dag.ts`（约 470 行） | ✅ |
+| **自研 SVG 画布**（D-14）：网格/缩放平移/节点拖拽/端口连线/自动布局/环上线标红/错误与警告角标 | `frontend/src/components/biz/dag/DagCanvas.vue`（约 770 行） | ✅ |
+| **编辑器页**：整包读入 → 本地编辑 → 整包保存；步骤/连线属性面板；变量引用插入器；只读态；失败兜底 | `views/workflow/WorkflowEditorView.vue`（7 行占位 → 约 1400 行） | ✅ |
+| 单测 | `dag.spec.ts` 43 例 + `dagCanvas.spec.ts` 14 例 + `workflowContract.spec.ts` 14→22 例 | ✅ |
+| 测试基建 | `vitest.config.ts` 补 `plugins: [vue()]`（默认 `environment: 'node'` 刻意保持） | ✅ |
+
+**为什么是自研而不是 X6/LogicFlow**（`docs/04` §7.3 已定）：① 视觉令牌要单一真源（图库自带一套皮肤，与设计令牌打架）；② 内网环境**没有 CDN**，引图库等于把它的资源一起打包进产物；③ 节点内部要嵌 Vue 组件（算子名、参数摘要、错误角标）——图库的"自定义节点"最终也是在 `<foreignObject>` 里塞 HTML，等于替我们做了一遍。D-14 的**止损线是 10 人日**，本轮按"纯函数层 + 渲染层 + 页面层"三段切分后未触发，故**未降级**。
+
+**本切片的六条关键判断**（都写进了代码注释，防后人误改）：
+
+1. **路由必须带 `?version=WFV-xxxx-xx`，编辑器不猜"该编哪一版"**。理由：只有详情页刚读过版本列表、知道"用户点的是哪一版"。编辑器自行推断（"取最新的"）在并发编辑下不可解释。缺版本号时给的是**可执行引导**而非空白页——含一个"直接填版本号"的入口（`workflows/new` 这个路由名被 `tests/permissions.spec.ts` 的 19 页断言钉住了，不能删）。
+2. **保存是整包替换**（CONTRACT §6.2）：必须先 `GET /workflow-versions/{versionId}` 取回**完整 DAG**，在其上改，再整体 PUT。只发改动的那一部分等于把其余步骤全部删掉。
+3. **保存后锚点会变，回填只能按 `stepName`，不能按数组下标**（本轮最关键的一条）。请求里的 `steps[].stepId` 只是"本次保存会话内的锚点"：服务端落库时**重新发号**（`WFS-…`，因为 `uk_wstep_step_id` 是全表唯一索引，几十个工作流都用 `s1` 会当场撞索引），并把新号回填响应；而 `WorkflowStepMapper.xml#listByVersionId` 是 **`ORDER BY pos_y, pos_x, id`**（按**画布位置**读回，不是插入顺序）→ **响应顺序 ≠ 请求顺序**。所以 `adoptServerGraph()` 用 `stepName` 做键——它在上一次保存里刚被规则 10 校验过唯一性，是此刻唯一可靠的对应关系。
+4. **客户端自检 ≠ 服务端校验，展示上"二选一"而不是合并**。本地只镜像**保存草稿时机**的规则 1/5/10（结构类）；规则 2/3/4/6/7/8/9 要跨域数据（算子发布状态、参数模板、集群上限、并发配置），客户端拿不到也不该猜。服务端结论权威且更全，故 `activeIssues = serverIssues.length ? serverIssues : localIssues`；**合并会让同一条问题出现两次、计数不可信**。
+5. **`<foreignObject>` 必须写成 camelCase**。Vue 的 `compiler-dom` 是**逐字**比对 `parent.tag === "foreignObject"` 才把命名空间从 SVG 切回 HTML。写成小写 `<foreignobject>`：编译通过、lint 通过、`vue-tsc` 通过、页面**不报错**——只是节点里生成一堆浏览器不认识的 SVG 元素，**节点是空的**。这条静默失效已用反向扰动钉进测试（§5-15）。
+6. **连线守卫放在画布内**（`DagCanvas.onPointerUp` 调 `canConnect`，拒绝时 emit `reject-connect`）：拖拽的即时反馈必须当场发生，等页面回一趟再报错时用户已经抬手了。页面侧不重复校验（没有别的建线入口）。**备注节点两个方向都拒**（PRD §10.8 规则 1 明文"备注除外"），画布上也不给它画端口。
+
+**刻意不做的事**（"宁可不画，也不给一个改了白改的控件"）：
+
+- **没有独立「校验」按钮**：CONTRACT §6.2 没定义 validate 端点（O-26）。结构校验挂在保存路径上（保存即校验、失败不落库），全量校验挂在发布路径上。
+- **没有「丢弃草稿」按钮**：CONTRACT 没有这个端点，前端"丢弃"只能靠不发保存——而草稿行已经存在，用户会以为删掉了其实没有。
+- **原型 `workflow-editor.html` 里的两样东西没做**：① 连线中点拖拽调曲率（`DagEdgeDef` 只有 `source`/`target` 两个字段，调完存不下）；② CONFIG（中间件配置）节点类型（`workflow_step.step_type` 的 CHECK 只有 `TASK|NOTE`）。
+- **工作流参数只做原样 JSON 编辑**（**O-42**）：`workflow_params` 是 jsonb 数组，PRD / `docs/05` / CONTRACT 都只说明它是覆盖链第 3 层，**没有定义元素字段结构**——故不 self-invent 一套 schema，只提供 JSON 文本框 + 即时语法校验。
+
+**另外几处不做就会出错的小决定**：`NUMBER` 参数**必须走文本输入**（参数值可以是变量引用 `${step.清洗.output.rows}`，`el-input-number` 会当场把引用串吃掉；数字在 `setParam` 里收敛）；**空值 = 未覆盖**（`delete params[key]`，写空串会让后端判成"必填已填"，规则 3 就再也拦不住"没填"）；**参数模板按 `seq` 排序**（服务端存的是顺序号，不能依赖数组顺序）；**脏状态本地算**（整包保存没有服务端 diff，用 `snapshot()` 序列化整包比对，并把"参数非法"本身纳入快照，否则会出现"没改过却存不了"）；**规则 2/7 的成因提前可见**（版本列表没加载完时**不预警**——不把"查不到"当"不存在"）。
+
 ## 4. 偏离与遗留项（如实登记，均注明去处）
 
 | # | 项 | 现状 | 去处 |
@@ -360,7 +396,7 @@
 | **O-17** | `flowops-executor-client` **零测试、无覆盖率数据** | 模块含 `SshExecutorClient`（176 行真实 SSH 逻辑：连接/流泵/T超时/退出码判定），且已被 `ExecutorNodeService` 的连通性测试与 scheduler 接线**实际使用**。因无测试 → 无 `jacoco.exec` → `report` 直接 skip（日志 `Skipping JaCoCo execution due to missing execution data file`）→ **门禁连装都装不上** | 补 `SshExecutorClientTest`（Mockito 代理 JSch 的 `Session`/`ChannelExec` + 假 `LineListener`，断言成功码匹配、超时、流泵、`terminate` 幂等），随后模块才能加门禁。建议随「算子试运行」（§7-1）一并做——那正是它第一次被高频使用的地方 |
 | **O-18** | 门禁的"逻辑层"口径**不含 controller/aspect/ws** | `OperatorController`/`OperatorVersionController` 覆盖率 0%。这是**刻意的**：对 controller 写单测只能得到"调一遍方法、断言返回对象非空"的假覆盖率，真正要验的是鉴权/参数绑定/错误码映射/Swagger 契约，那是集成测试的活 | 随 O-9 的 `@SpringBootTest` 一起补（同一个环境前提） |
 | **O-19** | `flowops-common` 的 `api`/`enums`/`exception`/`web` 四包无门禁 | 该模块整体 10.8%，但未覆盖部分主要是枚举常量、`ErrorCode`、`ApiResult` 这类"常量 + 几行 getter"；给它们设行覆盖下限只会逼人写凑数测试。其中 `GlobalExceptionHandler`(0/26)、`TraceIdFilter`(0/16) 是**真有逻辑**的 | 门禁已按 `includes` 收窄到 `util`/`guard`/`context` 三包（100%）。前两者需 MockMvc，随 O-9 补 |
-| **O-20** | ~~M3 剩余 6 大块（试运行/工作流/画布/DAG 规则/变量解析/CRON + 前端 6 页）~~ → **只剩 1 块** | 前 5 块后端（§1.2~§1.4）+ 前端 5/6 页（§1.5/§1.6）已完成并实测；**唯一剩余：工作流编辑器 + 自研 SVG 画布（D-14）**，见 §7-3 | 画布单独排期，止损线超 10 人日降级 LogicFlow |
+| **O-20** | ~~M3 剩余 6 大块（试运行/工作流/画布/DAG 规则/变量解析/CRON + 前端 6 页）~~ → **已全部完成** | 前 5 块后端（§1.2~§1.4）+ 前端 6/6 页（§1.5/§1.6/§1.7）均已完成并实测。最后一块**工作流编辑器 + 自研 SVG 画布（D-14）**在 §1.7 收官 | 已闭环。**止损线未触发**（10 人日），未降级 LogicFlow；M3 已无剩余块 |
 | **O-21** | ~~跨域 SQL 的列名与实体/DDL 不一致，改动靠人记~~ → **已闭环（口径改进）** | 原先的缓解只是"两张表建了实体 + 人工核对过一遍"，仍留着一条**靠人记**的约束（"改动这两张表的列名必须回头改 `OperatorMapper.xml`"）。本轮改为**构建期强制**：`MapperXmlSchemaConsistencyTest` 把全部 27 个 Mapper XML 里的 `别名.列` 逐个对回 Flyway DDL 解析出的真实列，不一致即 `BUILD FAILURE`。**不需要 PG**（故不必挂在 O-9 后面），随每次 `mvn test` 跑 | 已闭环。原先设想的 `@SpringBootTest` 正例**不再必需**——它验的是"SQL 能跑通"，而一致性测试验的是"列存在"，后者覆盖面更大且无环境依赖。真正的 SQL 语义（`count(distinct)`、`deleted` 过滤口径）仍需 O-9 的集成环境 |
 | **O-26** | **没有独立的"校验"端点** | 编辑器画布上通常会有个「校验」按钮，但 `prd/CONTRACT-API.md` §6.2 只定了 `GET`/`PUT /workflow-versions/{versionId}`，**没有** `POST /workflow-versions/{id}/validate`。故一期不实现：结构校验挂在保存路径上（保存即校验），全量校验挂在发布路径上 | 契约缺口：如需"不落库先验一遍"，需先回写 CONTRACT 再实现。当前前端可用"保存草稿"代替（它跑结构子集，且失败不落库） |
 | **O-27** | **`WORKFLOW_PROJECT_IMMUTABLE`：归属项目创建后不可变更** | 这是**实现自加的规则**（回 `40001` + `rule=WORKFLOW_PROJECT_IMMUTABLE`），docs 未明文。理由是照搬算子的同一条口径：换项目等于把一份可能正被引用的编排搬出原项目边界，而数据范围的判定依据就是 `project_id` | 若产品要求允许迁移，需先定语义（迁移时版本/触发器/运行中任务怎么办）再放开。已登记以便复核 |
@@ -378,6 +414,7 @@
 | **O-40** | **工作流级默认值（`default_timeout_seconds` / `default_retry_count` / `default_retry_interval_seconds` / `default_failure_strategy`）有读无写** | `WorkflowVO` 出这四个字段，`docs/05` §3.4 的 `workflow` 表有对应列，PRD §12.5 的继承链也把它们当作第 3 层 —— 但**没有任何端点能写它们**：`PUT /workflows/{id}` 只收名称/项目/描述，`PUT /workflows/{id}/concurrency` 只收策略与并行数。详情页因此只做**只读展示**（并标注清楚），不提供假装能改的输入框 | 契约缺口：若要开放编辑，需先定"四个字段是否与其他基础信息同端点"（同端点会与"基础信息编辑不审计"的现状冲突 —— 改超时是会改变发布判定的，多半需要独立端点 + 独立审计动作） |
 | **O-41** | **工作流详情页缺「执行历史」与「版本对比」两块（原型 `workflow-detail.html` 有）** | 「执行历史」需要任务列表端点（`GET /tasks?workflowId=`），属 M4；「版本对比」CONTRACT 未定义 diff 端点 —— 前端自己 diff 会与审计日志里 `PUBLISH_WORKFLOW` 的 diff 口径分叉，而这两处口径不一致会让"审计记录说改了 3 项、对比页说改了 5 项"变成永久争议 | 执行历史随 M4 任务域一并做；版本对比需先定 diff 的字段范围与展示口径（且明确"以审计日志的 diff 为准"）再实现 |
 | **O-38** | **既有页面的删除确认未接住「取消」** | `ElMessageBox.confirm` 在用户点取消时是 `reject('cancel')`，不是错误。M2 的四个列表页（集群/凭据/项目/…）直接 `await` 它，而 `@click` 的 async 处理器会把 rejection 交给 Vue —— 本项目**未配置** `app.config.errorHandler`，于是控制台会出现一条与用户操作无关的报错（功能不受影响，故一直没被发现）。本轮新写的算子三页用 `try/catch` 包住确认框（并抽了 `askConfirm`） | 既有页面待统一（纯前端、无行为风险）；也可选择在 `main.ts` 里补一个 `app.config.errorHandler` 兜底 |
+| **O-42** | **`workflow_params` 的**元素字段结构**未在任何文档定义** | `workflow_params` 是 jsonb **数组**，PRD §12.5 与 `docs/05` 只说它是**覆盖链第 3 层**（工作流级参数覆盖项目/平台），`prd/CONTRACT-API.md` 只把它当 `SaveWorkflowVersionRequest` 的一个字段透传 —— **没有一处定义元素长什么样**（是 `{key,value}` 还是 `{name,value,type}`？类型信息在哪？敏感标记怎么表达？）。编辑器因此只提供**原样 JSON 文本框** + 即时语法校验，**不 self-invent 一套 schema**：自造结构一旦与服务端将来的定义不一致，用户存进去的就是再也解释不了的数据 | 文档缺口（与 O-23 同类，属"文档不覆盖 → 实现不自造"）。要做得比"原样 JSON"好，需先回写 PRD §12.5 或 `docs/05` 定义元素结构（并回答"是否复用 `operator_param_def` 的字段形态"），再改前端表单 |
 
 ## 5. 本轮修复记录（留档防复发）
 
@@ -810,6 +847,50 @@ workflow\WorkflowVersionMapper.xml 里的 <select>：v.created_by_typo = 表 wor
 （前 5 次见 §5-2 / §5-6 / §5-11 / §5-12 / §5-13）。这次的两个语义域是"语句形态"：
 列清单在 `UPDATE`/`INSERT` 上被查，在 `SELECT` 上不被查。
 
+### 5-15. `<foreignObject>` 写成小写：**编译/lint/tsc 全过、页面不报错、节点却是空的**（第七次"两个语义域"复发）
+
+**现象**：画布组件写完，`pnpm lint` 零告警、`pnpm build` 成功、"节点数 = 3"这类断言也能过 ——
+但人工打开页面，**节点框里什么都没有**（只剩一个边框），控制台一片安静。
+
+**根因**：节点内容靠 `<foreignObject>` 内嵌 HTML。Vue 的 `compiler-dom` 在计算命名空间时是
+**逐字比对** `parent.tag === "foreignObject"`（源码：`node_modules/.pnpm/@vue+compiler-dom@3.5.43/.../compiler-dom.cjs.js` 的 `getNamespace`）。
+一旦写成小写 `<foreignobject>`，这个比对不成立 → Vue 认为子元素仍在 SVG 命名空间 →
+模板里的 `<div>`/`<span>` 全部按 SVG 元素创建（`createElementNS(svgNS, 'div')`）→
+浏览器不认识的元素，**静默渲染为空**。四道常规关卡（编译、lint、`vue-tsc`、运行期报错）**一道都不拦**。
+
+**为什么原来的测试没抓到**："模板里写了 `<div>`"与"运行期这个 `<div>` 属于 XHTML 命名空间"是两件事。
+前者看源码就知道，后者**只有挂载后读 `namespaceURI` 才知道**；而原来的渲染断言用 `querySelectorAll` 数节点，
+SVG 命名空间下的 `<div>` 照样能被选到 —— 同一条测试对两种命名空间都给绿灯。
+
+**修法（两个动作，缺一不可）**：
+
+1. 模板改为 camelCase `<foreignObject>`（`grep -c` 复核：`foreignObject` 7 处、`foreignobject` 0 处）；
+2. 把判据写进测试：`expect(node.element.namespaceURI).toBe('http://www.w3.org/1999/xhtml')` ——
+   断言的是**运行期事实**，不是"源码里写了什么"。
+
+**反向扰动（证明这条测试真的会拦，而不是摆设）**：用脚本把 7 处 `foreignObject` 批量改成小写 →
+`npx vitest run tests/dagCanvas.spec.ts` → **1 failed / 13 passed**，
+失败信息正是 `expected 'http://www.w3.org/2000/svg' to be 'http://www.w3.org/1999/xhtml'`；
+从备份还原后 **14 passed**。第二道网是 `workflowContract.spec.ts` 的文本断言（画布源码必须含 `foreignObject`、不含 `foreignobject`）——
+**双保险是刻意的**：文本断言在重构时可能被改松，"运行期命名空间"这条不会。
+
+这是同一主题的**第 7 次复发**：**同一段代码存在两个语义域，而只验证了其中一个**
+（前 6 次见 §5-2 / §5-6 / §5-11 / §5-12 / §5-13 / §5-14）。这次的第二个语义域是**命名空间**——
+同一个字符串（`foreignObject`）同时决定"Vue 怎么编译"与"浏览器怎么解释"，
+两边的匹配规则一个是"逐字全等"、一个是"HTML 大小写不敏感"，而**只有前者的失配会静默**。
+
+### 5-16. vitest 里测 `.vue` 组件：缺 `plugin-vue` 时它报的是"源码语法错误"（一次就位的基建补齐）
+
+**现象**：`tests/dagCanvas.spec.ts` 首次运行时报
+`Failed to parse source for import analysis because the content contains invalid JS syntax. Install @vitejs/plugin-vue to handle .vue files`。
+
+**根因**：`vitest.config.ts` 用的是 `defineConfig`（不含 vite 默认的 `vue()` 插件），
+而此前所有单测都只 import `.ts`，从未触发过这个缺口。报错文案指向"源码语法"，很容易被误读成自己写错了模板。
+
+**修法**：`vitest.config.ts` 加 `plugins: [vue()]`。**同时刻意保持默认 `environment: 'node'`** ——
+只有真正需要 DOM 的文件在**文件头部**用 `// @vitest-environment jsdom` 单独声明。
+全局换 jsdom 会让 **43 例纯函数测试**白白多背一个 DOM 实现（跑得更慢，且让"这个测试到底需不需要 DOM"变成隐性知识）。
+
 ## 6. 复跑命令（本地）
 
 ```bash
@@ -827,33 +908,38 @@ cd frontend && pnpm lint && pnpm test && pnpm build
 
 > 环境注意：本机 `PATH` 上的 Maven 3.6.3 / `JAVA_HOME` 指向的 jdk-11 会与 Java 21 编译不兼容（`<release>21</release>`）。可用组合为 **jdk-21 + Maven 3.9.9**。
 
-## 7. M3 剩余范围与建议顺序
+## 7. M3 范围收官情况（原「剩余范围与建议顺序」）
 
 | 序 | 块 | 关键约束（来自 docs） |
 |---|---|---|
 | 1 | ~~算子试运行（选节点 + 实时日志 + 退出码 + `DRYRUN_OPERATOR`）~~ | ✅ **已完成**（§1.4）：SSE 四类帧 + `plan`/`run` 线程边界 + 双重脱敏 + 另存默认值；**O-17 一并收口**（`SshExecutorClientTest` 14 例 + 模块门禁 0.90）。新增偏离 O-32~O-37 |
 | 2 | ~~工作流 CRUD + 版本化~~ | ✅ **已完成**（§1.2）；O-21 也随之以"构建期一致性测试"的口径闭环（§5-9） |
-| 3 | 自研 SVG 画布编辑器（**D-14**） | 止损线：**超 10 人日即降级 LogicFlow**；机制注释按 D-26 第 4 条 |
-| 4 | ~~DAG 校验规则接到接口并把 42213/42214/42218 回填~~ | ✅ **已完成**：保存草稿跑结构子集、发布跑全量，三码分流见 `WorkflowVersionServiceTest` |
-| 5 | ~~六层变量覆盖链解析器~~ | ✅ **已完成**（§1.3）：值侧六层覆盖链 + 溯源 + 脱敏；规则 4（可达性）此前已在 `DagValidator` 落地 |
+| 3 | ~~自研 SVG 画布编辑器（**D-14**）~~ | ✅ **已完成**（§1.7）：纯函数层 470 行 + 画布 770 行 + 编辑器 1400 行；**止损线（10 人日）未触发，未降级 LogicFlow**；机制注释按 D-26 第 4 条写在文件头。新增偏离 **O-42**（`workflow_params` 元素结构无文档）+ 复发记录 §5-15/§5-16 |
+| 4 | ~~DAG 校验规则接到接口并把 42213/42214/42218 回填~~ | ✅ **已完成**：保存草稿跑结构子集、发布跑全量，三码分流见 `WorkflowVersionServiceTest`。**客户端镜像**（规则 1/5/10）见 `utils/dag.ts` + `dag.spec.ts` 43 例 |
+| 5 | ~~六层变量覆盖链解析器~~ | ✅ **已完成**（§1.3）：值侧六层覆盖链 + 溯源 + 脱敏；规则 4（可达性）此前已在 `DagValidator` 落地。**编辑器侧**提供了变量引用插入器（候选值由 `variableCandidates` 按"当前步骤的可达上游"生成） |
 | 6 | ~~触发器 CRON（42216）+ 时间窗（42217）~~ | ✅ **已完成**（§1.3）：CRUD 6 端点 + cron-preview + 停用联动；42216/42217 纯函数三分流。**注**：调度侧的 fire 推进 / catch-up（docs/06 §11.2）属 M4，本轮只做"配置进得来、下次时间算得出" |
-| 7 | 前端 6 页（算子列表/详情/版本 + 工作流列表/编辑器/详情） | 🚧 **5/6 已完成**：算子 3 页（§1.5）+ 工作流**列表/详情**（§1.6，含补的版本列表端点）；剩**编辑器（含画布）** —— 画布单独排期，且已有 `SaveWorkflowVersionRequest` 的整包契约（steps/edges/workflowParams/canvasWidth/canvasHeight）可直接对接，`GET /workflow-versions/{versionId}` 是画布读取入口。编辑器路由已约定带 `?version=WFV-xxxx-xx`（由详情页决定"该编哪一版"，编辑器只管"按号取图"） |
+| 7 | ~~前端 6 页（算子列表/详情/版本 + 工作流列表/编辑器/详情）~~ | ✅ **6/6 已完成**：算子 3 页（§1.5）+ 工作流**列表/详情**（§1.6，含补的版本列表端点）+ **编辑器（含自研画布）**（§1.7）。编辑器读 `GET /workflow-versions/{versionId}` 组装整包，`PUT /workflow-versions/{versionId}` 整包保存（42213/42214/42218 + `errors[]{rule, step_name}` 逐节点回填） |
 
-> **下一步建议**：**只剩「工作流编辑器 + 自研 SVG 画布（D-14）」**（§7-3 与 §7-7 的最后一格）。
-> 后端契约已全部就绪：画布读取入口 `GET /workflow-versions/{versionId}`、整包保存
-> `PUT /workflow-versions/{versionId}`（42213/42214/42218 + `errors[]{rule, step_name}` 逐节点回填）、
-> 校验时机已定（保存跑结构子集、发布跑全量）。
-> 画布是风险最高的一块：建议**单独排期**、按 D-26 第 4 条写机制注释，
-> 并预留止损动作（**超 10 人日即降级 LogicFlow**）。
-> 编辑器页的两条已定约束：① 路由必须带 `?version=`（"该编哪一版"由详情页决定，编辑器不猜）；
-> ② 保存是**整包替换**，必须先取完整 DAG 再在其上改，绝不能只发改动的那一部分。
+> **M3 收官结论**：**七块全部完成，无剩余项**。原计划的"下一步建议"（把编辑器/画布单独排期、
+> 预留止损动作）已执行完毕：画布按期自研，未触发 10 人日止损线。
+> 编辑器页的两条已定约束已落到代码与注释：① 路由带 `?version=`（"该编哪一版"由详情页决定，编辑器不猜，
+> 缺失时给可执行引导）；② 保存是**整包替换**（先取完整 DAG 再在其上改，绝不只发改动的那一部分）。
+> 另有一条本轮才明确的**关键判断**：保存后服务端会**重新发号**步骤 ID，且读回顺序按画布位置排序 ——
+> 故回填锚点只能用 `stepName`，**不能按数组下标**（详见 §1.7 第 3 条）。
+>
+> **移交 M4 的挂账**（全部已在 §4 逐条登记，此处只做索引）：
+> `O-9`（DataScope 全端点越权实跑，需 PG+Redis）/ `O-18`（controller 覆盖率 0% 是刻意的，随 O-9 补）/
+> `O-24`（队列无资源上限列）/ `O-25`（工作流 DELETE 端点缺失）/ `O-26`（无独立校验端点）/
+> `O-30`/`O-37`（触发器调度参数与环境变量下发，都是 M4 的消费方）/ `O-34`（无终止试运行端点）/
+> `O-39`~`O-42`（契约与文档缺口，需回写 CONTRACT / PRD / docs）。
 
 ---
 
-**M3 第二~第七切片一句话总结**：工作流 CRUD + 版本化、DAG 校验接口化（三码分流）、六层变量覆盖链、
-触发器 CRUD、算子试运行（SSE + 双重脱敏）五块后端主干，加**前端五页**（算子三页含试运行面板 +
-工作流列表/详情含触发器与并发配置）、以及为解开"草稿死锁"补的**工作流版本列表端点**，均已落地并实测
-（后端 **523 用例**、server 逻辑层覆盖 68.7% → **81.0%**、覆盖率门禁 5 道 → **6 道**；前端 **46 例**三件套全绿）。
+**M3 第二~第八切片一句话总结**：工作流 CRUD + 版本化、DAG 校验接口化（三码分流）、六层变量覆盖链、
+触发器 CRUD、算子试运行（SSE + 双重脱敏）五块后端主干，加**前端六页**（算子三页含试运行面板 +
+工作流列表/详情含触发器与并发配置 + **编辑器含自研 SVG 画布**）、以及为解开"草稿死锁"补的
+**工作流版本列表端点**，均已落地并实测（后端 **523 用例**、server 逻辑层覆盖 68.7% → **81.0%**、
+覆盖率门禁 5 道 → **6 道**；前端 **7 文件 111 例**三件套全绿）。
 
 最后一块**前端工作流列表/详情**带来一个值得单独记住的判断：**"缺一个读接口"和"缺一个功能"不是同一件事**。
 `has_draft_changes` 这个布尔在 UI 上看起来只是少了个版本列表，但它加上"`POST /versions` 会 42215"
@@ -880,6 +966,23 @@ cd frontend && pnpm lint && pnpm test && pnpm build
 
 这两条尤其值得记住：**"测试通过了"与"测试稳定通过"是两回事**；
 **"输入合法"与"输入能原样到达后端"也是两回事**。
+
+最后一块（**工作流编辑器 + 自研 SVG 画布**，§1.7）留下的三条判断，都值得脱离本项目单独记住：
+
+1. **"保存成功"不等于"我手上的图还是刚才那张"** —— 服务端落库时**重新发号**（`uk_wstep_step_id` 是全表唯一索引，
+   客户端 `s1`/`s2` 这种短键全表撞车），并且读回时**按画布位置排序**而不是插入顺序。
+   两件事叠加后，"按下标回填 ID"会**静默地把 A 节点的参数写到 B 节点上** —— 这一步在测试里几乎看不出来，
+   只能在**读回逻辑**里防住：用**上一次刚被校验过唯一性**的 `stepName` 做锚点。
+2. **"代码编译通过"不等于"浏览器认得它渲染出来的东西"** —— `<foreignObject>` 的大小写不是风格问题：
+   Vue 逐字比对标签名来决定命名空间，写成小写则节点内容全部变成 SVG 命名空间下的无意义元素，
+   **四道关卡（编译/lint/`vue-tsc`/运行期报错）一道都不拦，页面只是"空的"**（§5-15）。
+   防它的唯一办法是断言**运行期事实**（`namespaceURI`），而不是断言源码里写了什么。
+3. **"客户端能算"不等于"客户端该算"** —— 本地只镜像**当前时机真的会跑**的那三条规则（保存草稿的 1/5/10）；
+   其余七条要跨域数据（算子发布状态、参数模板、集群上限、并发配置），客户端拿不到，
+   猜出来的结论只会变成一个**服务端从不返回、用户也改不掉**的假错误。展示上宁可"服务端有就用服务端的、没有就不显示"，
+   也不做**合并**——合并会让同一条问题出现两次，计数从此不可信。
+
+这三条对应三类不同的"静默失效"：**数据错位**（锚点）、**渲染失效**（命名空间）、**结论污染**（双份校验）。
 
 ---
 

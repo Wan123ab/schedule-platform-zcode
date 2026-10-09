@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import pkg from '../package.json'
 import { ERROR_MESSAGES, messageOf } from '@/utils/errorMessage'
 import { PERM } from '@/constants/permissions'
 import { WORKFLOW_DEFAULT_SORT, WORKFLOW_SORTABLE, WORKFLOW_SORT_LABEL } from '@/api/modules/workflow'
@@ -143,5 +144,82 @@ describe('查询串命名风格（params 不做键转换）', () => {
     // 把名字一并转成 snake（order_by）或把值转成 camel（updatedAt）都会坏，且都不报编译错
     expect(WORKFLOW_API_SOURCE).not.toContain('order_by:')
     expect(WORKFLOW_API_SOURCE).not.toContain("'updatedAt'")
+  })
+})
+
+// ═══════════════════════════════════════════════════════════
+// 编辑器 + 自研画布（D-14）
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * 最后一组断言守的是**画布**这条链路（M3 第八切片）。
+ *
+ * 这里的每一条都对应一类"编译得过去、lint 也过得去、但行为是错的"的改动：
+ * 引入图库（破坏 D-14 与内网部署前提）、把 `foreignObject` 写成小写（节点渲染成空）、
+ * 画布自带请求（页面与画布的职责边界被打破）、保存只发改动部分（数据丢失）。
+ * 它们都没有类型层面的约束，只能钉在文本上。
+ */
+describe('工作流编辑器与自研 SVG 画布（D-14）', () => {
+  const read = (suffix: string): string => {
+    const modules = import.meta.glob('../src/**/*.{ts,vue}', {
+      query: '?raw',
+      import: 'default',
+      eager: true,
+    }) as Record<string, string>
+    const hit = Object.entries(modules).find(([path]) => path.endsWith(suffix))
+    return hit?.[1] ?? ''
+  }
+
+  const EDITOR_SOURCE = read('views/workflow/WorkflowEditorView.vue')
+  const CANVAS_SOURCE = read('components/biz/dag/DagCanvas.vue')
+  const API_SOURCE = read('api/modules/workflow.ts')
+
+  it('源码确实被读进来了（读不到时下面的断言会恒真，等于没测）', () => {
+    expect(EDITOR_SOURCE).toContain('工作流编辑器')
+    expect(CANVAS_SOURCE).toContain('自研 SVG 画布')
+  })
+
+  it('画布是自研的：依赖里没有任何流程图库（D-14 / docs/04 §7.3）', () => {
+    const deps = { ...pkg.dependencies, ...pkg.devDependencies }
+    const forbidden = Object.keys(deps).filter((name) => /x6|logicflow|reactflow|jsplumb|@antv/i.test(name))
+    expect(forbidden, `自研画布的前提是不引图库，但发现了：${forbidden.join('、')}`).toEqual([])
+  })
+
+  it('画布自己不发请求（数据全部来自 props，业务在页面里）', () => {
+    // 只允许 `import type`（types 不会触发请求）；http 客户端与 api/modules 都是禁的
+    expect(CANVAS_SOURCE).not.toContain('@/api/http')
+    expect(CANVAS_SOURCE).not.toContain('@/api/modules')
+  })
+
+  it('节点用 foreignObject 嵌 HTML，且标签必须写成 camelCase', () => {
+    // Vue 的 compiler-dom 在 `parent.tag === "foreignObject"` 处把命名空间重置回 HTML，
+    // 这个比较是**逐字**的。写成 `<foreignobject>` 时命名空间不重置，节点里会渲染出
+    // 一堆无法识别的 SVG 元素 —— 页面不报错，只是节点是空的
+    expect(CANVAS_SOURCE).toContain('<foreignObject')
+    expect(CANVAS_SOURCE).not.toContain('<foreignobject')
+  })
+
+  it('编辑器从 query 读版本号，而不是从路径段推', () => {
+    // 详情页里"继续编辑草稿 v3"与"查看已发布 v2"进的是同一个路径 `workflows/:id/edit`，
+    // 差异只在 query。改成从路径推就会让这两个入口落到同一版（原型 F-11 的同一类问题）
+    expect(EDITOR_SOURCE).toContain('route.query.version')
+  })
+
+  it('编辑器在缺版本号时不猜，给出可执行的引导', () => {
+    expect(EDITOR_SOURCE).toContain('需要指定要编辑的版本')
+  })
+
+  it('保存是整包替换：请求体必须带上 steps / edges / workflowParams / 画布尺寸', () => {
+    // CONTRACT §6.2 明文"不做步骤级增量接口"。少发任何一项都会静默丢掉一部分图
+    for (const key of ['steps:', 'edges:', 'workflowParams:', 'canvasWidth,', 'canvasHeight,']) {
+      expect(EDITOR_SOURCE, `保存请求体缺少 ${key}`).toContain(key)
+    }
+  })
+
+  it('版本全量的读写走顶层 /workflow-versions/{id}（不是 /workflows/{id}/versions）', () => {
+    // 这两个路径**都存在**：`/workflows/{id}/versions` 是 GET 列表 + POST 建草稿，
+    // 而版本全量读写在 `/workflow-versions/{versionId}`。混用会得到 404/405，
+    // 而报错完全不会提示"你走错族了"
+    expect(API_SOURCE).toContain('url: `/workflow-versions/${versionId}`')
   })
 })
