@@ -105,13 +105,15 @@
 | 10 | **触发器 CRON**（42216）+ 时间窗（42217） | ✅ **已实测** | `TriggerConfigValidator` 纯函数三分流（42216 含"二选一"约束与方言提示 / 42217 / 40001）；CRUD 6 端点含 `/triggers/cron-preview`（默认 5 个、上限 20、严格递增断言）；可见性借父 workflow（40301/40400）；`next_fire_time` 只在调度配置变化时重算；**工作流停用联动停触发器**；软删走显式 XML（MP `updateById` 剔除逻辑删除列的坑不再踩） |
 | 11 | **前端 6 页**（算子 3 + 工作流 3） | ✅ **6/6 已完成** | 算子三页（§1.5）：列表 / 详情（版本列表 + 上传 + 发布下线）/ 版本详情（**含试运行面板**：SSE 实时日志、退出码、命令回显与溯源、按模板动态渲染的参数表单、另存默认值）。工作流三页：**列表**（§1.6，项目/状态/关键词筛选与**排序**——全项目唯一支持排序的端点、"点发布到底发哪一版"显式确认）/ **详情**（§1.6，概览+并发配置+版本列表+触发器 CRUD 与 cron 服务端试算）/ **编辑器**（§1.7，**自研 SVG 画布 + 属性面板 + 变量引用插入器**，含缺版本号的可执行引导、只读态、406/403 等失败兜底）。编辑器路由带 `?version=WFV-xxxx-xx`，由详情页决定"该编哪一版" |
 | — | 单测覆盖门禁（O-14） | ✅ **已实测** | **5 个模块 6 道门禁**全绿（common / domain / executor-client / server×2 / scheduler），且经**反向扰动验证会拦**（见 §5-3）；本轮再把 executor-client 的阈值从初写的 0.75 提到 **0.90**（§5-13 附近的扰动记录见 §5-3） |
-| — | **CI 全绿** | ✅ **已实测（最新 run #27）** | **run #27（`536b909`，本切片）两个 job 均 success**。取回日志核实：后端 **523 用例全绿**（43 / 73 / 14 / **305** / 88，与本地逐一吻合）、**6 道 JaCoCo 门禁全跑**（common / domain / executor-client / server×2 / scheduler）、动态 attach 警告 **0** 次；前端 **5 文件 46 例全过**、build 产物含 `WorkflowListView`(9.37 kB) 与 `WorkflowDetailView`(21.25 kB)。更早 run #23/#24/#26 亦 success —— 明细见下方「CI 历史 run 证据」 |
+| — | **CI 全绿** | ✅ **已实测（最新 run #29）** | **run #29（`41cf940`，M3 收官切片）两个 job 均 success**。取回 job 日志逐项核实：后端 **523 用例全绿**（43 / 73 / 14 / 305 / 88，**与本地逐一吻合**）、**6 道 JaCoCo 门禁全跑**（4×`jacoco-check` + `-logic-layer` + `-module-floor`）、动态 attach 警告 **0** 次、`MutexLockManagerTest` 6 例实跑（Redis 服务容器在）、runner 镜像 `ubuntu24/20261004.327`；**前端 7 文件 111 例全过**（含新增 `dag.spec.ts` 43 例与 `dagCanvas.spec.ts` 14 例，**确认在 CI 上也真的跑了**）、`pnpm build` 产物含 `WorkflowEditorView-DoaqCg9C.js`(42.48 kB，**与本地哈希逐字一致**) + `WorkflowEditorView-rAgAWBp6.css`(7.06 kB)。更早 run #27/#28 亦 success —— 明细见下方「CI 历史 run 证据」 |
 
 ### CI 历史 run 证据（留档）
 
 | run | 提交 | 结果 | 核实要点 |
 |---|---|---|---|
-| **#27** | `536b909`（本切片） | ✅ success（两个 job） | 后端 **523 用例**（43/73/14/305/88）、6 道门禁、动态 attach 警告 0 次；前端 **5 文件 46 例**、产物含 `WorkflowListView` / `WorkflowDetailView` |
+| **#29** | `41cf940`（M3 收官切片：编辑器 + 自研画布） | ✅ success（两个 job） | 后端 **523 用例**（43/73/14/305/88）、6 道门禁、动态 attach 警告 0 次、`MutexLockManagerTest` 实跑；前端 **7 文件 111 例**、产物含 `WorkflowEditorView`(42.48 kB + 7.06 kB CSS)，**哈希与本地一致** |
+| #28 | `137d5f5`（CI 证据 + CI 历史表） | ✅ success | 纯文档切片 |
+| **#27** | `536b909` | ✅ success（两个 job） | 后端 **523 用例**（43/73/14/305/88）、6 道门禁、动态 attach 警告 0 次；前端 **5 文件 46 例**、产物含 `WorkflowListView` / `WorkflowDetailView` |
 | #26 | `b862e74`（CI 证据 + 预置工作流类型） | ✅ success | —— |
 | #24 | `b79b0a0`（前端算子三页） | ✅ success | 前端 4 文件 32 例、产物含算子三页 |
 | #23 | `0aa8aec`（算子试运行 + O-17 收口） | ✅ success | 落在 **`ubuntu24/20261004.327`** —— 正是 `run #13` 挂掉的那个 runner 镜像；518 用例、6 道门禁、动态 attach 警告 0 次（证明 §5-6 的修复在"问题镜像"上确实成立） |
