@@ -26,4 +26,49 @@
            AND status = #{fromStatus}
     </update>
 
+    <!-- 停止请求（docs/06 §15.1 ①）：server 只写 STOPPING 中间态 + 停止人/原因，
+         调度器终止全部运行中步骤后才收敛为 STOPPED。CAS 条件防与调度器/人工操作并发覆盖。 -->
+    <update id="requestStop">
+        UPDATE task
+           SET status = 'STOPPING',
+               stopped_by = #{stoppedBy},
+               stop_reason = #{stopReason},
+               version = version + 1,
+               updated_at = now()
+         WHERE id = #{id}
+           AND status = 'RUNNING'
+           AND deleted = false
+    </update>
+    <!-- 插队（docs/07 §6.4 / PRD §12.2-6 / README-M4 O-52）：
+         priority 置 E-07 上限 100；CAS 条件防任务在审批间隙出队/被停。
+         score 更新由调度器步骤入队时按 task.priority 自然生效（PENDING 不在 ZSet）。 -->
+    <update id="jumpQueue">
+        UPDATE task
+           SET priority = 100,
+               version = version + 1,
+               updated_at = now()
+         WHERE id = #{id}
+           AND status = 'PENDING'
+           AND deleted = false
+    </update>
+
+    <!-- 重跑失败步骤的任务级收敛（docs/06 §9.3 ④⑤）：CAS 回 RUNNING + 进度重算 +
+         清任务级失败原因（步骤级痕迹由 resetForRerun 清）。 -->
+    <update id="resumeAfterRerun">
+        UPDATE task
+           SET status = 'RUNNING',
+               fail_reason = NULL,
+               finished_steps = #{finishedSteps},
+               current_step_name = NULL,
+               current_step_index = NULL,
+               start_time = CASE WHEN start_time IS NULL THEN now() ELSE start_time END,
+               end_time = NULL,
+               duration_ms = NULL,
+               version = version + 1,
+               updated_at = now()
+         WHERE id = #{id}
+           AND status = #{fromStatus}
+           AND deleted = false
+    </update>
+
 </mapper>

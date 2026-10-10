@@ -55,4 +55,12 @@ public interface TaskStepMapper extends BaseMapper<TaskStep> {
     int markRetrying(@Param("id") Long id,
                      @Param("nextRetryAt") java.time.OffsetDateTime nextRetryAt,
                      @Param("failReason") String failReason);
+
+    /**
+     * 重跑失败步骤的单步 reset（docs/06 §9.3 ③，server 人工干预）：清执行痕迹、回 NOT_STARTED；
+     * {@code retry_count} 保留（累加语义）。多列 UPDATE 走 XML（docs/10）。
+     *
+     * @return 受影响行数
+     */
+    int resetForRerun(@Param("id") Long id);
 }

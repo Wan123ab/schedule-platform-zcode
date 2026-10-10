@@ -31,4 +31,27 @@ public interface TaskMapper extends BaseMapper<Task> {
     int casStatus(@Param("id") Long id,
                   @Param("fromStatus") String fromStatus,
                   @Param("toStatus") String toStatus);
+
+    /**
+     * 停止请求（docs/06 §15.1 ①）：RUNNING → STOPPING + 停止人/原因，一次 CAS 完成。
+     * 独立于 {@link #casStatus}：停止要同时写三列，拼 wrapper 反而丢掉"来自 RUNNING"
+     * 这条语义条件。0 行 = 已非 RUNNING（并发停止/已被调度器收敛）。
+     */
+    int requestStop(@Param("id") Long id,
+                    @Param("stoppedBy") String stoppedBy,
+                    @Param("stopReason") String stopReason);
+
+    /**
+     * 插队（docs/07 §6.4 / PRD §12.2-6 / README-M4 O-52）：priority 置 E-07 上限 100，
+     * CAS 条件 = 仍为 PENDING。0 行 = 已出队/已停止。
+     */
+    int jumpQueue(@Param("id") Long id);
+
+    /**
+     * 重跑失败步骤的任务级收敛（docs/06 §9.3 ④⑤）：CAS 回 RUNNING + 进度重算 +
+     * 清任务级失败原因。{@code fromStatus} 传重跑前的状态（FAILED/TIMEOUT/PARTIAL）。
+     */
+    int resumeAfterRerun(@Param("id") Long id,
+                         @Param("fromStatus") String fromStatus,
+                         @Param("finishedSteps") int finishedSteps);
 }

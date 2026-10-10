@@ -67,4 +67,30 @@
            AND status = 'RUNNING'
     </update>
 
+    <!-- 重跑失败步骤的单步 reset（docs/06 §9.3 ③，server 人工干预）：
+         ① 清执行痕迹（时间/退出码/失败原因/机器/分发标记/阻塞原因），回 NOT_STARTED；
+         ② output_vars 清为 '{}'（列 NOT NULL，重新产出——非目标步骤保留旧值，变量解析链第 5 层复用）；
+         ③ retry_count 刻意不重置（累加语义）；日志引用（stdout/stderr）保留供排障。
+         WHERE id = #{id} 由调用方保证该行属于目标集合（targets 闭包已在 Service 算完）。 -->
+    <update id="resetForRerun">
+        UPDATE task_step
+           SET status             = 'NOT_STARTED',
+               start_time         = NULL,
+               end_time           = NULL,
+               duration_ms        = NULL,
+               exit_code          = NULL,
+               fail_reason        = NULL,
+               fail_reason_code   = NULL,
+               fail_reason_detail = NULL,
+               output_vars        = '{}'::jsonb,
+               next_retry_at      = NULL,
+               dispatch_token     = NULL,
+               mutex_holder       = false,
+               machine_ip         = NULL,
+               block_reason       = NULL,
+               version = version + 1,
+               updated_at = now()
+         WHERE id = #{id}
+    </update>
+
 </mapper>

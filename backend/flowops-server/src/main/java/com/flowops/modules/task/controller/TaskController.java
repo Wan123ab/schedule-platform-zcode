@@ -6,6 +6,8 @@ import com.flowops.common.annotation.Idempotent;
 import com.flowops.common.annotation.RequiresPermission;
 import com.flowops.common.api.ApiResult;
 import com.flowops.common.api.PageResult;
+import com.flowops.modules.task.dto.RerunFailedRequest;
+import com.flowops.modules.task.dto.StopTaskRequest;
 import com.flowops.modules.task.dto.SubmitTaskRequest;
 import com.flowops.modules.task.dto.TaskDiagnosisVO;
 import com.flowops.modules.task.dto.TaskDetailVO;
@@ -14,6 +16,7 @@ import com.flowops.modules.task.dto.TaskStepVO;
 import com.flowops.modules.task.dto.TaskSubmitResponse;
 import com.flowops.modules.task.dto.TaskVO;
 import com.flowops.modules.task.service.TaskDiagnosisService;
+import com.flowops.modules.task.service.TaskInterventionService;
 import com.flowops.modules.task.service.TaskQueryService;
 import com.flowops.modules.task.service.TaskSubmitService;
 import jakarta.validation.Valid;
@@ -49,6 +52,7 @@ public class TaskController {
     private final TaskSubmitService submitService;
     private final TaskQueryService queryService;
     private final TaskDiagnosisService diagnosisService;
+    private final TaskInterventionService interventionService;
 
     @PostMapping
     @RequiresPermission("schedule:task:submit")
@@ -112,6 +116,49 @@ public class TaskController {
     @DataScope({"PROJECT", "AUTHORIZED_CLUSTER", "SELF_CREATED"})
     public ApiResult<TaskDiagnosisVO> diagnosis(@PathVariable String taskId) {
         return ApiResult.ok(diagnosisService.diagnose(taskId));
+    }
+
+    // ── 人工干预（M4 S2，CONTRACT §7；docs/06 §15.1 / §9.3）──
+
+    /**
+     * 停止任务。server 只写 STOPPING 中间态（docs/06 §15.1 ①），调度器终止全部
+     * 运行中步骤后才收敛 STOPPED —— 响应里的 status 是 STOPPING 而非 CONTRACT 原文的
+     * STOPPED（README-M4 O-49，M-08 中间态语义优先）。
+     */
+    @PostMapping("/{taskId}/stop")
+    @RequiresPermission("schedule:task:stop")
+    @Audited(action = "STOP_TASK", targetType = "TASK", targetIdExpr = "#taskId")
+    public ApiResult<TaskDetailVO> stop(@PathVariable String taskId,
+                                        @RequestBody @Valid StopTaskRequest request) {
+        return ApiResult.ok(interventionService.stop(taskId, request.getStopReason()));
+    }
+
+    /** 整任务重跑 = 新建任务实例（docs/06 §9.3；原任务保持终态），走提交唯一入口。 */
+    @PostMapping("/{taskId}/retry")
+    @RequiresPermission("schedule:task:retry")
+    @Audited(action = "RETRY_TASK", targetType = "TASK", targetIdExpr = "#taskId")
+    public ApiResult<TaskDetailVO> retry(@PathVariable String taskId) {
+        return ApiResult.ok(interventionService.retry(taskId));
+    }
+
+    /**
+     * 重跑失败步骤（原实例 reset + 下游闭包，docs/06 §9.3）。
+     * body 可省略 = 全部 FAILED/TIMEOUT 步骤及其下游。
+     */
+    @PostMapping("/{taskId}/rerun-failed")
+    @RequiresPermission("schedule:task:retry")
+    @Audited(action = "RERUN_FAILED_STEPS", targetType = "TASK", targetIdExpr = "#taskId")
+    public ApiResult<TaskDetailVO> rerunFailed(@PathVariable String taskId,
+                                               @RequestBody(required = false) RerunFailedRequest request) {
+        return ApiResult.ok(interventionService.rerunFailed(taskId, request));
+    }
+
+    /** 插队（仅 PENDING；互斥组任务 42200 + MUTEX_GROUP_NO_PRIORITY，docs/07 §6.6）。 */
+    @PostMapping("/{taskId}/enqueue-front")
+    @RequiresPermission("schedule:task:enqueue_front")
+    @Audited(action = "ENQUEUE_FRONT", targetType = "TASK", targetIdExpr = "#taskId")
+    public ApiResult<TaskDetailVO> enqueueFront(@PathVariable String taskId) {
+        return ApiResult.ok(interventionService.enqueueFront(taskId));
     }
 
     /**
