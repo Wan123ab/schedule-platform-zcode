@@ -334,3 +334,42 @@ export const TRIGGER_TYPE_LABEL: Record<TriggerType, string> = {
   MANUAL: '手动',
   CRON: '定时（Cron）',
 }
+
+// ── M4：回填批次状态（backfill_batch.status，V1 CHECK 5 值）────────────
+
+export type BackfillStatus = 'RUNNING' | 'PAUSED' | 'DONE' | 'FAILED' | 'CANCELLED'
+
+export const BACKFILL_STATUS_LABEL: Record<BackfillStatus, string> = {
+  RUNNING: '投放中',
+  PAUSED: '已暂停',
+  DONE: '已完成',
+  FAILED: '存在失败',
+  CANCELLED: '已取消',
+}
+
+export const BACKFILL_STATUS_TONE: Record<BackfillStatus, Tone> = {
+  RUNNING: 'info',
+  PAUSED: 'warn',
+  DONE: 'ok',
+  FAILED: 'fail',
+  CANCELLED: 'mut',
+}
+
+// ── M4：告警级别（alert_record.level，DDL CHECK 3 值）────────────────
+
+export type AlertLevel = 'CRITICAL' | 'WARN' | 'INFO'
+
+export const ALERT_LEVEL_TONE: Record<AlertLevel, Tone> = {
+  CRITICAL: 'fail',
+  WARN: 'warn',
+  INFO: 'info',
+}
+
+/** 告警发送结果（alert_record.result）。 */
+export type AlertResult = 'SENT' | 'PARTIAL' | 'FAILED'
+
+export const ALERT_RESULT_TONE: Record<AlertResult, Tone> = {
+  SENT: 'ok',
+  PARTIAL: 'warn',
+  FAILED: 'fail',
+}

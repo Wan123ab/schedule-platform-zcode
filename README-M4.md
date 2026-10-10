@@ -16,7 +16,7 @@
 | S3  | 回填：preview 双闸门 / 批次管理 / 滚动投放引擎                                                 | ✅ 本轮                                                    |
 | S4  | 告警：规则 CRUD + 渠道 + 发送引擎 + 抑制窗口                                                  | ✅ 2026-10-11（`d1a7d55`，CI run #36 双 job success）          |
 | S5  | 工作台 7 聚合端点 + /platform/health                                                | ✅ 2026-10-11（`0b48c34`，CI run #37 双 job success，648 用例） |
-| S6  | 前端 5 页（任务列表/详情、回填、告警配置、工作台）                                                    | 未开始                                                     |
+| S6  | 前端 5 页（任务列表/详情、回填、告警配置、工作台）                                                    | ✅ 2026-10-11（本轮）                                       |
 
 ### 1.1 S1b：调度诊断（2026-10-11，`f413fc4`）
 
@@ -204,6 +204,40 @@
 | 数据权限 | task 维度聚合走 DataScope（裸表名）；cluster/queue 维度全局口径（O-70）✅ |
 | 健壮性 | platformHealth 任一后端故障不 500，对应段降级（单测 redisDown 场景）✅ |
 | 单测 | 16 例新增全绿 ✅ |
+
+### 1.6 S6：前端 5 页（2026-10-11，本轮）
+
+**交付物**（4 页占位实装 + 任务详情升级 + 第 19 页顺手收编）：
+
+- **API 层**：`task.ts` 补齐（page/diagnosis/logs + stop/retry/rerun-failed/enqueue-front，
+  类型 TaskVO/TaskDiagnosis/TaskLogPage 全量对齐后端）；新建 `backfill.ts`（9 端点，
+  **两段式 previewHash → confirmedPreviewHash**）、`alert.ts`（9 端点 + 事件类型 9 值 /
+  渠道 4 值单一常量源）、`dashboard.ts`（7 端点 + /platform/health）；类型文件 ×4
+- **任务列表页**：状态/触发方式/业务日期区间/关键词四维筛选 + 干预三动作
+  （stop 带≥5 字原因、retry 明示"新建实例"、插队仅 PENDING），权限点显隐 + 终态置灰
+- **任务详情页**：诊断面板（排队位置 / ETA + basis / 阻塞原因 / 建议，随 3s 轮询刷新、
+  失败自吞不拖垮详情）+ 四个干预按钮（rerun-failed 在详情页——需要步骤选择语义）
+- **回填页**：预览双闸门（计划/撞车跳过/策略收敛收敛提示全可见）→ 确认提交；
+  批次列表 pause/resume/retry-failed；详情抽屉含失败明细与任务实例
+  （**一个日期两行**的口径在文案中明示，O-59 前端侧）
+- **告警配置页**：规则（CRUD+启停）/ 渠道（4 类型 upsert，**secret 只写不读**，
+  真发测试）/ 记录（history 分页过滤）三 tab
+- **工作台页**：6 指标卡 + 自绘 SVG 趋势柱图（锁栈纪律不引图表库）+ 队列积压 /
+  资源 / 集群健康 / 最近失败 / 最新告警六面板；7 端点 `Promise.allSettled` 逐段兜底
+- **平台健康度页**（第 19 页，D-24；M5 清单提前收编——后端 S5 已交付）：
+  五段指标 + 队列水位条；O-71 不可得字段显示 "—" 而非隐藏
+- **测试**：`tests/m4Contract.spec.ts` 17 例（查询串驼峰钉文本断言、回填两段式指纹、
+  事件类型 9 值口径、M4 错误码文案、端点路径对齐）+ errorMessage 补 42235~42238/42241
+- `formatDuration` 工具 + enums 补回填状态/告警级别/发送结果映射（Record 全覆盖）
+
+**DoD 自检**：
+
+| 项 | 结果 |
+|---|---|
+| 19 页对照 | S6 五页 + 第 19 页全部实装，路由 meta.perm 全取 PERM 常量 ✅ |
+| 查询串纪律 | bizDateFrom/eventType/days 原样驼峰，`m4Contract` 文本断言钉死 ✅ |
+| 权限 | 页面 v-if=can(PERM.*) 与 docs/07 §5.2 权限点一一对应 ✅ |
+| 三件套 | lint 0 警告 + vitest 8 文件 128 例 + vue-tsc/vite build 全绿 ✅ |
 
 ---
 
