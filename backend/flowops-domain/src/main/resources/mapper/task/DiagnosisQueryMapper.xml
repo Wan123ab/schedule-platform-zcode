@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 调度诊断读模型（docs/06 §5.5 ETA 统计）。 -->
+<mapper namespace="com.flowops.domain.mapper.task.DiagnosisQueryMapper">
+
+    <!-- 队列 ETA 统计（docs/06 §5.5 原文 SQL 的等价改写）：
+         ① percentile_cont 作用于 interval，外层 EXTRACT(EPOCH) 化成秒（PG 的 double）；
+         ② 在 docs 基础上补 deleted = false（逻辑删除行不入统计，README-M4 O-47）；
+         ③ 排除 BACKFILL（docs 原文注释：回填任务会污染统计）；
+         ④ ⚠️ 故意不给 task 起别名：FlowopsDataPermissionHandler 注入的是裸表名限定
+            （task.project_id = x / task.cluster_id = x），起别名会把注入条件落到不存在的
+            表名上 → PROJECT/CLUSTER 范围用户稳定 500（2026-10-11 S1a 同款教训）。
+            SELECT 清单全是聚合表达式，不触发 MapperXmlSchemaConsistencyTest 的列保护。 -->
+    <select id="etaStats"
+            resultType="com.flowops.domain.dto.query.EtaStatsRow">
+        SELECT EXTRACT(EPOCH FROM
+                   percentile_cont(0.5) WITHIN GROUP (ORDER BY (start_time - submit_at))
+               ) AS medianWaitSeconds,
+               count(*) AS sampleCount
+          FROM task
+         WHERE queue_id = #{queueId}
+           AND submit_at &gt; now() - interval '7 days'
+           AND start_time IS NOT NULL
+           AND trigger_type &lt;&gt; 'BACKFILL'
+           AND deleted = false
+    </select>
+
+</mapper>

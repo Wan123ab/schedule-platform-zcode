@@ -7,11 +7,13 @@ import com.flowops.common.annotation.RequiresPermission;
 import com.flowops.common.api.ApiResult;
 import com.flowops.common.api.PageResult;
 import com.flowops.modules.task.dto.SubmitTaskRequest;
+import com.flowops.modules.task.dto.TaskDiagnosisVO;
 import com.flowops.modules.task.dto.TaskDetailVO;
 import com.flowops.modules.task.dto.TaskLogVO;
 import com.flowops.modules.task.dto.TaskStepVO;
 import com.flowops.modules.task.dto.TaskSubmitResponse;
 import com.flowops.modules.task.dto.TaskVO;
+import com.flowops.modules.task.service.TaskDiagnosisService;
 import com.flowops.modules.task.service.TaskQueryService;
 import com.flowops.modules.task.service.TaskSubmitService;
 import jakarta.validation.Valid;
@@ -46,6 +48,7 @@ public class TaskController {
 
     private final TaskSubmitService submitService;
     private final TaskQueryService queryService;
+    private final TaskDiagnosisService diagnosisService;
 
     @PostMapping
     @RequiresPermission("schedule:task:submit")
@@ -95,6 +98,20 @@ public class TaskController {
     @RequiresPermission("schedule:task:read")
     public ApiResult<List<TaskStepVO>> steps(@PathVariable String taskId) {
         return ApiResult.ok(queryService.steps(taskId));
+    }
+
+    /**
+     * 调度诊断（CONTRACT §7 {@code GET /tasks/{taskId}/diagnosis}，docs/06 §5.4/§5.5）。
+     *
+     * <p>只读端点：登录 + {@code task:read} + 行级数据范围（docs/07 §5.4），与列表同口径；
+     * 返回永远是 200 + 阻塞原因清单（{@code 40904} 仅留给 dry-run 的"现在能否立即执行"
+     * 判定，docs/07 §6.6，本端点不用）。</p>
+     */
+    @GetMapping("/{taskId}/diagnosis")
+    @RequiresPermission("schedule:task:read")
+    @DataScope({"PROJECT", "AUTHORIZED_CLUSTER", "SELF_CREATED"})
+    public ApiResult<TaskDiagnosisVO> diagnosis(@PathVariable String taskId) {
+        return ApiResult.ok(diagnosisService.diagnose(taskId));
     }
 
     /**
