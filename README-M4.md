@@ -15,7 +15,7 @@
 | S2  | 人工干预：stop / retry / rerun-failed / enqueue-front                               | ✅ 2026-10-11                                            |
 | S3  | 回填：preview 双闸门 / 批次管理 / 滚动投放引擎                                                 | ✅ 本轮                                                    |
 | S4  | 告警：规则 CRUD + 渠道 + 发送引擎 + 抑制窗口                                                  | ✅ 2026-10-11（`d1a7d55`，CI run #36 双 job success）          |
-| S5  | 工作台 7 聚合端点 + /platform/health                                                | ✅ 2026-10-11（本轮）                                       |
+| S5  | 工作台 7 聚合端点 + /platform/health                                                | ✅ 2026-10-11（`0b48c34`，CI run #37 双 job success，648 用例） |
 | S6  | 前端 5 页（任务列表/详情、回填、告警配置、工作台）                                                    | 未开始                                                     |
 
 ### 1.1 S1b：调度诊断（2026-10-11，`f413fc4`）
