@@ -15,7 +15,7 @@
 | S2  | 人工干预：stop / retry / rerun-failed / enqueue-front                               | ✅ 2026-10-11                                            |
 | S3  | 回填：preview 双闸门 / 批次管理 / 滚动投放引擎                                                 | ✅ 本轮                                                    |
 | S4  | 告警：规则 CRUD + 渠道 + 发送引擎 + 抑制窗口                                                  | ✅ 2026-10-11（`d1a7d55`，CI run #36 双 job success）          |
-| S5  | 工作台 7 聚合端点                                                                     | 未开始                                                     |
+| S5  | 工作台 7 聚合端点 + /platform/health                                                | ✅ 2026-10-11（本轮）                                       |
 | S6  | 前端 5 页（任务列表/详情、回填、告警配置、工作台）                                                    | 未开始                                                     |
 
 ### 1.1 S1b：调度诊断（2026-10-11，`f413fc4`）
@@ -165,6 +165,46 @@
 | 事件接入 | TASK_FAILED / TASK_TIMEOUT / STEP_RETRY_EXHAUSTED / NODE_OFFLINE 已接；CONCURRENCY_LIMIT 不单独发告警（提交期 40901 即事件本身，见 O-67）|
 | 单测 | 24 例新增全绿 ✅ |
 
+### 1.5 S5：工作台（2026-10-11，本轮）
+
+**交付物**：
+
+- `domain`：`DashboardQueryMapper`(+XML) + 4 个 Row DTO（`TaskStatsRow`/`TaskTrendRow`/
+  `ResourceUsageRow`/`DashboardFailureRow`）
+  - `taskStats`：FILTER 子句**一次扫表**同时取 total/终态/成功/失败/运行中口径（不四条 SQL 各扫一遍）
+  - `taskTrend`：按 `submit_at::date` 归属（O-69），TreeMap 补零升序
+  - `resourceUsage`：used = 按 executor_node 聚合运行中任务，total = cluster 容量列
+  - **task 系查询一律裸表名限定**（`task.status`，不起别名）—— DataScope 纪律（S1a 血泪：
+    handler 注入 `task.project_id = x`，起别名即 PROJECT/CLUSTER 用户稳定 500）
+- `server`：7 个 VO + `DashboardService` + `DashboardController`（`/dashboard` 下 summary /
+  task-trend / resource-usage / cluster-health / queue-backlog / recent-failures / latest-alerts
+  7 端点，**登录即可**——docs/07 line 555 明确 /dashboard/* 不挂权限点）+
+  `PlatformHealthController`（`GET /platform/health`，`schedule:platform:health`）
+  - summary 成功率 = SUCCESS ÷ 终态总数，无终态任务时为 null（不做 0% 假数据）
+  - `platformHealth`：scheduler 段**锁推导降级**（O-71）——`hasKey(leader锁)` 判活、
+    `leaderId` 读 LeaderElector 发布的实例标识 key（新增，见下）、`lease_remaining_seconds`
+    读锁 TTL；db 段 HikariPoolMXBean、redis 段 `info()`；**异常全吞不抛**（健康页不能因
+    任一后端抖动 500）；standby_count / last_tick_at / slow_query_count_1m / log_ingest_bytes
+    D-08 下不可得 → null
+- **`LeaderElector` 补实例标识发布**：锁 value 是 Redisson 内部持有者标识（`UUID:threadId`），
+  **不是实例 ID** —— docs/07 要求 leader_id = "当前主调度器实例 ID"，从锁 value 截取是错的。
+  成为/保持主时写 `flowops:scheduler:leader:instance` = instanceId（TTL 60s，10s 心跳循环续期；
+  主动释放时删除；leader 崩溃 ≤60s 自然过期）。server 端 DashboardService 读该 key
+  （D-08 字面量对齐，由双端单测钉死防漂移）
+- `AlertRecordService.alertsToday()`（countHistory(null, 今日零点, null)）
+- 单测：`DashboardServiceTest` 11 例 + `LeaderElectorTest` 5 例（新发布行为有反向覆盖：
+  抢锁失败不发布 / 未持锁释放不清理）
+
+**DoD 自检**：
+
+| 项 | 结果 |
+|---|---|
+| CONTRACT §10 / docs/07 | /dashboard 7 端点逐一对应 + /platform/health（v3 评审新增）✅ |
+| 权限 | /dashboard/* 登录即可（docs/07 line 555）；/platform/health 挂 `schedule:platform:health` ✅ |
+| 数据权限 | task 维度聚合走 DataScope（裸表名）；cluster/queue 维度全局口径（O-70）✅ |
+| 健壮性 | platformHealth 任一后端故障不 500，对应段降级（单测 redisDown 场景）✅ |
+| 单测 | 16 例新增全绿 ✅ |
+
 ---
 
 ## 4. 偏离与遗留项（如实登记，均注明去处）
@@ -200,6 +240,9 @@
 | **O-66** | CONTRACT §9 的 `scope{}` 展平为 **`projectId`/`clusterId` 两个可空字段** | DDL 的规则表就是 project_id/cluster_id 两列（可空=全局），没有嵌套 scope 结构；嵌套 DTO 是无出处的自造 | 需回写 CONTRACT §9 请求体口径 |
 | **O-67** | **CONCURRENCY_LIMIT 不单独发告警事件** | PRD §10.12 定义它为"触发被跳过"——发生在提交期 ConcurrencyGuard 拒绝（40901），提交方同步收到响应，再异步发告警属于重复触达且 target 无法落到具体行（拒绝不建任务） | 若产品坚持要，需先定 target 语义（工作流行？提交动作？）与触发点（提交端点内 fire） |
 | **O-68** | 启停端点（PUT /alert-rules/{id}/enabled）审计动作码**并入 `UPDATE_ALERT_RULE`**；alert_rule 未登记数据权限（未挂 @DataScope） | docs/07 §7.3 清单只有 4 个告警动作码、无独立 TOGGLE；启停语义上就是一次更新。数据权限：规则是运维配置面（docs/07 §5.4 写 PROJECT/ALL 混合），alert_rule 无 project_id 维度筛选需求，一期按登录 + 权限点收敛 | 需回写 docs/07 §7.3 注明启停归并；若要项目级规则隔离，先给 alert_rule 补 scope 判定 |
+| **O-69** | 工作台趋势按 **`submit_at::date`** 归属；"今日告警数"按 fired_at 自然日 | docs/07 §dashboard 未定义趋势归属字段（start_at 是执行起点、submit_at 是任务身份时间）；任务行统计（summary）天然按任务生命周期字段，趋势与它同源才不出现"今日合计 ≠ 当日曲线和"的两套账 | 需回写 docs/07 明确趋势归属口径 |
+| **O-70** | dashboard 的 **task 维度聚合走 DataScope**（summary/trend/recent-failures），**cluster/queue/resource 维度全局口径** | 与 S1a 登记制一致：`FlowopsDataPermissionHandler` 只对已登记的表注入；cluster/queue 是运维容量视角，按项目过滤反而让"队列积压/集群健康"失去运维意义（PROJECT 用户看到的是全局水位，非本项目的独占容量） | 若要求 PROJECT 用户看不到全局容量，需先定义脱敏口径（只出使用率不出绝对值）再挂 DataScope |
+| **O-71** | **/platform/health scheduler 段锁推导降级**：schedulerAlive=锁存在、leaderId=LeaderElector 发布的实例标识 key（本轮新增发布机制）、lease_remaining_seconds=锁 TTL；**is_leader / standby_count / last_tick_at / tick_interval_ms / slow_query_count_1m / log_ingest_bytes 返回 null** | D-08 下 server 不可达 scheduler 内存态；锁 value 是 Redisson 内部持有者标识（`UUID:threadId`）而非实例 ID，从锁 value 截取 leader_id 是**语义错误**（本轮修正：LeaderElector 成为/保持主时写 `flowops:scheduler:leader:instance`，TTL 60s 心跳续期）。其余字段需 scheduler 主动上报心跳/指标，一期无此通道 | 需要全量字段时：scheduler 定期写心跳 key（instance key 模式推广）或引入指标端点；CONTRACT 需同步"可空字段"口径 |
 
 **沿用 M3 移交的挂账**：O-9（DataScope 全端点越权实跑，需 PG+Redis）、O-15、O-18/O-19、O-30~~O-37、O-39~~O-42（见 `README-M3.md` §4/§7）。
 

@@ -22,6 +22,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class LeaderElector implements DisposableBean {
 
     public static final String LOCK_KEY = "flowops:scheduler:leader";
+    /** leader 实例标识（docs/07 /platform/health leader_id）。D-08：server 经此 key 读实例 ID，锁 value 是 Redisson 内部持有者标识不可用 */
+    public static final String INSTANCE_KEY = "flowops:scheduler:leader:instance";
+    /** 实例 key TTL（60s），由 10s 心跳循环续期；leader 崩溃后 ≤60s 自然消失 */
+    private static final long INSTANCE_KEY_TTL_SECONDS = 60;
 
     private final RedissonClient redisson;
     private final ScheduledExecutorService retryPool =
@@ -56,6 +60,7 @@ public class LeaderElector implements DisposableBean {
 
     private void tryAcquire() {
         if (leader.get()) {
+            refreshInstanceKey();
             return;
         }
         try {
@@ -64,12 +69,21 @@ public class LeaderElector implements DisposableBean {
             boolean acquired = lock.tryLock(0, TimeUnit.SECONDS);
             if (acquired) {
                 leader.set(true);
+                refreshInstanceKey();
                 log.info("✅ 成为调度主 instance={}", instanceId);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (Exception e) {
             log.warn("抢锁失败（Redis 抖动？）instance={}", instanceId, e);
+        }
+    }
+
+    private void refreshInstanceKey() {
+        try {
+            redisson.<String>getBucket(INSTANCE_KEY).set(instanceId, INSTANCE_KEY_TTL_SECONDS, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            log.warn("写入 leader 实例标识失败（Redis 抖动？）instance={}", instanceId, e);
         }
     }
 
@@ -86,6 +100,11 @@ public class LeaderElector implements DisposableBean {
         retryPool.shutdownNow();
         if (leader.get() && lock != null && lock.isHeldByCurrentThread()) {
             lock.unlock();
+            try {
+                redisson.getBucket(INSTANCE_KEY).delete();
+            } catch (Exception e) {
+                log.warn("清理 leader 实例标识失败 instance={}", instanceId, e);
+            }
             log.info("释放主锁 instance={}", instanceId);
         }
     }

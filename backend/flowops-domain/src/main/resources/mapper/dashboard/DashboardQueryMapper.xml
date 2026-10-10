@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 工作台聚合（M4-S5，CONTRACT §11）。
+     ⚠️ task 表在 DataScope PROJECT 范围下会被注入裸表名条件（task.project_id = x），
+     故本文件所有 task 查询一律不起别名（S1a 同款纪律）。
+     多列 SELECT 全部给表起别名并限定每列（构建期无 schema 校验兜底的既定口径）。 -->
+<mapper namespace="com.flowops.domain.mapper.dashboard.DashboardQueryMapper">
+
+    <!-- 任务统计：FILTER 子句一次扫出全部口径（idx 友好；deleted 过滤与全站口径一致）。
+         ⚠️ task 故意不起别名（DataScope 注入裸 task.project_id，S1a 教训）；
+         SELECT 清单全是聚合表达式，不触发 MapperXmlSchemaConsistencyTest 的列保护。 -->
+    <select id="taskStats" resultType="com.flowops.domain.dto.query.TaskStatsRow">
+        SELECT count(*)                                                     AS taskTotal,
+               count(*) FILTER (WHERE task.status = 'RUNNING')              AS runningCount,
+               count(*) FILTER (WHERE task.status = 'SUCCESS')              AS successCount,
+               count(*) FILTER (WHERE task.status IN ('FAILED','TIMEOUT'))  AS failedCount,
+               count(*) FILTER (WHERE task.status IN ('FAILED','TIMEOUT')
+                                 AND task.updated_at &gt;= date_trunc('day', now())) AS failedToday,
+               count(*) FILTER (WHERE task.submit_at &gt;= date_trunc('day', now())) AS submittedToday
+          FROM task
+         WHERE task.deleted = false
+    </select>
+
+    <!-- 近 N 日趋势：按 submit_at::date 归属（O-69：成功/失败按提交日归属而非完成日）；
+         无数据日不出行，前端补零 -->
+    <select id="taskTrend" resultType="com.flowops.domain.dto.query.TaskTrendRow">
+        SELECT task.submit_at::date                                         AS date,
+               count(*)                                                     AS submitted,
+               count(*) FILTER (WHERE task.status = 'SUCCESS')              AS success,
+               count(*) FILTER (WHERE task.status IN ('FAILED','TIMEOUT'))  AS failed
+          FROM task
+         WHERE task.deleted = false
+           AND task.submit_at &gt;= date_trunc('day', now()) - (#{days} - 1) * interval '1 day'
+         GROUP BY task.submit_at::date
+         ORDER BY task.submit_at::date
+    </select>
+
+    <!-- 资源用量：used 从节点聚合（节点实时用量列在 executor_node，cluster 表只存容量），
+         total 取 cluster 容量列；cluster 本身不删行 -->
+    <select id="resourceUsage" resultType="com.flowops.domain.dto.query.ResourceUsageRow">
+        SELECT c.cluster_id                     AS clusterId,
+               c.cluster_name                   AS clusterName,
+               COALESCE(SUM(n.cpu_used), 0)     AS cpuUsed,
+               MAX(c.cpu_total)                 AS cpuTotal,
+               COALESCE(SUM(n.gpu_used), 0)     AS gpuUsed,
+               MAX(c.gpu_total)                 AS gpuTotal,
+               COALESCE(SUM(n.disk_used), 0)    AS diskUsed,
+               MAX(c.disk_total)                AS diskTotal
+          FROM cluster c
+          LEFT JOIN executor_node n
+                 ON n.cluster_id = c.id AND n.deleted = false
+         WHERE c.deleted = false
+         GROUP BY c.id, c.cluster_id, c.cluster_name
+         ORDER BY c.id
+    </select>
+
+    <!-- 最近失败：FAILED/TIMEOUT，updated_at 倒序（终态行的 updated_at 即失败收敛时刻） -->
+    <select id="recentFailures" resultType="com.flowops.domain.dto.query.DashboardFailureRow">
+        SELECT task.task_id       AS taskId,
+               task.workflow_name AS workflowName,
+               task.status        AS status,
+               task.biz_date      AS bizDate,
+               task.fail_reason   AS failReason,
+               task.updated_at    AS updatedAt
+          FROM task
+         WHERE task.deleted = false
+           AND task.status IN ('FAILED','TIMEOUT')
+         ORDER BY task.updated_at DESC
+         LIMIT #{limit}
+    </select>
+
+</mapper>

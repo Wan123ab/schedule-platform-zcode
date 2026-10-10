@@ -16,7 +16,9 @@ import com.flowops.modules.alert.dto.AlertRecordVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 
@@ -50,6 +52,12 @@ public class AlertRecordService {
     public List<AlertRecordVO> latest(int limit) {
         return recordMapper.pageHistory(null, null, null, 0, Math.min(Math.max(1, limit), 50))
                 .stream().map(this::toVO).toList();
+    }
+
+    /** 今日告警条数（S5 指标卡 alerts；口径 O-69）。 */
+    public long alertsToday() {
+        OffsetDateTime todayStart = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toOffsetDateTime();
+        return recordMapper.countHistory(null, todayStart, null);
     }
 
     private AlertRecordVO toVO(AlertRecord record) {
