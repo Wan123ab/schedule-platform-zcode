@@ -29,4 +29,29 @@
         VALUES (#{taskStepId}, #{attemptNo}, #{status}, #{machineIp}, #{exitCode}, #{failReason})
     </insert>
 
+    <!-- 批量重试历史（任务详情的「重试历史」列）。
+         ⚠️ 多列表必须给表起别名并把每列限定（docs/10 + MapperXmlSchemaConsistencyTest 的
+         别名口径），否则写错列名构建期无人报警、只在真打库时报 column xxx does not exist。
+         本表未登记到 FlowopsDataPermissionHandler（不是 project/cluster 维度表），
+         故起别名不影响数据权限注入。 -->
+    <select id="findRetryHistoryByTaskStepIds"
+            resultType="com.flowops.domain.dto.query.TaskStepRetryRow">
+        SELECT r.id            AS id,
+               r.task_step_id  AS taskStepId,
+               r.attempt_no    AS attemptNo,
+               r.status        AS status,
+               r.machine_ip    AS machineIp,
+               r.start_time    AS startTime,
+               r.end_time      AS endTime,
+               r.duration_ms   AS durationMs,
+               r.exit_code     AS exitCode,
+               r.fail_reason   AS failReason
+          FROM task_step_retry r
+         WHERE r.task_step_id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+         ORDER BY r.task_step_id, r.attempt_no
+    </select>
+
 </mapper>

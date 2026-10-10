@@ -28,4 +28,27 @@
          LIMIT #{limit}
     </select>
 
+    <!-- HTTP 日志端点：按行偏移分页（与契约的 offset/limit 逐字对应）。
+         ⚠️ 多列表给表起别名并限定每列（MapperXmlSchemaConsistencyTest 口径）。
+         task_log 未登记数据权限（非 project/cluster 维度表），起别名无副作用。 -->
+    <select id="selectRange"
+            resultType="com.flowops.domain.dto.query.TaskLogRow">
+        SELECT l.task_step_id AS taskStepId,
+               l.task_id      AS taskId,
+               l.seq          AS seq,
+               l.stream       AS stream,
+               l.content      AS content,
+               l.log_time     AS logTime
+          FROM task_log l
+         WHERE l.task_step_id = #{taskStepId}
+         ORDER BY l.seq
+         LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countByTaskStepId" resultType="long">
+        SELECT count(*)
+          FROM task_log
+         WHERE task_step_id = #{taskStepId}
+    </select>
+
 </mapper>
