@@ -1,6 +1,5 @@
 package com.flowops.common.util;
 
-import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -32,16 +31,28 @@ import java.time.format.DateTimeFormatter;
  * 不是本类新引入的取舍）。</p>
  */
 @Component
-@RequiredArgsConstructor
 public class IdGen {
 
     /** Redis 序列键统一前缀：{@code flowops:seq:<seqName>[:<yyyyMMdd>]} */
-    private static final String SEQ_PREFIX = "flowops:seq:";
+    public static final String SEQ_PREFIX = "flowops:seq:";
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
     /** 序号定宽（见类注释：只定最小宽度，超出不截断） */
     private static final String SEQ_FORMAT = "%04d";
 
-    private final StringRedisTemplate redis;
+    private final SequenceOps redis;
+
+    /** server 装配：spring-data-redis（IDGEN 客户端差异见 {@link SequenceOps}）。
+     *  ⚠️ 用 lambda 而非方法引用 {@code template.opsForValue()::increment}：
+     *  方法引用在<b>构造期</b>就解引用 opsForValue()，而单测打桩发生在构造之后 → NPE。 */
+    @org.springframework.beans.factory.annotation.Autowired
+    public IdGen(org.springframework.data.redis.core.StringRedisTemplate template) {
+        this(key -> template.opsForValue().increment(key));
+    }
+
+    /** 通用装配：scheduler 等 Redisson 侧用 {@code bucket::incrementAndGet} 注入。 */
+    public IdGen(SequenceOps ops) {
+        this.redis = ops;
+    }
 
     /**
      * 日期式编号：{@code <prefix>-<yyyyMMdd>-<####>}，序号按日归零。
@@ -64,8 +75,16 @@ public class IdGen {
         return prefix + "-" + formatSeq(increment(seqName));
     }
 
+    /**
+     * 裸自增（不定宽、不拼前缀）：供 enqueue_seq 这类"纯单调序号"使用（M-09）。
+     * Redis 不可用时返回 {@code null}，由调用方决定降级策略（发号不可降级 —— 序号并列会破坏 FIFO）。
+     */
+    public Long incrementRaw(String seqName) {
+        return redis.increment(SEQ_PREFIX + seqName);
+    }
+
     private long increment(String seqName) {
-        Long seq = redis.opsForValue().increment(SEQ_PREFIX + seqName);
+        Long seq = redis.increment(SEQ_PREFIX + seqName);
         return seq != null ? seq : System.currentTimeMillis() % 100000;
     }
 

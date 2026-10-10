@@ -65,6 +65,18 @@ public class SchedulerWiringConfig {
         return new DbConcurrencyGuard(mapper);   // D-12：所有触发路径的唯一并发检查入口
     }
 
+    /**
+     * 发号器（scheduler 侧装配）：M4-S3 起回填投放经 {@code TaskCreationService} 建任务，
+     * 与 server 共享同一 Redis key 空间发号（M-09 enqueue_seq 严格单调）。
+     * 本模块 classpath 无 spring-data-redis（{@code IdGen} 的
+     * {@code @Autowired StringRedisTemplate} 构造器解析不了），用 Redisson bucket 显式装配。
+     */
+    @Bean
+    public com.flowops.common.util.IdGen idGen(RedissonClient redisson) {
+        return new com.flowops.common.util.IdGen(
+                (com.flowops.common.util.SequenceOps) key -> redisson.getAtomicLong(key).incrementAndGet());
+    }
+
     @Bean
     public CompletionBus completionBus() {
         return new CompletionBus();   // 回执 → 主循环的单向通道（单线程契约守护者）

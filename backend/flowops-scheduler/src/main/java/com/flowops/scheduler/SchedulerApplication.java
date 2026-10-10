@@ -9,7 +9,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * flowops-scheduler 启动类：调度主循环 + 选主 + 恢复（docs/03 §5.1）。
  * 对外不提供 REST API，只暴露 actuator（探活 / Prometheus）。
  */
-@SpringBootApplication
+@SpringBootApplication(scanBasePackages = {"com.flowops.scheduler", "com.flowops.config", "com.flowops.domain"})
 // 同 server：按 @Mapper 注解扫全包（domain + 模块内 Mapper 一网打尽）
 @MapperScan(basePackages = "com.flowops", annotationClass = org.apache.ibatis.annotations.Mapper.class)
 @EnableScheduling

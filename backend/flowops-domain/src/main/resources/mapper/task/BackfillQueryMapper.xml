@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 回填批次读模型（docs/06 §12 回填批次调度）。 -->
+<mapper namespace="com.flowops.domain.mapper.task.BackfillQueryMapper">
+
+    <!-- 时间冲突检测（docs/06 §12.3 原文 SQL）：
+         ① 同工作流 + 同业务日期 + 计划投递时刻 ±30 分钟，排除 STOPPED（用户主动让位的日期可回填）；
+         ② ⚠️ 故意不给 task 起别名：FlowopsDataPermissionHandler 注入的是裸表名限定
+            （task.project_id = x / task.cluster_id = x），起别名会让 PROJECT/CLUSTER 范围
+            用户稳定 500（S1a 同款教训，见 DiagnosisQueryMapper.xml 同款注释）。
+         ③ 命中 idx_task_conflict(workflow_id, biz_date, submit_at)。 -->
+    <select id="findConflictTask"
+            resultType="com.flowops.domain.dto.query.BackfillDateRow">
+        SELECT task_id AS taskId,
+               status
+          FROM task
+         WHERE workflow_id = #{workflowId}
+           AND biz_date = #{bizDate}
+           AND submit_at BETWEEN #{windowStart} AND #{windowEnd}
+           AND deleted = false
+           AND status &lt;&gt; 'STOPPED'
+         LIMIT 1
+    </select>
+
+    <!-- 批次内已有任务的日期集合：投放引擎推导"待投放日期 = planned − skipped − 已投放" -->
+    <select id="findDispatchedDates" resultType="java.time.LocalDate">
+        SELECT DISTINCT biz_date
+          FROM task
+         WHERE backfill_batch_id = #{batchId}
+           AND deleted = false
+    </select>
+
+    <!-- 批次任务按状态计数（投放引擎刷新批次进度 + DONE 判定）。
+         ⚠️ 必须是"每日期最新任务"的聚合（row_number 取各 biz_date 最新一条）而非裸 group by：
+         retry-failed 会为失败日期新建任务（原 FAILED 行保留作审计），裸计数会把同一日期
+         的旧失败与新 PENDING 各算一次，success+failed+inflight 超过 total。 -->
+    <select id="countTasksByStatus"
+            resultType="com.flowops.domain.dto.query.BackfillStatusCountRow">
+        SELECT latest.status,
+               count(*) AS cnt
+          FROM (
+                SELECT biz_date,
+                       status,
+                       row_number() OVER (PARTITION BY biz_date ORDER BY id DESC) AS rn
+                  FROM task
+                 WHERE backfill_batch_id = #{batchId}
+                   AND deleted = false
+                   AND biz_date IS NOT NULL
+               ) latest
+         WHERE latest.rn = 1
+         GROUP BY latest.status
+    </select>
+
+    <!-- 批次内失败任务的日期（重跑失败：并发数并入 waiting 重新投放）。
+         FAILED/TIMEOUT 都算"失败"；已 STOPPED 的日期不算（用户主动让位语义与 preview 一致）。 -->
+    <select id="findFailedDates" resultType="java.time.LocalDate">
+        SELECT DISTINCT biz_date
+          FROM task
+         WHERE backfill_batch_id = #{batchId}
+           AND deleted = false
+           AND status IN ('FAILED', 'TIMEOUT')
+           AND biz_date IS NOT NULL
+    </select>
+
+</mapper>

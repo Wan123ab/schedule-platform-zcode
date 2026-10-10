@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 回填批次 CAS（docs/06 §12.4；SQL 与 Java 分离 docs/10）。
+     每个转移一个语句、WHERE 条件逐字可评审，不用 update wrapper
+     （多列 CAS 的 WHERE 参数注册行为在单测里不可钉，见 TaskInterventionService 同款取舍）。 -->
+<mapper namespace="com.flowops.domain.mapper.task.BackfillBatchMapper">
+
+    <!-- 暂停：RUNNING → PAUSED（在途任务继续执行，仅停止投放，docs/06 §12.4） -->
+    <update id="pauseBatch">
+        UPDATE backfill_batch
+           SET status = 'PAUSED', version = version + 1, updated_at = now()
+         WHERE id = #{id} AND status = 'RUNNING' AND deleted = false
+    </update>
+
+    <!-- 继续：PAUSED → RUNNING -->
+    <update id="resumeBatch">
+        UPDATE backfill_batch
+           SET status = 'RUNNING', version = version + 1, updated_at = now()
+         WHERE id = #{id} AND status = 'PAUSED' AND deleted = false
+    </update>
+
+    <!-- 重跑失败后从 DONE 复活：DONE → RUNNING（失败日期已并回 waiting，见 retry-failed） -->
+    <update id="reopenBatch">
+        UPDATE backfill_batch
+           SET status = 'RUNNING', finished_at = NULL, duration_ms = NULL,
+               version = version + 1, updated_at = now()
+         WHERE id = #{id} AND status = 'DONE' AND deleted = false
+    </update>
+
+    <!-- 投放引擎刷新进度（docs/06 §12.1 ④⑤）；全终结 → DONE + finished_at/duration_ms。
+         幂等：全量覆盖计数列（来源是按日期最新任务状态的聚合），重复执行结果一致。 -->
+    <update id="refreshProgress">
+        UPDATE backfill_batch
+           SET success_count = #{success},
+               failed_count  = #{failed},
+               waiting_count = #{waiting},
+               status        = CASE WHEN #{waiting} = 0 AND #{inflight} = 0 AND status = 'RUNNING'
+                                    THEN 'DONE' ELSE status END,
+               finished_at   = CASE WHEN #{waiting} = 0 AND #{inflight} = 0 AND status = 'RUNNING'
+                                    THEN now() ELSE finished_at END,
+               duration_ms   = CASE WHEN #{waiting} = 0 AND #{inflight} = 0 AND status = 'RUNNING'
+                                    THEN EXTRACT(EPOCH FROM (now() - submitted_at))::bigint * 1000
+                                    ELSE duration_ms END,
+               version = version + 1,
+               updated_at = now()
+         WHERE id = #{id} AND deleted = false
+    </update>
+
+</mapper>

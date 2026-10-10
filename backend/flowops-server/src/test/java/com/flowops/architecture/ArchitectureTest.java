@@ -18,18 +18,20 @@ import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 class ArchitectureTest {
 
     /**
-     * D-12 防绕过（docs/06 §6.2 ①）：TaskMapper 的访问只允许收敛在 task.service 包
-     * （TaskSubmitService 统一写入 + TaskQueryService 只读）。
-     * 新代码要触碰 TaskMapper，必须先想清楚它是否属于提交链路——这条规则逼着开发者做这个决定。
+     * D-12 防绕过（docs/06 §6.2 ①）：TaskMapper 的访问只允许收敛在
+     * server 的 task.service 包（提交/干预/查询）与 domain 的 service 包
+     * （TaskCreationService —— M4-S3 起的跨模块落库唯一入口，server 提交与
+     * scheduler 回填投放共用，docs/06 §6.2 "定时触发与回填也调 createTask"）。
+     * 新代码要触碰 TaskMapper，必须先想清楚它是否属于创建/查询链路——这条规则逼着开发者做这个决定。
      * （insert 继承自 BaseMapper，按调用点断言不可靠，故用"依赖收敛"这一更强的等价约束。）
      */
     @ArchTest
     static final ArchRule taskMapperAccessIsConverged =
             classes().that().areAssignableTo(TaskMapper.class)
                     .should().onlyHaveDependentClassesThat()
-                    .resideInAPackage("com.flowops.modules.task.service..")
-                    .because("D-12：task 的写入必须收敛到 TaskSubmitService（统一并发检查），"
-                            + "禁止任何触发路径直插 task（docs/06 §6.2）");
+                    .resideInAnyPackage("com.flowops.modules.task.service..", "com.flowops.domain.service..")
+                    .because("D-12：task 的写入必须收敛到 TaskCreationService（domain 落库唯一入口）"
+                            + "与 task.service 的触发路径（docs/06 §6.2），禁止任何路径直插 task");
 
     /**
      * 分层（docs/03 §2.1）：controller → service → mapper，禁止越层与逆向依赖。

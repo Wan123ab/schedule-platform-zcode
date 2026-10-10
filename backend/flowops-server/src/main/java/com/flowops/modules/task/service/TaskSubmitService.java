@@ -2,42 +2,31 @@ package com.flowops.modules.task.service;
 
 import com.flowops.common.api.ErrorCode;
 import com.flowops.common.context.UserContext;
-import com.flowops.common.enums.TaskStatus;
-import com.flowops.common.enums.TriggerType;
 import com.flowops.common.exception.BizException;
 import com.flowops.common.guard.CheckResult;
 import com.flowops.common.guard.ConcurrencyGuard;
-import com.flowops.common.util.IdGen;
-import com.flowops.domain.entity.task.Task;
-import com.flowops.domain.entity.task.TaskStep;
-import com.flowops.domain.dto.query.StepDefRow;
 import com.flowops.domain.dto.query.SubmitVersionRow;
-import com.flowops.domain.mapper.concurrency.SchedulingQueryMapper;
 import com.flowops.domain.mapper.task.SubmitQueryMapper;
-import com.flowops.domain.mapper.task.TaskMapper;
-import com.flowops.domain.mapper.task.TaskStepMapper;
+import com.flowops.domain.service.TaskCreationService;
 import com.flowops.modules.task.dto.SubmitTaskRequest;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
-import java.time.OffsetDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.List;
 import java.util.Map;
 
 /**
- * 任务提交服务 —— <b>所有触发路径的唯一入口</b>（D-12，docs/06 §6.2）。
+ * 任务提交服务 —— 手动提交路径（docs/06 §6.2；D-12 并发检查入口）。
  *
- * <p><b>为什么收口到一个方法</b>：并发检查（D-12）、版本绑定（D-11）、编号发号（M-09）、
- * 步骤实例初始化四件事只允许在这里发生。定时触发（scheduler）、回填（M4）、API 触发（M5）
- * 都必须调用 {@link #create}，<b>不允许任何路径直接 insert task</b>——
- * 这条规则由 ArchUnit 单测断言（ArchitectureTest），不靠 code review。</p>
+ * <p><b>职责切分（M4-S3 起）</b>：本类保留"触发路径侧"的三件事 —— 并发检查（G6）、
+ * 版本绑定（D-11）、队列解析；<b>落库（建任务 + 建步骤）下沉到
+ * {@link TaskCreationService}</b>（domain，server 与 scheduler 的共同依赖终点）——
+ * 回填投放（scheduler）与手动提交（server）从此走同一份落库逻辑，
+ * "不允许任何路径直接 insert task" 这条 D-12 规则由 ArchUnit 继续守住。</p>
  *
  * <p><b>PENDING 语义</b>：提交永远建 PENDING 任务（即使并发全通过）——
  * 准入推进（PENDING→SCHEDULING）由 scheduler 的 QuotaScanner 每 tick 统一执行，
@@ -48,15 +37,9 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class TaskSubmitService {
 
-    private static final String SEQ_ENQUEUE = "flowops:seq:enqueue";
-
     private final ConcurrencyGuard concurrencyGuard;
     private final SubmitQueryMapper submitQuery;
-    private final SchedulingQueryMapper schedulingQuery;
-    private final TaskMapper taskMapper;
-    private final TaskStepMapper taskStepMapper;
-    private final StringRedisTemplate redis;
-    private final IdGen idGen;
+    private final TaskCreationService taskCreationService;
     private final ObjectMapper objectMapper;
 
     /** 提交结果：任务行 + 排队信息（deferred 时前端渲染"已排队"）。 */
@@ -89,67 +72,18 @@ public class TaskSubmitService {
             throw new BizException(ErrorCode.RULE_NOT_SATISFIED, "项目未绑定可用队列，无法提交");
         }
 
-        // ④ 建任务实例（PENDING；docs/01 §5.1 ③）
-        String taskId = nextTaskId();
-        Task task = new Task();
-        task.setTaskId(taskId);
-        task.setWorkflowId(request.getWorkflowId());
-        task.setWorkflowName(version.getWorkflowName());
-        task.setWorkflowVersionId(version.getVersionId());
-        task.setWorkflowVersion(version.getVersionNo());
-        task.setProjectId(request.getProjectId());
-        task.setTriggerType(TriggerType.MANUAL);   // 定时/回填路径接入后按来源传参
-        task.setBizDate(request.getBizDate() != null ? request.getBizDate() : LocalDate.now());
-        task.setSubmitter(UserContext.get() != null ? UserContext.get().getUsername() : "system");
-        task.setQueueId(queueId);
-        task.setPriority(request.getPriority() == null ? 0 : request.getPriority());
-        task.setStatus(TaskStatus.PENDING);
-        task.setEnqueueSeq(nextEnqueueSeq());
-        task.setVariableSnapshot(snapshot(request.getRunParams()));
-        task.setSubmitAt(OffsetDateTime.now());
-        taskMapper.insert(task);
+        // ④⑤ 建任务 + 建步骤（落库唯一入口下沉 domain；docs/06 §6.2 ①）
+        TaskCreationService.Creation creation = taskCreationService.create(new TaskCreationService.Spec(
+                request.getWorkflowId(), version.getWorkflowName(), version.getVersionId(), version.getVersionNo(),
+                request.getProjectId(), com.flowops.common.enums.TriggerType.MANUAL, null,
+                request.getBizDate() != null ? request.getBizDate() : LocalDate.now(),
+                UserContext.get() != null ? UserContext.get().getUsername() : "system",
+                queueId, request.getPriority(), snapshot(request.getRunParams())));
 
-        // ⑤ 建步骤实例（实例数 = 版本步骤数，docs/05 R18；enqueue_seq 全局发号，M-09）
-        List<StepDefRow> defs = schedulingQuery.findStepDefsByVersion(version.getVersionId()).stream()
-                .filter(d -> !"NOTE".equals(d.getStepType()))
-                .sorted(java.util.Comparator.comparing(StepDefRow::getStepId))
-                .toList();
-        if (defs.isEmpty()) {
-            throw new BizException(ErrorCode.RULE_NOT_SATISFIED, "工作流版本没有可执行步骤（DAG 校验规则 1）");
-        }
-        int index = 0;
-        for (StepDefRow def : defs) {
-            TaskStep step = new TaskStep();
-            step.setStepInstanceId("SI-" + nextEnqueueSeq());   // M1 用 seq 充当实例编号，M3 起走独立编号器
-            step.setTaskId(task.getId());
-            step.setStepId(def.getStepId());
-            step.setStepName(def.getStepName());
-            step.setStepIndex(index++);
-            step.setStatus(com.flowops.common.enums.StepStatus.NOT_STARTED);
-            step.setEnqueueSeq(nextEnqueueSeq());
-            step.setRetryCount(0);
-            step.setMutexGroup(def.getMutexGroup());   // 派发期互斥与恢复期等待者重建都依赖实例行携带组名
-            taskStepMapper.insert(step);
-        }
-
-        log.info("任务已创建 task={} workflow={} version={} steps={} deferred={}（queuePosition={}）",
-                taskId, request.getWorkflowId(), version.getVersionNo(), defs.size(),
+        log.info("任务已提交 task={} workflow={} version={} deferred={}（queuePosition={}）",
+                creation.taskId(), request.getWorkflowId(), version.getVersionNo(),
                 guard.deferred(), guard.runningCount());
-        return new Creation(task.getId(), taskId, guard.deferred(), guard.runningCount());
-    }
-
-    /** 业务编号：{@code TASK-yyyyMMdd-####}（口径与实现统一收口在 {@link IdGen}，docs/05 §6.2）。 */
-    private String nextTaskId() {
-        return idGen.nextDated("TASK", "task");
-    }
-
-    /** 全局入队序号（M-09：Redis INCR 严格单调，同毫秒并列会破坏 FIFO 确定性）。 */
-    private long nextEnqueueSeq() {
-        Long seq = redis.opsForValue().increment(SEQ_ENQUEUE);
-        if (seq == null) {
-            throw new BizException(ErrorCode.DEPENDENCY_UNAVAILABLE, "Redis 不可用，无法发号");
-        }
-        return seq;
+        return new Creation(creation.taskRowId(), creation.taskId(), guard.deferred(), guard.runningCount());
     }
 
     /** 变量快照初始层：触发时参数（解析链第 4 层，完整 6 层解析在 M3 落地）。 */

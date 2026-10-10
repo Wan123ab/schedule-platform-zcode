@@ -209,6 +209,41 @@ public class TaskQueryService {
         return vo;
     }
 
+    // ── 回填批次任务（M4-S3；BackfillService 经此访问 task —— ArchUnit 收敛 TaskMapper）──
+
+    /**
+     * 批次任务分页（CONTRACT §8 {@code GET /backfills/{batchId}/tasks}）。
+     * {@code task} 是裸表 lambdaQuery —— 数据权限注入约束同上。
+     */
+    public IPage<TaskVO> pageByBatch(long batchRowId, long page, long size) {
+        Page<Task> result = taskMapper.selectPage(new Page<>(page, Math.min(size, MAX_PAGE_SIZE)),
+                Wrappers.<Task>lambdaQuery()
+                        .eq(Task::getBackfillBatchId, batchRowId)
+                        .eq(Task::getDeleted, false)
+                        .orderByAsc(Task::getBizDate));
+        Map<Long, String> workflowCodes = workflowCodes(result.getRecords().stream()
+                .map(Task::getWorkflowId).filter(Objects::nonNull).collect(Collectors.toSet()));
+        return result.convert(t -> {
+            TaskVO vo = converter.toVO(t);
+            vo.setWorkflowId(workflowCodes.get(t.getWorkflowId()));
+            return vo;
+        });
+    }
+
+    /**
+     * 批次失败明细（CONTRACT §8 进度区 {@code failures[]{date, taskId, reason}}，取最近 limit 条）。
+     */
+    public List<TaskVO> listBatchFailures(long batchRowId, int limit) {
+        Page<Task> p = taskMapper.selectPage(Page.of(1, Math.min(Math.max(1, limit), 100)),
+                Wrappers.<Task>lambdaQuery()
+                        .eq(Task::getBackfillBatchId, batchRowId)
+                        .eq(Task::getDeleted, false)
+                        .in(Task::getStatus, TaskStatus.FAILED, TaskStatus.TIMEOUT)
+                        .isNotNull(Task::getBizDate)
+                        .orderByDesc(Task::getBizDate));
+        return p.getRecords().stream().map(converter::toVO).toList();
+    }
+
     // ── 内部：业务编号翻译 ──────────────────────────────────
 
     /** 列表页：只补工作流编号（列表里"能点进去"的唯一链接目标）。 */

@@ -58,7 +58,10 @@ public class FlowopsDataPermissionHandler
             "project_member", "project_id",
             "task", "project_id",
             "workflow", "project_id",
-            "operator", "project_id");
+            "operator", "project_id",
+            // M4-S3：回填批次行有 project_id（docs/05 §3.7 DDL），docs/07 §5.4 规定
+            // /backfills* 受 PROJECT 范围 —— 与任务同口径，项目成员只看本项目的批次
+            "backfill_batch", "project_id");
 
     /**
      * 集群维度隔离：表名 → 承载「集群归属」的列名。
