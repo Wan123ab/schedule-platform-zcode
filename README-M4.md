@@ -13,7 +13,7 @@
 | S1a | 任务域读侧：列表 / 详情 / 步骤 / 日志（`TaskQueryService` + 4 端点，`TaskQueryServiceTest` 20 例） | ✅ 2026-10-11（commit `b85e7a7`，CI run #31 双 job success） |
 | S1b | 调度诊断 `GET /tasks/{id}/diagnosis`（排队位置 / 前方数量 / ETA / 阻塞原因 / 建议） | ✅ 2026-10-11（`f413fc4`，CI run #32 双 job success） |
 | S2 | 人工干预：stop / retry / rerun-failed / enqueue-front | ✅ 2026-10-11 |
-| S3 | 回填：preview 双闸门 / 批次管理 / 滚动投放引擎 | ✅ 本轮 |
+| S3 | 回填：preview 双闸门 / 批次管理 / 滚动投放引擎 | ✅ 2026-10-11（`4a81139`，CI run #34 双 job success） |
 | S4 | 告警：规则 CRUD + 渠道 + 发送引擎 + 抑制窗口 | 未开始 |
 | S5 | 工作台 7 聚合端点 | 未开始 |
 | S6 | 前端 5 页（任务列表/详情、回填、告警配置、工作台） | 未开始 |
@@ -79,7 +79,7 @@
 二是实验发现 update wrapper 的 WHERE 参数注册行为不稳定（参数出现在 SQL 段但 `getParamNameValuePairs`
 只含 SET 值，单测无从钉住 WHERE 条件），XML 的 WHERE 逐字可评审、可测。
 
-### 1.3 S3：回填（本轮）
+### 1.3 S3：回填（2026-10-11，`4a81139`）
 
 **交付物**：
 
