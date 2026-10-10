@@ -14,7 +14,7 @@
 | S1b | 调度诊断 `GET /tasks/{id}/diagnosis`（排队位置 / 前方数量 / ETA / 阻塞原因 / 建议）                | ✅ 2026-10-11（`f413fc4`，CI run #32 双 job success）        |
 | S2  | 人工干预：stop / retry / rerun-failed / enqueue-front                               | ✅ 2026-10-11                                            |
 | S3  | 回填：preview 双闸门 / 批次管理 / 滚动投放引擎                                                 | ✅ 本轮                                                    |
-| S4  | 告警：规则 CRUD + 渠道 + 发送引擎 + 抑制窗口                                                  | ✅ 本轮                                                     |
+| S4  | 告警：规则 CRUD + 渠道 + 发送引擎 + 抑制窗口                                                  | ✅ 2026-10-11（`d1a7d55`，CI run #36 双 job success）          |
 | S5  | 工作台 7 聚合端点                                                                     | 未开始                                                     |
 | S6  | 前端 5 页（任务列表/详情、回填、告警配置、工作台）                                                    | 未开始                                                     |
 
@@ -123,7 +123,7 @@
 | D-12 | 建任务收敛 `TaskCreationService`（ArchUnit 收敛规则同步扩到 domain service 包）✅                     |
 | 单测   | server 17 + scheduler 11，全绿 ✅                                                        |
 
-### 1.4 S4：告警（本轮）
+### 1.4 S4：告警（2026-10-11，`d1a7d55`）
 
 **交付物**：
 
