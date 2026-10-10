@@ -63,6 +63,7 @@ class SchedulerTickPipelineTest {
     @Mock private RetryQueryMapper retryQuery;
     @Mock private LogIngestService logIngest;
     @Mock private LifecycleQueryMapper lifecycleQuery;
+    @Mock private com.flowops.domain.service.AlertEngine alertEngine;
 
     private final ReservedLedger ledger = new ReservedLedger();
     private final CompletionBus bus = new CompletionBus();
@@ -80,7 +81,7 @@ class SchedulerTickPipelineTest {
                 taskMapper, taskStepMapper, concurrencyGuard, readyQueue,
                 new NodeMatcher(ledger), ledger, mutexes,
                 instruction -> dispatched = instruction, bus, retryQuery, logIngest,
-                scanner, releaser);
+                scanner, releaser, alertEngine);
 
         lenient().when(retryQuery.findDueRetrying(anyInt())).thenReturn(List.of());
         lenient().when(lifecycleQuery.findStuckScheduling(anyInt(), anyInt())).thenReturn(List.of());

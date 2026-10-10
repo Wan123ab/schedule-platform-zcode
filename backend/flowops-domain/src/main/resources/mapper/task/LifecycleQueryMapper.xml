@@ -75,6 +75,25 @@
            AND last_heartbeat_at &lt; now() - interval '45 seconds'
     </update>
 
+    <!-- 最近 N 秒内被标记 OFFLINE 的节点（M4-S4 NODE_OFFLINE 告警事件源；
+         markOfflineNodes 集合 UPDATE 拿不到行明细，按 updated_at 窗口补查，
+         重复 fire 由 AlertEngine 抑制窗口兜底）。
+         ⚠️ 多列 SELECT 起别名限定每列（构建期无 schema 校验兜底）。 -->
+    <select id="findOfflineNodesMarkedWithin"
+            resultType="com.flowops.domain.dto.query.OfflineNodeRow">
+        SELECT n.id                AS id,
+               n.executor_node_id   AS executorNodeId,
+               n.executor_node_name AS executorNodeName,
+               n.cluster_id         AS clusterId,
+               c.cluster_name       AS clusterName
+          FROM executor_node n
+          LEFT JOIN cluster c ON c.id = n.cluster_id
+         WHERE n.online_status = 'OFFLINE'
+           AND n.deleted = false
+           AND n.updated_at &gt;= now() - (#{seconds} * interval '1 second')
+         ORDER BY n.id
+    </select>
+
     <!-- ③ 恢复窗口到期：OFFLINE 且 last_heartbeat 超 5min 的节点上的 RUNNING 步骤
          （recovery_deadline = last_heartbeat_at + 5min，推导值不落库，docs/06 §8.1 v3 口径） -->
     <select id="findUnreachableSteps"

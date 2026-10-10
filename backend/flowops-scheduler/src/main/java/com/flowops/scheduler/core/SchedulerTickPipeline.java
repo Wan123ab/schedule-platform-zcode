@@ -12,6 +12,7 @@ import com.flowops.domain.mapper.concurrency.SchedulingQueryMapper;
 import com.flowops.domain.mapper.task.RetryQueryMapper;
 import com.flowops.domain.mapper.task.TaskMapper;
 import com.flowops.domain.mapper.task.TaskStepMapper;
+import com.flowops.domain.service.AlertEngine;
 import com.flowops.common.guard.CheckResult;
 import com.flowops.common.guard.ConcurrencyGuard;
 import com.flowops.scheduler.dag.DagAdvancer;
@@ -73,6 +74,7 @@ public class SchedulerTickPipeline {
     private final LogIngestService logIngest;
     private final LifecycleScanner lifecycleScanner;
     private final ResourceReleaser releaser;
+    private final AlertEngine alertEngine;
     private final DagAdvancer advancer = new DagAdvancer();
 
     /** 任务编排器缓存：taskId → orchestrator（任务终结/冲突时移除）。 */
@@ -86,7 +88,8 @@ public class SchedulerTickPipeline {
                                  ReservedLedger ledger, MutexLockManager mutexes,
                                  DispatchSink dispatchSink, CompletionBus completionBus,
                                  RetryQueryMapper retryQuery, LogIngestService logIngest,
-                                 LifecycleScanner lifecycleScanner, ResourceReleaser releaser) {
+                                 LifecycleScanner lifecycleScanner, ResourceReleaser releaser,
+                                 AlertEngine alertEngine) {
         this.schedulingQuery = schedulingQuery;
         this.concurrencyQuery = concurrencyQuery;
         this.taskMapper = taskMapper;
@@ -102,6 +105,7 @@ public class SchedulerTickPipeline {
         this.logIngest = logIngest;
         this.lifecycleScanner = lifecycleScanner;
         this.releaser = releaser;
+        this.alertEngine = alertEngine;
     }
 
     public void tick() {
@@ -173,6 +177,12 @@ public class SchedulerTickPipeline {
         int maxRetry = runtime.getMaxRetryCount() == null ? 0 : runtime.getMaxRetryCount();
         int attempted = runtime.getRetryCount() == null ? 0 : runtime.getRetryCount();
         if (attempted >= maxRetry) {
+            // M4-S4：重试耗尽 → STEP_RETRY_EXHAUSTED 告警（PRD §10.12 事件表；fire 自吞异常不拖 tick）
+            alertEngine.fire("STEP_RETRY_EXHAUSTED", "TASK_STEP", ins.taskStepRowId(),
+                    ins.stepInstanceId(), orchestrator.getTask().getProjectId(), null, "CRITICAL",
+                    "步骤 " + ins.stepName() + "（" + ins.stepInstanceId() + "）失败且重试已耗尽（"
+                            + attempted + "/" + maxRetry + "）："
+                            + (failReason == null ? "无失败原因" : failReason));
             return false;   // 重试耗尽（E-04：MAX_RETRY=10 硬上限在 DAG 校验规则 9 保证）
         }
         OffsetDateTime nextRetryAt = OffsetDateTime.now()
@@ -353,8 +363,27 @@ public class SchedulerTickPipeline {
             Optional<TaskStatus> outcome = orchestrator.finishIfDone();
             if (outcome.isPresent()) {
                 orchestrators.remove(task.getId());   // 终结即移除（docs/06 §7.1 生命周期）
+                fireTaskOutcomeAlert(orchestrator.getTask(), outcome.get());
             }
         }
+    }
+
+    /**
+     * 任务终态告警（M4-S4，PRD §10.12）：FAILED/TIMEOUT → CRITICAL 事件；
+     * SUCCESS/PARTIAL/STOPPED 不告警。targetName 用业务编号（任务行无独立名称列）。
+     */
+    private void fireTaskOutcomeAlert(ActiveTaskRow task, TaskStatus outcome) {
+        String eventType = switch (outcome) {
+            case FAILED -> "TASK_FAILED";
+            case TIMEOUT -> "TASK_TIMEOUT";
+            default -> null;
+        };
+        if (eventType == null) {
+            return;
+        }
+        alertEngine.fire(eventType, "TASK", task.getId(), task.getTaskId(),
+                task.getProjectId(), null, "CRITICAL",
+                "任务 " + task.getTaskId() + " 已进入终态 " + outcome.name() + "。");
     }
 
     private void rollbackClaim(long queueId, long rowId, String token) {

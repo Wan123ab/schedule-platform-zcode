@@ -1,5 +1,6 @@
 package com.flowops.domain.mapper.task;
 
+import com.flowops.domain.dto.query.OfflineNodeRow;
 import com.flowops.domain.dto.query.StuckDispatchRow;
 import com.flowops.domain.dto.query.UnreachableStepRow;
 import com.flowops.domain.dto.query.TimeoutStepRow;
@@ -25,6 +26,13 @@ public interface LifecycleQueryMapper {
 
     /** ②：>45s 未心跳 → OFFLINE（G4；告警事件随 M4 告警引擎）。 */
     int markOfflineNodes();
+
+    /**
+     * 最近 N 秒内被标记 OFFLINE 的节点（M4-S4：NODE_OFFLINE 告警事件源 ——
+     * markOfflineNodes 是集合 UPDATE 不返回行明细，紧跟一次按 updated_at 窗口的补查；
+     * 同节点的重复 fire 由 AlertEngine 抑制窗口兜底）。
+     */
+    List<OfflineNodeRow> findOfflineNodesMarkedWithin(@Param("seconds") int seconds);
 
     /** ③：失联节点（>5min 恢复窗口）上的 RUNNING 步骤（§8.1 ⑤）。 */
     List<UnreachableStepRow> findUnreachableSteps(@Param("windowSeconds") long windowSeconds,

@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 告警记录查询面（docs/05 §3.7 alert_record：
+     idx_alert_suppress 支撑抑制判定，idx_alert_event_fired 支撑历史过滤）。 -->
+<mapper namespace="com.flowops.domain.mapper.alert.AlertRecordMapper">
+
+    <!-- ⚠️ 自定义 XML 不走 autoResultMap：text[] 列必须显式挂 StringArrayTypeHandler，
+         否则 PG 返回的 java.sql.Array 塞不进 String[] 字段（jsonb → String 走 getString 天然兼容）。 -->
+    <resultMap id="recordMap" type="com.flowops.domain.entity.alert.AlertRecord">
+        <id column="id" property="id"/>
+        <result column="alertId" property="alertId"/>
+        <result column="ruleId" property="ruleId"/>
+        <result column="eventType" property="eventType"/>
+        <result column="level" property="level"/>
+        <result column="targetType" property="targetType"/>
+        <result column="targetId" property="targetId"/>
+        <result column="targetName" property="targetName"/>
+        <result column="projectId" property="projectId"/>
+        <result column="clusterId" property="clusterId"/>
+        <result column="content" property="content"/>
+        <result column="channels" property="channels"
+                typeHandler="com.flowops.domain.mybatis.StringArrayTypeHandler"/>
+        <result column="deliverResult" property="deliverResult"/>
+        <result column="result" property="result"/>
+        <result column="firedAt" property="firedAt"/>
+        <result column="createdAt" property="createdAt"/>
+    </resultMap>
+
+    <!-- 同事件 + 同目标最近一次记录（抑制窗口判定；AlertEngine 逐事件查，idx_alert_suppress） -->
+    <select id="findLatestFired" resultMap="recordMap">
+        SELECT r.id             AS id,
+               r.alert_id       AS alertId,
+               r.rule_id        AS ruleId,
+               r.event_type     AS eventType,
+               r.level          AS level,
+               r.target_type    AS targetType,
+               r.target_id      AS targetId,
+               r.target_name    AS targetName,
+               r.project_id     AS projectId,
+               r.cluster_id     AS clusterId,
+               r.content        AS content,
+               r.channels       AS channels,
+               r.deliver_result AS deliverResult,
+               r.result         AS result,
+               r.fired_at       AS firedAt,
+               r.created_at     AS createdAt
+          FROM alert_record r
+         WHERE r.event_type = #{eventType}
+           AND r.target_id = #{targetId}
+         ORDER BY r.fired_at DESC
+         LIMIT 1
+    </select>
+
+    <!-- 触发历史（CONTRACT §9 GET /alert-history：eventType/from/to 过滤，fired_at 倒序） -->
+    <select id="pageHistory" resultMap="recordMap">
+        SELECT r.id             AS id,
+               r.alert_id       AS alertId,
+               r.rule_id        AS ruleId,
+               r.event_type     AS eventType,
+               r.level          AS level,
+               r.target_type    AS targetType,
+               r.target_id      AS targetId,
+               r.target_name    AS targetName,
+               r.project_id     AS projectId,
+               r.cluster_id     AS clusterId,
+               r.content        AS content,
+               r.channels       AS channels,
+               r.deliver_result AS deliverResult,
+               r.result         AS result,
+               r.fired_at       AS firedAt,
+               r.created_at     AS createdAt
+          FROM alert_record r
+         WHERE (#{eventType} IS NULL OR r.event_type = #{eventType})
+           AND (#{from} IS NULL OR r.fired_at &gt;= #{from})
+           AND (#{to} IS NULL OR r.fired_at &lt;= #{to})
+         ORDER BY r.fired_at DESC
+         LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countHistory" resultType="long">
+        SELECT count(*)
+          FROM alert_record r
+         WHERE (#{eventType} IS NULL OR r.event_type = #{eventType})
+           AND (#{from} IS NULL OR r.fired_at &gt;= #{from})
+           AND (#{to} IS NULL OR r.fired_at &lt;= #{to})
+    </select>
+
+</mapper>

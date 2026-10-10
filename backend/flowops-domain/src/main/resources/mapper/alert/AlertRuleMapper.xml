@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 告警规则（docs/05 §3.7 alert_rule）。删除一律显式 XML softDelete：
+     MyBatis-Plus updateById 会静默剔除逻辑删除列（M2 血泪，见 MEMORY.md）。 -->
+<mapper namespace="com.flowops.domain.mapper.alert.AlertRuleMapper">
+
+    <!-- 逻辑删除：CONTRACT §9 DELETE /alert-rules/{ruleId} → 响应 —，记录保留 -->
+    <update id="softDelete">
+        UPDATE alert_rule
+           SET deleted = true,
+               enabled = false,
+               updated_at = now(), updated_by = #{deletedBy},
+               version = version + 1
+         WHERE id = #{id} AND deleted = false
+    </update>
+
+    <!-- 启停（CONTRACT §9 PUT /alert-rules/{ruleId}/enabled；CONTRACT §9 请求体 enabled） -->
+    <update id="toggleEnabled">
+        UPDATE alert_rule
+           SET enabled = #{enabled},
+               updated_at = now(), updated_by = #{updatedBy},
+               version = version + 1
+         WHERE id = #{id} AND enabled &lt;&gt; #{enabled} AND deleted = false
+    </update>
+
+</mapper>

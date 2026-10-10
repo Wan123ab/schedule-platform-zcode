@@ -112,9 +112,10 @@ public class SchedulerWiringConfig {
             NodeMatcher nodeMatcher, ReservedLedger ledger, MutexLockManager mutexes,
             DispatchSink dispatchSink, CompletionBus completionBus,
             RetryQueryMapper retryQuery, LogIngestService logIngest,
-            LifecycleScanner lifecycleScanner, ResourceReleaser releaser) {
+            LifecycleScanner lifecycleScanner, ResourceReleaser releaser,
+            com.flowops.domain.service.AlertEngine alertEngine) {
         return new SchedulerTickPipeline(schedulingQuery, concurrencyQuery, taskMapper, taskStepMapper,
                 concurrencyGuard, readyQueue, nodeMatcher, ledger, mutexes, dispatchSink,
-                completionBus, retryQuery, logIngest, lifecycleScanner, releaser);
+                completionBus, retryQuery, logIngest, lifecycleScanner, releaser, alertEngine);
     }
 }

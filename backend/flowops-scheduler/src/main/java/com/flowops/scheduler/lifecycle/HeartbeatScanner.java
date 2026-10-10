@@ -1,8 +1,10 @@
 package com.flowops.scheduler.lifecycle;
 
 import com.flowops.common.enums.StepStatus;
+import com.flowops.domain.dto.query.OfflineNodeRow;
 import com.flowops.domain.dto.query.UnreachableStepRow;
 import com.flowops.domain.mapper.task.LifecycleQueryMapper;
+import com.flowops.domain.service.AlertEngine;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -33,6 +35,7 @@ public class HeartbeatScanner {
 
     private final LifecycleQueryMapper lifecycleQuery;
     private final ResourceReleaser releaser;
+    private final AlertEngine alertEngine;
 
     /** ①+②：miss 计数与离线标记（各一条集合 UPDATE，幂等）。 */
     @Scheduled(fixedDelay = 5000)
@@ -40,9 +43,25 @@ public class HeartbeatScanner {
         int misses = lifecycleQuery.incrementMissCount();
         int offline = lifecycleQuery.markOfflineNodes();
         if (offline > 0) {
-            log.warn("节点离线 {} 个（45s 无心跳，G4）", offline);   // 告警事件随 M4 告警引擎接入
+            log.warn("节点离线 {} 个（45s 无心跳，G4）", offline);
+            fireOfflineAlerts();
         } else if (misses > 0) {
             log.debug("心跳异常节点 {} 个（15~45s，G5：状态不变不告警）", misses);
+        }
+    }
+
+    /**
+     * NODE_OFFLINE 告警（M4-S4，PRD §10.12 / docs/06 §8.1 ②）。
+     * markOfflineNodes 是集合 UPDATE 拿不到行明细 → 按 updated_at 窗口补查刚离线的节点；
+     * 同节点的重复 fire 由 AlertEngine 抑制窗口（默认 30 分钟）兜底。
+     */
+    private void fireOfflineAlerts() {
+        List<OfflineNodeRow> nodes = lifecycleQuery.findOfflineNodesMarkedWithin(10);
+        for (OfflineNodeRow node : nodes) {
+            alertEngine.fire("NODE_OFFLINE", "EXECUTOR_NODE", node.getId(), node.getExecutorNodeName(),
+                    null, node.getClusterId(), "WARN",
+                    "执行节点 " + node.getExecutorNodeName() + "（" + node.getExecutorNodeId()
+                            + "，集群 " + node.getClusterName() + "）连续 45 秒无心跳，已标记离线。");
         }
     }
 

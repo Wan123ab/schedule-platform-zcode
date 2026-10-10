@@ -36,6 +36,7 @@ class HeartbeatScannerTest {
     @Mock private MutexLockManager mutexes;
     @Mock private ReadyQueueManager readyQueue;
     @Mock private TaskStepMapper taskStepMapper;
+    @Mock private com.flowops.domain.service.AlertEngine alertEngine;
 
     private final ReservedLedger ledger = new ReservedLedger();
     private HeartbeatScanner scanner;
@@ -43,7 +44,8 @@ class HeartbeatScannerTest {
     @BeforeEach
     void setUp() {
         scanner = new HeartbeatScanner(lifecycleQuery,
-                new ResourceReleaser(ledger, mutexes, taskStepMapper, readyQueue));
+                new ResourceReleaser(ledger, mutexes, taskStepMapper, readyQueue), alertEngine);
+        when(lifecycleQuery.findOfflineNodesMarkedWithin(anyInt())).thenReturn(List.of());
         when(lifecycleQuery.incrementMissCount()).thenReturn(0);
         when(lifecycleQuery.markOfflineNodes()).thenReturn(0);
         when(lifecycleQuery.findUnreachableSteps(anyLong(), anyInt())).thenReturn(List.of());
