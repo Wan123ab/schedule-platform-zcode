@@ -10,7 +10,9 @@
 >
 > 阅读顺序建议：§1 看本切片做了什么 → **§2 看哪些是真验证过的** → §4/§5 看已知缺口与本轮踩到的坑。
 >
-> **先回答 M2 交接的两个收尾项**：`O-14`（JaCoCo 覆盖率门禁）**已闭环**（见 §5-1~§5-3）；`O-9`（DataScope 全端点越权实跑）**仍未做**，仍挂在 §4。
+> **先回答 M2 交接的两个收尾项**：`O-14`（JaCoCo 覆盖率门禁）**已闭环**（见 §5-1~§5-3）；
+> `O-9`（DataScope 全端点越权实跑）与 `O-18`（controller 层集成测试）**均已闭环（2026-10-25，M5）** ——
+> 见 `README-M5.md`。
 
 ---
 
@@ -394,9 +396,9 @@
 | **O-30** | **触发器一期不支持 `locked_version_id` / `target_queue_id` / `fail_notify` 配置** | DDL 有这三列，请求 DTO 不收（锁定版本=null=跟随最新发布版，队列=null=默认路由，告警=空）。docs/07 §6.4 未定义它们的请求语义 | 随调度器（M4）一起定语义——这三列都是调度行为参数，提前收了也没有消费方 |
 | **O-31** | **cron 方言未在 docs 定义，实现采用 Spring `CronExpression`（6 段）** | 调度引擎是 Spring 生态，用 Quartz 7 段方言要在调度侧再翻译一层。Quartz 风格表达式会被 42216 拒绝，报错信息里带格式提示（"Spring 6 段格式，秒 分 时 日 月 周"） | 需回写 docs/07 §6.4 明确方言；若用户群强烈习惯 Quartz 风格，再评估兼容层 |
 | **D-30** | **变量引用的"裸引用"形态：docs/03 §4.4 与 docs/07 §9.1 矛盾，按"都支持"落定** | §9.1 的 EBNF 要求来源前缀（`${step.X.output.y}`），§4.4 的启动命令示例却是裸引用（`${taskId}`）。落定：带前缀=**点名某层**（不受覆盖链影响），裸=**扁平上下文按覆盖链取值**（六层合并、后者覆盖前者）。`VariableRefParser` 两种都合法，`DagValidator` 规则 4 对裸引用不做可达性判定（无 DAG 语义） | 需回写 docs/07 §9.1 的 EBNF（补 `bare_ref = "${" ident "}"`） |
-| **O-9** | DataScope 全端点越权实跑（M2 遗留） | 仍未做（分层单测已就绪） | 同上，需 PG+Redis 环境 |
+| **O-9** | DataScope 全端点越权实跑（M2 遗留） | ~~仍未做~~ → **已闭环（2026-10-25，M5）**：真实 PG16 + Redis + 内嵌容器，`DataScopeMatrixIT` 41 例（23 越权 → 全 40301 / 10 正例 / 5 列表泄漏 / 1 已知越权面）。第一轮实跑就抓出 9 个真问题（其中 3 个"启动即死"），详见 `README-M5.md` §3 | 见 `README-M5.md` |
 | **O-17** | `flowops-executor-client` **零测试、无覆盖率数据** | 模块含 `SshExecutorClient`（176 行真实 SSH 逻辑：连接/流泵/T超时/退出码判定），且已被 `ExecutorNodeService` 的连通性测试与 scheduler 接线**实际使用**。因无测试 → 无 `jacoco.exec` → `report` 直接 skip（日志 `Skipping JaCoCo execution due to missing execution data file`）→ **门禁连装都装不上** | 补 `SshExecutorClientTest`（Mockito 代理 JSch 的 `Session`/`ChannelExec` + 假 `LineListener`，断言成功码匹配、超时、流泵、`terminate` 幂等），随后模块才能加门禁。建议随「算子试运行」（§7-1）一并做——那正是它第一次被高频使用的地方 |
-| **O-18** | 门禁的"逻辑层"口径**不含 controller/aspect/ws** | `OperatorController`/`OperatorVersionController` 覆盖率 0%。这是**刻意的**：对 controller 写单测只能得到"调一遍方法、断言返回对象非空"的假覆盖率，真正要验的是鉴权/参数绑定/错误码映射/Swagger 契约，那是集成测试的活 | 随 O-9 的 `@SpringBootTest` 一起补（同一个环境前提） |
+| **O-18** | 门禁的"逻辑层"口径**不含 controller/aspect/ws** | ~~0%，随 O-9 补~~ → **已闭环（2026-10-25，M5）**：`ControllerContractIT` 8 例覆盖 40100 / 40300 / 40001 / 40002 / 40400 / 响应形状 / trace_id / 审计落库。原文提到的"Swagger 契约"**无可测物**（全仓 0 处 swagger 注解、0 依赖），已登记为 O-80 | 见 `README-M5.md` |
 | **O-19** | `flowops-common` 的 `api`/`enums`/`exception`/`web` 四包无门禁 | 该模块整体 10.8%，但未覆盖部分主要是枚举常量、`ErrorCode`、`ApiResult` 这类"常量 + 几行 getter"；给它们设行覆盖下限只会逼人写凑数测试。其中 `GlobalExceptionHandler`(0/26)、`TraceIdFilter`(0/16) 是**真有逻辑**的 | 门禁已按 `includes` 收窄到 `util`/`guard`/`context` 三包（100%）。前两者需 MockMvc，随 O-9 补 |
 | **O-20** | ~~M3 剩余 6 大块（试运行/工作流/画布/DAG 规则/变量解析/CRON + 前端 6 页）~~ → **已全部完成** | 前 5 块后端（§1.2~§1.4）+ 前端 6/6 页（§1.5/§1.6/§1.7）均已完成并实测。最后一块**工作流编辑器 + 自研 SVG 画布（D-14）**在 §1.7 收官 | 已闭环。**止损线未触发**（10 人日），未降级 LogicFlow；M3 已无剩余块 |
 | **O-21** | ~~跨域 SQL 的列名与实体/DDL 不一致，改动靠人记~~ → **已闭环（口径改进）** | 原先的缓解只是"两张表建了实体 + 人工核对过一遍"，仍留着一条**靠人记**的约束（"改动这两张表的列名必须回头改 `OperatorMapper.xml`"）。本轮改为**构建期强制**：`MapperXmlSchemaConsistencyTest` 把全部 27 个 Mapper XML 里的 `别名.列` 逐个对回 Flyway DDL 解析出的真实列，不一致即 `BUILD FAILURE`。**不需要 PG**（故不必挂在 O-9 后面），随每次 `mvn test` 跑 | 已闭环。原先设想的 `@SpringBootTest` 正例**不再必需**——它验的是"SQL 能跑通"，而一致性测试验的是"列存在"，后者覆盖面更大且无环境依赖。真正的 SQL 语义（`count(distinct)`、`deleted` 过滤口径）仍需 O-9 的集成环境 |
@@ -930,7 +932,8 @@ cd frontend && pnpm lint && pnpm test && pnpm build
 > 故回填锚点只能用 `stepName`，**不能按数组下标**（详见 §1.7 第 3 条）。
 >
 > **移交 M4 的挂账**（全部已在 §4 逐条登记，此处只做索引）：
-> `O-9`（DataScope 全端点越权实跑，需 PG+Redis）/ `O-18`（controller 覆盖率 0% 是刻意的，随 O-9 补）/
+> ~~`O-9`~~ / ~~`O-18`~~（**已于 M5 闭环，见 `README-M5.md`**）/
+> `O-24`（队列无资源上限列）/ `O-25`（工作流 DELETE 端点缺失）/ `O-26`（无独立校验端点）/
 > `O-24`（队列无资源上限列）/ `O-25`（工作流 DELETE 端点缺失）/ `O-26`（无独立校验端点）/
 > `O-30`/`O-37`（触发器调度参数与环境变量下发，都是 M4 的消费方）/ `O-34`（无终止试运行端点）/
 > `O-39`~`O-42`（契约与文档缺口，需回写 CONTRACT / PRD / docs）。

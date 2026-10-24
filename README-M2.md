@@ -39,7 +39,7 @@ M2 分两段推进：**前半程**（认证/权限/项目/凭据/心跳）与**�
 | 2 | PRD §20.2 全部 6 条（项目空间） | ✅ **已实测** | 项目 CRUD/成员/停用影响面（42203）单测就绪 |
 | 3 | PRD §20.6 全部 9 条（资产/凭据） | ✅ **已实测** | 集群/节点/队列 CRUD + 三道引用闸门（42202/42204/42205）+ 凭据加密轮换全链路单测就绪 |
 | 4 | **权限矩阵逐格验证**（§11.2 每个非空白格） | ✅ **已实测** | `PermissionMatrixTest` 直接解析 `V4__seed_roles_permissions.sql` 的种子行做逐格断言 —— 断言对象就是运行时真源，不会"测试通过但种子写错" |
-| 5 | **DataScope 越权测试**：A 项目用户访问 B 项目资源全端点 → 全 `40301` | ⚠️ **分层已测 / 全端点实跑未做** | 已测：拦截器 SQL 注入正确性（`FlowopsDataPermissionHandlerTest` 11 例）、解析器可见集与类型择优（`DataScopeResolverTest`）、Service 层 40301/40400 区分（`ScopeGuardTest` + 各 ServiceTest）。**未做**：起 PG+Redis 用真实 token 打完整端点矩阵 —— 见偏离项 **O-9** |
+| 5 | **DataScope 越权测试**：A 项目用户访问 B 项目资源全端点 → 全 `40301` | ✅ **已闭环（2026-10-25，M5）** | 当时已测：拦截器 SQL 注入正确性、解析器可见集、Service 层 40301/40400 区分。**当时未做**的"起 PG+Redis 用真实 token 打端点矩阵"已于 M5 补齐：`DataScopeMatrixIT` 41 例，并顺带抓出 9 个真问题（3 个"启动即死"）。见 `README-M5.md` |
 | 6 | 单测覆盖：三域状态机/CAS/节点匹配 ≥70% | ✅ **已实测**（行覆盖率门禁待补） | `mvn -o clean test` **178 用例全绿**（server 77 / scheduler 88 / domain 8 / common 5）；JaCoCo 门禁仍缺，见 **O-14** |
 | 7 | 前端四类页面可用 | ✅ **已实测** | `pnpm lint`（`--max-warnings 0`）· `pnpm test`（3 文件 19 例）· `pnpm build`（`vue-tsc --noEmit` + vite build）三件套本地全绿 |
 | — | **CI 全绿** | ✅ **已实测** | **run #10（`dev_workbuddy` @ `2891fe8`）conclusion = success**：`Backend · build & test` 9 步全过、`Frontend · lint & typecheck & test & build` 12 步全过（GitHub API 自查） |
@@ -66,7 +66,7 @@ M2 分两段推进：**前半程**（认证/权限/项目/凭据/心跳）与**�
 
 | # | 项 | M2 现状 | 去处 |
 |---|---|---|---|
-| O-9 | DataScope 全端点越权实跑（DoD 5） | 只做到**分层单测**：拦截器生成的 SQL 片段、解析器可见集、Service 层 40301/40400 均有断言；但没起 PG+Redis 用真实 token 遍历端点矩阵 | M2 环境就绪后补一个 `@SpringBootTest` 越权矩阵测试（PR-4 资源到位即可做） |
+| ~~O-9~~ | DataScope 全端点越权实跑（DoD 5） | ~~只做到分层单测~~ → **已闭环（2026-10-25，M5）**：真实 PG16 + Redis + 内嵌容器，`DataScopeMatrixIT` 41 例 | 见 `README-M5.md` |
 | O-10 | `AUTHORIZED_CLUSTER` 可见集群集的来源 | `05` 全量 DDL 无 user→cluster 授权表 → 本期定义为「用户所属项目被授予的集群并集」（`project_cluster ⨝ project_member`），已固化为 **D-27** | 若引入独立集群授权表，只需替换 `ClusterMapper#findAuthorizedClusterIds` 一条 SQL |
 | O-11 | 节点标签过滤的写法 | `tags @> ARRAY[{0}]::text[]` 是本项目**唯一**一处非 lambda 条件片段（数组运算符无法用 lambda 表达）。参数仍是预编译绑定 `{0}`，无字符串拼接、无注入面 | 长期保持"只作用于 `text[]` 列"这一约束；如将来 MP 支持数组条件则回收 |
 | O-12 | `SELF_CREATED` 的行级过滤位置 | 拦截器只登记了 `PROJECT`/`AUTHORIZED_CLUSTER` 两维列映射；`SELF_CREATED` 语义（creator/owner = 本人）**仍由 Service 层判定**，未下沉到 SQL | M3 编排域（任务/工作流带 creator_id 后）统一登记，避免现在为一张还没写的表预留映射 |
