@@ -10,10 +10,11 @@
 > **2 个是静默失效**；给 scheduler 补同类测试时又抓出第 4 个"启动即死"（O-86）。
 > 它们全部通过了 M4 收官时的 648 个用例。
 >
-> **✅ 本轮收官（2026-10-25）**：后端 **718 用例**（648 → +70）/ 6 道覆盖率门禁全绿；
-> 前端 **8 文件 128 例**三件套全绿；CI run #42 / #43 双 job success（commit `f573a07`）。
-> CI 日志可核实集成测试是真跑而非跳过：`ControllerContractIT` 8 / `ContextStartupIT` 2 /
-> `DataScopeMatrixIT` 41 均出现在后端 job 里。
+> **✅ 本轮收官（2026-10-25）**：后端 **718 用例**（648 → +70，59/83/14/455/107）/ 6 道覆盖率门禁全绿；
+> 前端 **8 文件 128 例**三件套全绿；CI run **#42 / #43 / #45** 双 job success（commit `f573a07` / `41589c7`）。
+> CI 日志可核实集成测试是真跑而非跳过 —— 后端 job 里能逐个数到：
+> `DataScopeMatrixIT` 41 / `ControllerContractIT` 8 / `ContextStartupIT` 2 / `SchedulerContextIT` 3 /
+> `GlobalExceptionHandlerTest` 10 / `TraceIdFilterTest` 6，且 `All coverage checks have been met` 出现 6 次。
 
 ---
 
