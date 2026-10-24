@@ -282,6 +282,6 @@
 | **O-70** | dashboard 的 **task 维度聚合走 DataScope**（summary/trend/recent-failures），**cluster/queue/resource 维度全局口径** | 与 S1a 登记制一致：`FlowopsDataPermissionHandler` 只对已登记的表注入；cluster/queue 是运维容量视角，按项目过滤反而让"队列积压/集群健康"失去运维意义（PROJECT 用户看到的是全局水位，非本项目的独占容量） | 若要求 PROJECT 用户看不到全局容量，需先定义脱敏口径（只出使用率不出绝对值）再挂 DataScope |
 | **O-71** | **/platform/health scheduler 段锁推导降级**：schedulerAlive=锁存在、leaderId=LeaderElector 发布的实例标识 key（本轮新增发布机制）、lease_remaining_seconds=锁 TTL；**is_leader / standby_count / last_tick_at / tick_interval_ms / slow_query_count_1m / log_ingest_bytes 返回 null** | D-08 下 server 不可达 scheduler 内存态；锁 value 是 Redisson 内部持有者标识（`UUID:threadId`）而非实例 ID，从锁 value 截取 leader_id 是**语义错误**（本轮修正：LeaderElector 成为/保持主时写 `flowops:scheduler:leader:instance`，TTL 60s 心跳续期）。其余字段需 scheduler 主动上报心跳/指标，一期无此通道 | 需要全量字段时：scheduler 定期写心跳 key（instance key 模式推广）或引入指标端点；CONTRACT 需同步"可空字段"口径 |
 
-**沿用 M3 移交的挂账**：~~O-9~~、~~O-18~~（**已于 M5 闭环**，见 `README-M5.md`）、O-15、O-19、O-30~~O-37、O-39~~O-42（见 `README-M3.md` §4/§7）。
+**沿用 M3 移交的挂账**：~~O-9~~、~~O-18~~、~~O-19~~（**已于 M5 闭环**，见 `README-M5.md`）、O-15、O-30~~O-37、O-39~~O-42（见 `README-M3.md` §4/§7）。
 
 **勘定记录**（原"S4 开工时处理"）：`V5` seed / DDL CHECK 的 9 个告警 eventType 与 CONTRACT §9 列举的 5 个不一致 → 以 **DDL CHECK + V5 seed** 为准（2026-10-11 勘定，S4 已按此实现并钉单测）。

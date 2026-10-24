@@ -61,6 +61,22 @@
 
   <build>
     <plugins>
+      <!-- 同 flowops-server：集成测试用 *IT 后缀，surefire 的 <includes> 一旦覆写
+           就替换默认值，故把默认的四类一起列出再补 IT。 -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <includes>
+            <include>**/Test*.java</include>
+            <include>**/*Test.java</include>
+            <include>**/*Tests.java</include>
+            <include>**/*TestCase.java</include>
+            <include>**/*IT.java</include>
+          </includes>
+        </configuration>
+      </plugin>
+
       <plugin>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>

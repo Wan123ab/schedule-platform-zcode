@@ -1,0 +1,52 @@
+# =====================================================================
+# flowops-scheduler 集成测试配置（O-85）
+#
+# 与 server 侧的 application-it.yml 同构，但有三处刻意不同：
+#
+#   1. **连的是 flowops_it（已被迁移过的 IT 库），Flyway 仍然关闭。**
+#      为什么不开 Flyway 建独立库：迁移脚本只打在 flowops-server 里，
+#      scheduler 的 classpath 上根本没有 db/migration（它不依赖 server，D-08）。
+#      而把 DDL 搬到共享模块是架构调整，不该混在"补一个冒烟测试"里做。
+#      依赖顺序由 Maven reactor 保证：flowops-server 先跑（它的 IT 会完成迁移），
+#      flowops-scheduler 后跑。
+#
+#   2. **业务表在测试类加载期被清空**（见 SchedulerContextIT 的静态块）。
+#      scheduler 不是"收到请求才干活"的进程 —— 它 @EnableScheduling，
+#      SchedulerEngine.tick() 每秒一次、BackfillDispatcher 5 秒一次、
+#      HeartbeatScanner 5 秒一次，上下文一起来就自动跑。
+#      若连的是装着 server 夹具的库，这些循环会真的去推进 PENDING 任务、
+#      真的去连 10.0.0.1 建 SSH、真的按告警规则发 webhook。
+#      给它们一个没有可调度对象的库，循环空转，而我们要验的
+#      （Bean 装配图完整性）一点没少。
+#
+#   3. **Redis db 用 10**（server 的 IT 用 9）：scheduler 会写选主锁、
+#      就绪 ZSet、互斥锁，与 server 的 IT 分开才不会互相干扰。
+# =====================================================================
+spring:
+  datasource:
+    url: jdbc:postgresql://${IT_DB_HOST:127.0.0.1}:${IT_DB_PORT:55432}/${IT_DB_NAME:flowops_it}
+    username: ${IT_DB_USER:flowops}
+    password: ${IT_DB_PASSWORD:flowops}
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 1
+  data:
+    redis:
+      host: ${IT_REDIS_HOST:127.0.0.1}
+      port: ${IT_REDIS_PORT:6379}
+      password: ${IT_REDIS_PASSWORD:}
+      database: ${IT_SCHED_REDIS_DB:10}
+  flyway:
+    enabled: false      # 保持与主配置一致：迁移由 server 执行
+
+flowops:
+  crypto:
+    master-key: ${IT_CRED_MASTER_KEY:it-only-master-key-never-use-in-prod}
+    strict: true
+  scheduler:
+    instance-id: it-scheduler-1
+
+logging:
+  level:
+    root: WARN
+    com.flowops: INFO

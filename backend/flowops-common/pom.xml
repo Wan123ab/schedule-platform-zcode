@@ -60,11 +60,21 @@
           · guard   —— ConcurrencyPolicyEvaluator / CheckResult：并发闸门判定
           · context —— ScopeContext / UserContext / TraceContext：ThreadLocal 上下文，
                        写错不会抛异常，只会静默地"该过滤的没过滤"
-        不圈 api/enums/exception/web：那些要靠 MockMvc 集成测试（遗留项 O-9），
+        —— 2026-10-25（O-19 闭环）：补进 web / exception 两包 ——
+        · web       —— TraceIdFilter：合规入参沿用、不合规重生成、finally 清 MDC
+                       与 ThreadLocal（漏清会让两条请求串成一条假链路，且不报错）
+        · exception —— GlobalExceptionHandler：错误码映射表。它是"任何一处出错最终
+                       都会流经的地方"，判错一件事的代价是所有错误都变成同一种样子
+                       （M5 的 O-78/O-81 就是两个现成例子：都掉进兜底成了 50000）
+        这两包此前被声明为"要靠 MockMvc 集成测试（O-9）"，实际写下来发现并不需要：
+        要验的只是"入参 → 出参"的映射本身，直接调 handler 方法 / 用
+        MockHttpServletRequest 即可，与 Servlet 容器无关。
+
+        仍不圈 api/enums/annotation：那些是常量、枚举与注解定义，
         给它们设行覆盖下限只会逼人写"调一遍 getter"的凑数测试。
 
-        阈值 0.85：实测三个包 100%（2026-10-07）。留 15pt 是给后续新增工具类留的
-        缓冲，不是给"降标准"留的后门 —— 若某次改动让这里掉到 0.85 以下，
+        阈值 0.85：五个包实测 100%（2026-10-25）。留 15pt 是给后续新增类留的缓冲，
+        不是给"降标准"留的后门 —— 若某次改动让这里掉到 0.85 以下，
         先怀疑是不是漏测了新逻辑，而不是先来改这个数字。
       -->
       <plugin>
@@ -80,6 +90,14 @@
                 <include>**/util/*</include>
                 <include>**/guard/*</include>
                 <include>**/context/*</include>
+                <include>**/web/*</include>
+                <!--
+                  exception 包刻意<b>按类</b>收窄而不是整包：包里的 BizException 是
+                  "三个构造器 + lombok getter"，给它设门槛只会逼人写"new 一下再断言 getter"
+                  的凑数测试 —— 那正是本模块当初不圈 exception 包的理由，别因为
+                  要圈 GlobalExceptionHandler 就把理由一起丢了。
+                -->
+                <include>**/exception/GlobalExceptionHandler*</include>
               </includes>
               <rules>
                 <rule>

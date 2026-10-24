@@ -1,14 +1,16 @@
-# FlowOps 工程实施 · M5 交付说明（O-9 越权实跑 + O-18 controller 契约）
+# FlowOps 工程实施 · M5 交付说明（O-9 越权实跑 + O-18 controller 契约 + O-19/O-85 收尾）
 
-> 本轮不是"新功能"，是**补两笔挂了两三个里程碑的账**：
-> `O-9`（DataScope 全端点越权实跑，M2 遗留）与 `O-18`（controller/aspect 层的集成测试，M3 遗留）。
-> 二者的共同前提是「起真实 PostgreSQL + Redis + 完整 Spring 上下文」，而这个前提此前从未具备 ——
+> 本轮不是"新功能"，是**补几笔挂了两三个里程碑的账**：
+> `O-9`（DataScope 全端点越权实跑，M2 遗留）、`O-18`（controller/aspect 层的集成测试，M3 遗留），
+> 以及依赖 O-9 才做的 `O-19`（common 的 web/exception 门禁）与 `O-85`（scheduler 上下文冒烟）。
+> 前三者的共同前提是「起真实 PostgreSQL + Redis + 完整 Spring 上下文」，而这个前提此前从未具备 ——
 > 于是**"生产进程能不能起来"在这项目里从未被任何一道关卡验证过**。
 >
 > 结论：前提一旦具备，第一轮实跑就抓出 **9 个真问题**，其中 **3 个是"启动即死"**、
-> **2 个是静默失效**。它们全部通过了 M4 收官时的 648 个用例。
+> **2 个是静默失效**；给 scheduler 补同类测试时又抓出第 4 个"启动即死"（O-86）。
+> 它们全部通过了 M4 收官时的 648 个用例。
 >
-> **✅ 本轮收官（2026-10-25）**：后端 **699 用例**（648 → +51）/ 6 道覆盖率门禁全绿；
+> **✅ 本轮收官（2026-10-25）**：后端 **718 用例**（648 → +70）/ 6 道覆盖率门禁全绿；
 > 前端 **8 文件 128 例**三件套全绿；CI run #42 / #43 双 job success（commit `f573a07`）。
 > CI 日志可核实集成测试是真跑而非跳过：`ControllerContractIT` 8 / `ContextStartupIT` 2 /
 > `DataScopeMatrixIT` 41 均出现在后端 job 里。
@@ -48,6 +50,8 @@ psql -h 127.0.0.1 -p 55432 -U postgres -c "CREATE ROLE flowops LOGIN PASSWORD 'f
 | S2 | **O-9**：DataScope 越权矩阵 `DataScopeMatrixIT`（41 例：23 越权 + 10 正例 + 5 列表泄漏 + 1 已知越权面 + …） | ✅ |
 | S3 | **O-18**：controller/切面/全局异常层契约 `ControllerContractIT`（8 例） | ✅ |
 | S4 | CI 接入：postgres service + 环境变量；surefire 收 `**/*IT.java` | ✅ |
+| S5 | **O-19**：`GlobalExceptionHandler` / `TraceIdFilter` 补测 + common 门禁口径扩到 `web`/`exception` | ✅ |
+| S6 | **O-85**：scheduler 上下文冒烟 `SchedulerContextIT`（3 例），并抓出 O-86 | ✅ |
 
 ### 1.1 为什么用 RANDOM_PORT（真实容器）而不是 MockMvc
 
@@ -174,6 +178,38 @@ common 保持与会话框架无关。
 这条值得单独记一笔：它**不是**被测代码的问题，但代价是"整个 `verify` 随机失败"，
 会持续侵蚀对 CI 结果的信任 —— 看到红的第一反应变成"再跑一次"而不是"真有 bug"。
 
+### 3-7. scheduler 上下文冒烟抓出的第四个"启动即死"（O-86）
+
+`SchedulerContextIT` 第一次跑就红：
+
+```
+RedisConnectionException: Unable to connect to Redis server: 127.0.0.1:6379
+  ← ERR Client sent AUTH, but no password is set
+```
+
+根因是 **`password: ${REDIS_PASSWORD:}` 这个"看起来无害"的默认值**：环境变量缺失时它解析成
+**空串**，而 Redisson 分不清"没配密码"和"配了空串" —— 空串照样触发 `AUTH`，
+对着一个根本没设密码的实例发 `AUTH ""`，服务端直接拒。
+`IdGen` / `MutexLockManager` / `LeaderElector` 全要 `RedissonClient`，于是**调度进程起不来**。
+
+| 为什么此前没人发现 | 说明 |
+|---|---|
+| docs/08 §7 把 `REDIS_PASSWORD` 列为**必填** | 部署环境一定会设，所以生产路径从来不触发 |
+| 但本地与 CI 跑的就是无密码实例 | 那是合法场景 —— 于是"能起进程"这件事在本地/CI 永远没被验证过 |
+| server 侧不受影响 | server **没有** Redisson（只有 `StringRedisTemplate`），Lettuce 对空串的处理不同 |
+
+修法放在配置层而不是 yml：yml 里没法表达"缺省则整键不存在"（`${X:}` 给空串、`${X:#{null}}`
+在 `@ConfigurationProperties` 绑定下不会被求值成 null，只会变成字面量 `#{null}`），
+而 `RedissonAutoConfigurationCustomizer` 正是 Redisson 官方留的、在 `RedissonClient` 建连前
+改 `Config` 的扩展点 —— 空白密码一律置 null。
+
+两个踩坑点留档：
+
+1. `Config.getSingleServerConfig()` 是 **protected**，外部只能配 `isSingleConfig()` + `useSingleServer()`；
+   而 `useSingleServer()` 在别的模式已配置时会**抛异常**，所以必须先 `is*Config()` 判再用。
+2. `RedissonAutoConfigurationV2` 只是 `extends RedissonAutoConfiguration`（`javap` 看它自己一个方法都没有），
+   所以 V1 里对 customizer 的处理照样生效 —— 只看 V2 的字节码会误判"不支持 customizer"。
+
 ---
 
 ## 4. 偏离与遗留项（如实登记，O-72 起）
@@ -193,9 +229,11 @@ common 保持与会话框架无关。
 | **O-82** | `SshExecutorClientTest` 夹具非线程安全 | 已闭环（`CopyOnWriteArrayList`） | — |
 | **O-83** | PROJECT 用户可见全部 `cluster` / `queue` / `executor_node` | 未修。docs/07 §5.4 给这三个端点写的数据范围是 **ALL**（"运维可见被授权集群"），且 `cluster`/`queue`/`executor_node` 只在 **AUTHORIZED_CLUSTER** 维度登记；PROJECT 范围不注入，故全可见。与 O-70（dashboard 的 cluster/queue 聚合按全局口径）是同一条判断 | 若要求 PROJECT 用户看不到全局容量，需先定义脱敏口径（只出使用率不出绝对值），再回头改登记 |
 | **O-84** | **审计查询端点未实现** | docs/07 §5.4 列了 `/audit-logs*` 与 `/trace/{trace_id}`，但全仓没有 AuditController —— 审计**能落库**（本轮已验证）却**查不出来** | 属功能缺口：需先定列表的筛选维度与 `/trace/` 的聚合口径，再实现 |
-| **O-85** | **scheduler 仍没有上下文冒烟测试** | O-62 曾提到"后续给 scheduler 补一个上下文冒烟测试"。本轮只做了 server 侧 —— 而 scheduler 侧的同类问题（`SchedulerWiringConfig` 的 bean 是否齐、扫描面是否够）同样没有任何关卡 | 下一个环境类任务：给 `flowops-scheduler` 补同构的 `@SpringBootTest`（它还需要 Redisson） |
+| **O-85** | **scheduler 仍没有上下文冒烟测试** | **已闭环**：新增 `SchedulerContextIT`（3 例：14 个关键 bean 装配 + 空密码不鉴权 + 配置绑定）。它连的是已被 server IT 迁移过的 `flowops_it`，并在**类加载期**（早于 Spring 上下文、早于 `@BeforeAll`）清空业务表 —— 否则 `RecoveryService`(ApplicationRunner) 与每秒一次的 tick 会把夹具里的 PENDING 任务真的推进、真的去连 `10.0.0.1` 建 SSH。迁移脚本只在 server 模块，scheduler classpath 上没有，故不开 Flyway 建独立库（依赖 reactor 顺序：server 先跑） | — |
+| **O-86** | **空 Redis 密码让 scheduler 起不来** | **已闭环**（见 §3-7）：`${REDIS_PASSWORD:}` 的空串被 Redisson 当成"要鉴权" | — |
+| **O-19** | controller 之外的 `GlobalExceptionHandler` / `TraceIdFilter` 无门禁 | **已闭环**：补 `GlobalExceptionHandlerTest`(10) + `TraceIdFilterTest`(6)，common 的 JaCoCo `includes` 从 `util/guard/context` 扩到 `web/exception`，阈值仍 0.85（实测 99.1%）。按项目纪律做了**反向扰动**（阈值临时改 0.999 → `Rule violated` + BUILD FAILURE）确认它会拦 | — |
 
-**沿用 M4 移交的其余挂账**：O-15、O-19、O-30~~O-37、O-39~~O-71（见 `README-M3.md` §4 与 `README-M4.md` §4）。
+**沿用 M4 移交的其余挂账**：O-15、O-30~~O-37、O-39~~O-71（见 `README-M3.md` §4 与 `README-M4.md` §4）。
 
 **覆盖面如实说明**：O-9 的原文口径是"全端点实跑"。本轮覆盖的是
 **带资源编号、且落在 DataScope 登记表上**的端点（约 35 个路径，分布于项目/工作流/版本/算子/任务/回填/触发器/集群/节点/队列），
@@ -208,9 +246,9 @@ common 保持与会话框架无关。
 
 | 项 | M4 收官 | 本轮 |
 |---|---|---|
-| 后端用例 | 648 | **699**（common 43 / domain 83 / executor-client 14 / **server 455** / scheduler 104） |
-| server 新增 | — | +51：`ContextStartupIT` 2 + `DataScopeMatrixIT` 41 + `ControllerContractIT` 8 |
-| 覆盖率门禁 | 6 道全绿 | 6 道全绿 |
+| 后端用例 | 648 | **718**（common **59** / domain 83 / executor-client 14 / **server 455** / scheduler **107**） |
+| 新增 | — | +70：server 侧 +51（`ContextStartupIT` 2 + `DataScopeMatrixIT` 41 + `ControllerContractIT` 8）、common +16（`GlobalExceptionHandlerTest` 10 + `TraceIdFilterTest` 6）、scheduler +3（`SchedulerContextIT`） |
+| 覆盖率门禁 | 6 道全绿 | 6 道全绿（common 口径扩到 `web`/`exception`，实测 99.1%） |
 | 前端 | 8 文件 128 例 | 8 文件 128 例（lint 0 警告 / vitest / vue-tsc / vite build 全绿） |
 | CI | 只有 Redis | Redis + **PostgreSQL 16** |
 

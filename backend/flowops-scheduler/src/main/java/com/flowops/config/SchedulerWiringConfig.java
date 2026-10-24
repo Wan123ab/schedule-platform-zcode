@@ -41,6 +41,45 @@ public class SchedulerWiringConfig {
         return new ReservedLedger();   // D-22：调度器内存权威副本，启动重建在 RecoveryService（M1 后续）
     }
 
+    /**
+     * 空白 Redis 密码一律视为"未配置"（<b>O-86</b>）。
+     *
+     * <p>Redisson 区分不出"没配密码"和"配了空串"：{@code application.yml} 里的
+     * {@code password: ${REDIS_PASSWORD:}} 在环境变量缺失时解析成 {@code ""}，
+     * Redisson 于是把它当成"要鉴权"，对着一个根本没设密码的实例发 {@code AUTH ""}，
+     * 服务端回 {@code ERR Client sent AUTH, but no password is set} —— 建连失败，
+     * 而 {@code IdGen}/{@code MutexLockManager}/{@code LeaderElector} 都要 Redisson，
+     * 结果是<b>调度进程起不来</b>。docs/08 把 {@code REDIS_PASSWORD} 列为必填，
+     * 但本地与 CI 跑的就是无密码实例，那是合法场景，不该启动即死。</p>
+     *
+     * <p>放在这里而不是改 yml：yml 里没法表达"缺省则整键不存在"，
+     * 而 {@code RedissonAutoConfigurationCustomizer} 正是 Redisson 官方留的、
+     * 在 {@code RedissonClient} 建连前改 {@code Config} 的扩展点。</p>
+     */
+    @Bean
+    public org.redisson.spring.starter.RedissonAutoConfigurationCustomizer
+            blankRedisPasswordMeansNone() {
+        return config -> {
+            // 只动已经确定了的模式：Config 的 getter 是 protected，能用的一对是
+            // isXxxConfig() + useXxxServers()，而后者在别的模式已配置时会抛 —— 必须先判再用。
+            if (config.isSingleConfig()) {
+                clearBlankPassword(config.useSingleServer());
+            }
+            if (config.isClusterConfig()) {
+                clearBlankPassword(config.useClusterServers());
+            }
+            if (config.isSentinelConfig()) {
+                clearBlankPassword(config.useSentinelServers());
+            }
+        };
+    }
+
+    private static void clearBlankPassword(org.redisson.config.BaseConfig<?> cfg) {
+        if (cfg.getPassword() != null && cfg.getPassword().isEmpty()) {
+            cfg.setPassword(null);
+        }
+    }
+
     @Bean
     public ReadyQueueManager readyQueueManager(
             RedissonClient redisson, TaskStepMapper taskStepMapper,
