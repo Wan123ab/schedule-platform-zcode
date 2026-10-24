@@ -9,7 +9,7 @@
 > **2 个是静默失效**。它们全部通过了 M4 收官时的 648 个用例。
 >
 > **✅ 本轮收官（2026-10-25）**：后端 **699 用例**（648 → +51）/ 6 道覆盖率门禁全绿；
-> 前端 **8 文件 128 例**三件套全绿；**CI run #42 双 job success**（commit `f573a07`）。
+> 前端 **8 文件 128 例**三件套全绿；CI run #42 / #43 双 job success（commit `f573a07`）。
 > CI 日志可核实集成测试是真跑而非跳过：`ControllerContractIT` 8 / `ContextStartupIT` 2 /
 > `DataScopeMatrixIT` 41 均出现在后端 job 里。
 
