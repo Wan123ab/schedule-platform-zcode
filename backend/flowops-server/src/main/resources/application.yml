@@ -29,6 +29,16 @@ spring:
     locations: classpath:db/migration
     baseline-on-migrate: false
     # 生产禁止 clean（docs/02 §1.6），配置项根本不开启
+    #
+    # ⚠️ 必须关闭占位符替换（O-72，2026-10-25 首次在真实 PG 上启动才暴露）：
+    # Flyway 默认把 SQL 里的 ${...} 当占位符，命中未声明的键即抛
+    # "No value provided for placeholder"。而 ${step.X.output.Y} 是本项目**变量引用
+    # 的业务语法**（docs/07 §9.1），它出现在 V1 的一行 DDL 注释里 ——
+    # 于是"带着注释的建表脚本"在真实 PG 上直接把启动打死了。
+    # 本项目迁移脚本不使用 Flyway 占位符，关掉它有百利而无一害：
+    # 将来再有人在 SQL 注释里写业务示例也不会重新踩这个坑。
+    # 代价：Flyway 的 ${env:xxx} 之类不可用 —— 需要环境差异化时用 SQL 分支实现，不要偷偷开回来。
+    placeholder-replacement: false
   data:
     redis:
       host: ${REDIS_HOST:localhost}

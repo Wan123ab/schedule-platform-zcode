@@ -1,0 +1,49 @@
+# =====================================================================
+# flowops-server 集成测试配置（O-9 / O-18）
+#
+# 为什么单独一份而不是改主 application.yml：主配置面向部署（DB_* 环境变量、
+# Redis db 0、凭据主密钥来自环境）；集成测试需要的是「可反复重建、与开发机上
+# 的既有库隔离」的一套值。放在 profile 里激活，主配置一字不改。
+#
+# 关键取舍：
+#   1. 端口默认 55432 —— 本机免安装 PG16 的约定端口（见 README-M5 §0），
+#      刻意不占用 5432：那台机器上可能另有安装，撞库比连不上更难查。
+#      CI 的 postgres service 用 5432，由环境变量 IT_DB_PORT 覆盖。
+#   2. Redis 用 db 9（ADR-003：即便共用实例也必须独立 db index），
+#      测试启动时会 flushDb —— 用独立 index 是"刷库不误伤"的前提。
+#   3. 凭据主密钥写死一个测试值：M-06 要求缺失即拒绝启动，但集成测试
+#      不该依赖开发者本机环境变量（否则换台机器就红）。
+# =====================================================================
+spring:
+  datasource:
+    url: jdbc:postgresql://${IT_DB_HOST:127.0.0.1}:${IT_DB_PORT:55432}/${IT_DB_NAME:flowops_it}
+    username: ${IT_DB_USER:flowops}
+    password: ${IT_DB_PASSWORD:flowops}
+    hikari:
+      # 集成测试是串行单线程，池子开大只是拖慢启动
+      maximum-pool-size: 5
+      minimum-idle: 1
+  data:
+    redis:
+      host: ${IT_REDIS_HOST:127.0.0.1}
+      port: ${IT_REDIS_PORT:6379}
+      password: ${IT_REDIS_PASSWORD:}
+      database: ${IT_REDIS_DB:9}
+  flyway:
+    # 保持开启：让 8 个迁移脚本每次都在真实 PG 上跑一遍。
+    # 这是 O-9 的隐性收益之一 —— 此前这些 SQL 从未在真实 PG 上执行过。
+    enabled: true
+    clean-disabled: true      # 生产语义不因测试而放松；夹具靠 fixtures.sql 自清理
+
+flowops:
+  crypto:
+    master-key: ${IT_CRED_MASTER_KEY:it-only-master-key-never-use-in-prod}
+    strict: true
+  operator:
+    storage-root: ${IT_OPERATOR_STORAGE_ROOT:target/it/operators}
+
+logging:
+  level:
+    root: WARN
+    com.flowops: INFO
+    org.flywaydb: INFO

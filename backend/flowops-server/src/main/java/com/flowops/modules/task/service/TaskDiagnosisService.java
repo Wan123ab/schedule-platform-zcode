@@ -81,6 +81,8 @@ public class TaskDiagnosisService {
     private final DiagnosisQueryMapper diagnosisQueryMapper;
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
+    /** 越权/不存在的区分（O-77）。 */
+    private final com.flowops.modules.governance.scope.ScopeGuard scopeGuard;
 
     /** ETA 缓存条目（JSON 出入 Redis） */
     record EtaCacheEntry(double medianWaitSeconds, long sampleCount) {}
@@ -279,9 +281,12 @@ public class TaskDiagnosisService {
                 .eq(Task::getTaskId, taskId)
                 .eq(Task::getDeleted, false));
         if (task == null) {
-            // 行级过滤下"越权"与"不存在"在 SQL 上等价（与 TaskQueryService 同一口径）
-            throw new BizException(ErrorCode.NOT_FOUND, "任务不存在: " + taskId,
-                    Map.of("resource_type", "TASK", "resource_id", taskId));
+            // O-77：与 TaskQueryService 同一口径（此前这里一律 40400，导致
+            // "读详情 40301、读诊断 40400" 的同一个任务给出两种答案）。
+            throw scopeGuard.notVisible("TASK", taskId,
+                    () -> taskMapper.selectCount(Wrappers.<Task>lambdaQuery()
+                            .eq(Task::getTaskId, taskId)
+                            .eq(Task::getDeleted, false)) > 0);
         }
         return task;
     }

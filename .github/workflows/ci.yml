@@ -28,6 +28,29 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
+      # ── PostgreSQL 16（M5 / O-9）──────────────────────────────────
+      # 为什么必须加：在它进来之前，CI 里**没有**任何一道关卡会真正起
+      # Spring 上下文并连一次数据库 —— 648 个用例全是分层单测。
+      # 于是"Flyway 脚本在真实 PG 上能不能跑""进程能不能起来"
+      # 这两件事从来没被验证过（代价见 README-M5 §3：一次性暴露了 4 个
+      # 启动即死/静默失效级别的问题）。集成测试（*IT）现在要真跑。
+      #
+      # 端口映射 55432:5432 而不是 5432:5432：runner 镜像预装了 PostgreSQL，
+      # 万一哪天默认启了服务会撞端口；对外用 55432 与本地免安装 PG16
+      # 的约定端口一致，于是 IT_DB_PORT 的默认值两边都不用改。
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: flowops
+          POSTGRES_PASSWORD: flowops
+          POSTGRES_DB: flowops_it
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -37,6 +60,17 @@ jobs:
           cache: maven
       - name: Build & test (5 modules)
         working-directory: backend
+        env:
+          # 集成测试（*IT）的库连接参数；与本地免安装 PG16 的默认值一致，
+          # 这里显式写出来是为了让"CI 用哪个库"在 YAML 里可读，而不是藏在默认值里。
+          # 环境不可达时 IntegrationEnvironment 会让整类安静跳过，不会误报失败。
+          IT_DB_HOST: 127.0.0.1
+          IT_DB_PORT: '55432'
+          IT_DB_NAME: flowops_it
+          IT_DB_USER: flowops
+          IT_DB_PASSWORD: flowops
+          IT_REDIS_HOST: 127.0.0.1
+          IT_REDIS_PORT: '6379'
         run: mvn -B -ntp verify
       # ⚠️ 2026-10-07（M3）：run #13 后端 job 失败，但当时**取不到失败详情** ——
       # 仓库没上传测试报告，而匿名请求 GitHub 的 job logs API 一律 403。

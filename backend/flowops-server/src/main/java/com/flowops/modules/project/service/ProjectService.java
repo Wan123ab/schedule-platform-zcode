@@ -49,6 +49,8 @@ public class ProjectService {
     private final ConcurrencyQueryMapper concurrencyQuery;
     private final IdGen idGen;
     private final ProjectConverter converter;
+    /** 越权/不存在的区分（O-77）：项目表的归属列就是主键，行级过滤后"越权"与"不存在"在 SQL 上等价。 */
+    private final com.flowops.modules.governance.scope.ScopeGuard scopeGuard;
 
     // ── 查询 ────────────────────────────────────────────────
 
@@ -219,7 +221,14 @@ public class ProjectService {
         Project project = projectMapper.selectOne(Wrappers.<Project>lambdaQuery()
                 .eq(Project::getProjectId, projectId).eq(Project::getDeleted, false));
         if (project == null) {
-            throw new BizException(ErrorCode.NOT_FOUND, "项目不存在: " + projectId);
+            // O-77：原先一律报 40400。但项目是"按主键过滤"的 DataScope 表
+            // （project → id），越权时行级条件让它查不到，与"真不存在"在 SQL 上完全一致 ——
+            // 报 40400 等于告诉使用者"这个项目没了"，而他其实只是没权限，
+            // 排障时会把"权限问题"误判成"数据丢失"（docs/07 §4.2 与 ScopeGuard 的立论）。
+            throw scopeGuard.notVisible("PROJECT", projectId,
+                    () -> projectMapper.selectCount(Wrappers.<Project>lambdaQuery()
+                            .eq(Project::getProjectId, projectId)
+                            .eq(Project::getDeleted, false)) > 0);
         }
         return project;
     }

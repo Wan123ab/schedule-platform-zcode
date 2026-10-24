@@ -6,6 +6,7 @@ import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.BindException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -45,6 +46,20 @@ public class GlobalExceptionHandler {
                 .toList();
         return ResponseEntity.status(ErrorCode.PARAM_INVALID.httpStatus())
                 .body(ApiResult.failWith(ErrorCode.PARAM_INVALID, Map.of("errors", errors)));
+    }
+
+    /**
+     * 请求体缺失 / 不是合法 JSON（O-78）。
+     *
+     * <p>此前没有这个 handler，{@code HttpMessageNotReadableException} 会落到
+     * {@code handleUnexpected} → <b>50000</b>。而"没传 body"或"body 不是 JSON"
+     * 百分百是调用方的问题，报 500 会让前端把它当成服务端故障去重试/报障；
+     * 与 docs/07 §4.3「调用方参数问题 → 4xxxx」的口径也不一致。</p>
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResult<Void>> handleUnreadableBody(HttpMessageNotReadableException e) {
+        log.warn("请求体不可解析（缺失或不是合法 JSON）: {}", e.getMessage());
+        return buildVoid(ErrorCode.PARAM_INVALID);
     }
 
     @ExceptionHandler({MethodArgumentTypeMismatchException.class, IllegalArgumentException.class})

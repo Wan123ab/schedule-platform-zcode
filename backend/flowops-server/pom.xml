@@ -109,6 +109,30 @@
 
   <build>
     <plugins>
+      <!--
+        surefire 的 <includes> 一旦覆写就**替换**默认值，故这里要显式把默认的三类
+        一起列出，再补 **/*IT.java —— 集成测试（O-9/O-18）刻意用 IT 后缀命名：
+        它与"分层单测"在运行成本上不是一个量级（起 Spring 上下文 + 真实 PG），
+        命名上必须能一眼分开，否则排查"为什么这次构建慢了 40 秒"时无从下手。
+
+        环境缺失时不上报失败：AbstractIntegrationTest 上的 IntegrationEnvironment
+        条件会让整类安静跳过（见该类注释：Spring 上下文早于 @BeforeAll 创建，
+        Assumptions 拦不住）。CI 由 postgres service 保证必然可达。
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <includes>
+            <include>**/Test*.java</include>
+            <include>**/*Test.java</include>
+            <include>**/*Tests.java</include>
+            <include>**/*TestCase.java</include>
+            <include>**/*IT.java</include>
+          </includes>
+        </configuration>
+      </plugin>
+
       <plugin>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>

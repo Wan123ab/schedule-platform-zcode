@@ -71,6 +71,8 @@ public class TaskInterventionService {
     private final TaskSubmitService submitService;
     private final TaskQueryService taskQueryService;
     private final ObjectMapper objectMapper;
+    /** 越权/不存在的区分（O-77）。 */
+    private final com.flowops.modules.governance.scope.ScopeGuard scopeGuard;
 
     // ── 停止（docs/06 §15.1）────────────────────────────────
 
@@ -280,8 +282,12 @@ public class TaskInterventionService {
                 .eq(Task::getTaskId, taskId)
                 .eq(Task::getDeleted, false));
         if (task == null) {
-            throw new BizException(ErrorCode.NOT_FOUND, "任务不存在: " + taskId,
-                    Map.of("resource_type", "TASK", "resource_id", taskId));
+            // O-77：干预是写操作，"越权"更不能说成"不存在" —— 使用者会以为任务
+            // 已经被清理、转去别处找原因，而不是意识到自己没权限。
+            throw scopeGuard.notVisible("TASK", taskId,
+                    () -> taskMapper.selectCount(Wrappers.<Task>lambdaQuery()
+                            .eq(Task::getTaskId, taskId)
+                            .eq(Task::getDeleted, false)) > 0);
         }
         return task;
     }

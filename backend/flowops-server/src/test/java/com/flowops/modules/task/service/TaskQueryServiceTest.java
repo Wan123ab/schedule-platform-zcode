@@ -86,10 +86,11 @@ class TaskQueryServiceTest {
 
     @BeforeEach
     void setUp() {
+        // ScopeGuard 用真实现（见 BackfillServiceTest 同名注释）：越权语义不能被 mock 掉
         service = new TaskQueryService(taskMapper, taskStepMapper, taskLogMapper, retryQueryMapper,
                 new TaskConverterImpl(), new ObjectMapper(),
                 workflowMapper, projectMapper, clusterMapper, queueMapper, triggerMapper,
-                operatorVersionMapper);
+                operatorVersionMapper, new com.flowops.modules.governance.scope.ScopeGuard());
     }
 
     // ── 夹具 ────────────────────────────────────────────────

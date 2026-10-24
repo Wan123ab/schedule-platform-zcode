@@ -68,8 +68,10 @@ class TaskInterventionServiceTest {
 
     @BeforeEach
     void setUp() {
+        // ScopeGuard 用真实现（见 BackfillServiceTest 同名注释）：越权语义不能被 mock 掉
         service = new TaskInterventionService(taskMapper, taskStepMapper, workflowEdgeMapper,
-                queueMapper, submitService, taskQueryService, new ObjectMapper());
+                queueMapper, submitService, taskQueryService, new ObjectMapper(),
+                new com.flowops.modules.governance.scope.ScopeGuard());
     }
 
     // ── 夹具 ────────────────────────────────────────────────

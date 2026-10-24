@@ -81,8 +81,11 @@ class BackfillServiceTest {
     @BeforeEach
     void setUp() {
         IdGen idGen = new IdGen((SequenceOps) key -> 42L);   // 发号固定值，断言 batchId 字面量
+        // ScopeGuard 用真实现（无外部依赖）：它决定"查不到时给 40400 还是 40301"，
+        // 若换成 mock，越权语义就是个 null，测试断言的 40400/40301 会失去意义
         service = new BackfillService(workflowMapper, projectMapper, batchMapper, backfillQuery,
-                submitQuery, taskQueryService, taskCreation, idGen, redis, new ObjectMapper());
+                submitQuery, taskQueryService, taskCreation, idGen, redis, new ObjectMapper(),
+                new com.flowops.modules.governance.scope.ScopeGuard());
         when(redis.opsForValue()).thenReturn(valueOps);
         when(submitQuery.findAnyEnabledQueueIdByProject(any())).thenReturn(40L);
         when(batchMapper.insert(any(BackfillBatch.class))).thenAnswer(inv -> {

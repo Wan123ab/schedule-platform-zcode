@@ -19,8 +19,8 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -54,8 +54,17 @@ class SshExecutorClientTest {
 
     private SshExecutorClient client;
 
-    /** 行回调收集器：pump 是独立线程，断言按"流 → 行集合"分组，不假设两条流的先后。 */
-    private final List<String[]> lines = new ArrayList<>();
+    /**
+     * 行回调收集器：pump 是独立线程，断言按"流 → 行集合"分组，不假设两条流的先后。
+     *
+     * <p>⚠️ <b>必须是并发容器</b>（O-82）：stdout 与 stderr 各有一个泵线程，
+     * 两者<b>同时</b>回调 {@code lines.add(...)}。用 {@code ArrayList} 时两个线程的
+     * {@code size++} 会互相覆盖，表现为"随机少一行"——
+     * 于是这个测试在全量构建里偶尔红、单独重跑又绿（2026-10-11 首次观察到，
+     * 2026-10-25 再次复现）。它不是被测代码的 bug，而是夹具自己不是线程安全的，
+     * 代价却是"整个 verify 随机失败"，会持续污染对 CI 结果的信任。
+     */
+    private final List<String[]> lines = new CopyOnWriteArrayList<>();
 
     @BeforeEach
     void setUp() {

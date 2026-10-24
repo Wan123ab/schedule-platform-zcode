@@ -49,8 +49,10 @@ class ProjectServiceTest {
 
     @BeforeEach
     void initService() {
+        // ScopeGuard 用真实现（见 BackfillServiceTest 同名注释）：越权语义不能被 mock 掉
         service = new ProjectService(projectMapper, projectMemberMapper, appUserMapper,
-                concurrencyQuery, new IdGen(redis), new ProjectConverterImpl());
+                concurrencyQuery, new IdGen(redis), new ProjectConverterImpl(),
+                new com.flowops.modules.governance.scope.ScopeGuard());
     }
 
     private Project project;

@@ -32,25 +32,15 @@ import java.util.Map;
 @RequestMapping("/platform")
 public class PlatformController {
 
-    /** 平台健康度（第 19 页，M0 返回骨架数据；M5 接入全量指标）。 */
-    @GetMapping("/health")
-    @RequiresPermission("schedule:platform:health")
-    @DataScope("ALL")
-    public ApiResult<Map<String, Object>> health() {
-        return ApiResult.ok(Map.of(
-                "scheduler", Map.of(
-                        "leader_id", "unavailable",
-                        "is_leader", false,
-                        "last_tick_at", OffsetDateTime.now().toString(),
-                        "tick_interval_ms", 1000,
-                        "standby_count", 0),
-                "db", Map.of("pool_active", 0, "pool_idle", 0, "pool_max", 10, "slow_query_count_1m", 0),
-                "redis", Map.of("connected", true, "queue_depth", 0),
-                "nodes", Map.of("online", 0, "offline", 0, "total", 0, "online_rate", 100),
-                "queues", List.of(),
-                "today", Map.of("dispatched_count", 0, "failed_count", 0, "log_ingest_bytes", 0),
-                "recent_alerts", List.of()));
-    }
+    // ── 平台健康度（GET /platform/health）不在这里 ──────────────────
+    // M0 曾在此放过一个"骨架"实现，M4-S5 交付了真实实现
+    // （modules/dashboard/controller/PlatformHealthController），
+    // 于是同一路径出现了两个处理器方法 —— Spring 在装配 requestMappingHandlerMapping
+    // 时抛 Ambiguous mapping，**进程根本起不来**。
+    // 该问题一直到 2026-10-25 才被发现（O-74）：此前没有任何 @SpringBootTest，
+    // 而分层单测不起 Spring 上下文，永远不会撞到这条装配期校验。
+    // 删骨架留真实实现：骨架返回的是硬编码假数据，留着只会让"健康页显示 100%"
+    // 变成没人敢信的数字。
 
     /** 切换运维/业务视图（PRD §11.3；切换动作本身必审）。 */
     public record ViewModeRequest(String viewMode) {}

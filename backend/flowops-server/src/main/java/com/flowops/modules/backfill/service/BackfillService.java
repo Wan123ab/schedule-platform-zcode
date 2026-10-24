@@ -87,6 +87,8 @@ public class BackfillService {
     private final IdGen idGen;
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
+    /** 越权/不存在的区分（O-77）：backfill_batch 已登记 PROJECT 数据权限（docs/07 §5.4）。 */
+    private final com.flowops.modules.governance.scope.ScopeGuard scopeGuard;
 
     /** 预览结果（内部传递：计划日期 + 冲突 + hash，提交时复用同一套校验）。 */
     private record Plan(List<LocalDate> planned, List<LocalDate> skipped, long conflictCount,
@@ -366,8 +368,11 @@ public class BackfillService {
                 .eq(BackfillBatch::getBatchId, batchId)
                 .eq(BackfillBatch::getDeleted, false));
         if (batch == null) {
-            throw new BizException(ErrorCode.NOT_FOUND, "回填批次不存在: " + batchId,
-                    Map.of("resource_type", "BACKFILL_BATCH", "resource_id", batchId));
+            // 同 O-77：批次按 project_id 做了行级过滤，查不到时不能一律说"不存在"。
+            throw scopeGuard.notVisible("BACKFILL_BATCH", batchId,
+                    () -> batchMapper.selectCount(Wrappers.<BackfillBatch>lambdaQuery()
+                            .eq(BackfillBatch::getBatchId, batchId)
+                            .eq(BackfillBatch::getDeleted, false)) > 0);
         }
         return batch;
     }

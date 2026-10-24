@@ -81,8 +81,10 @@ class TaskDiagnosisServiceTest {
 
     @BeforeEach
     void setUp() {
+        // ScopeGuard 用真实现（见 BackfillServiceTest 同名注释）：越权语义不能被 mock 掉
         service = new TaskDiagnosisService(taskMapper, taskStepMapper, queueMapper,
-                diagnosisQueryMapper, redisTemplate, new ObjectMapper());
+                diagnosisQueryMapper, redisTemplate, new ObjectMapper(),
+                new com.flowops.modules.governance.scope.ScopeGuard());
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
         when(redisTemplate.opsForZSet()).thenReturn(zSetOps);
     }
